@@ -78,7 +78,7 @@ The server runs as a stdio MCP server, launched by Claude Code:
     "kamigotchi": {
       "command": "python",
       "args": ["executor/server.py"],
-      "cwd": "/path/to/kamigotchi-context"
+      "cwd": "/path/to/kami-harness"
     }
   }
 }

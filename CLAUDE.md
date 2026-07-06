@@ -190,7 +190,7 @@ that's wrong, the right action is:
   session is aware).
 
 The goal is for harness improvements to flow back to this upstream
-(`kamigotchi-context`) over time, so every fork benefits.
+(`kami-harness`) over time, so every fork benefits.
 
 ## File map
 

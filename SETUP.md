@@ -31,8 +31,8 @@ Set up the common pieces first, then pick A or B.
 ### 2. Clone this repo (as a private fork)
 
 ```bash
-git clone https://github.com/<you>/kamigotchi-context
-cd kamigotchi-context
+git clone https://github.com/<you>/kami-harness
+cd kami-harness
 ```
 
 Forking lets you commit your own `memory/`, custom `strategies/`, and
@@ -96,7 +96,7 @@ user-global. Project-level is recommended:
     "kamigotchi": {
       "command": "python",
       "args": ["executor/server.py"],
-      "cwd": "/absolute/path/to/kamigotchi-context"
+      "cwd": "/absolute/path/to/kami-harness"
     }
   }
 }
@@ -124,7 +124,7 @@ to play the game.
 ### Start a session
 
 ```bash
-cd kamigotchi-context
+cd kami-harness
 claude
 ```
 
@@ -202,8 +202,8 @@ schedule (`memory/next-run-at`) and commits decisions back to git.
 4. **Clone your fork on the VM**:
    ```bash
    ssh you@your-vm
-   git clone git@github.com:<you>/kamigotchi-context.git
-   cd kamigotchi-context
+   git clone git@github.com:<you>/kami-harness.git
+   cd kami-harness
    ```
 
 5. **Run common setup steps 3–8 above** on the VM (Python deps, keys
@@ -231,7 +231,7 @@ schedule (`memory/next-run-at`) and commits decisions back to git.
    Add (every 15 minutes — the script self-skips if not yet time per
    `memory/next-run-at`):
    ```
-   */15 * * * * /home/you/kamigotchi-context/scripts/run-session.sh
+   */15 * * * * /home/you/kami-harness/scripts/run-session.sh
    ```
 
 9. **Trigger the first run manually** to bootstrap state:
