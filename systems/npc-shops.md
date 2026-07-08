@@ -1,4 +1,4 @@
-# NPC Shops & Auctions — Agent Decision Guide
+# NPC Shops & Auctions
 
 Buying and selling items from NPCs, dynamic pricing, and global auctions.
 
@@ -6,6 +6,7 @@ Buying and selling items from NPCs, dynamic pricing, and global auctions.
 
 NPCs sell and buy items at configurable prices. Must be in the **same room**
 as the NPC to transact (unless NPC room = 0, meaning globally accessible).
+NPC transactions incur no tax.
 
 ### Pricing Strategies
 
@@ -36,21 +37,7 @@ cost = spotPrice * (c^quantity - 1) / (c - 1)
 ```
 
 **Behavior**: price starts at `targetPrice` and rises when buying outpaces the
-rate. Price decays back down when buying slows. Wait for price to decay if it's
-above target.
-
-### Decision: When to Buy from NPC
-
-- Compare GDA price to P2P trade alternatives
-- If GDA price is above target → wait for decay (check back later)
-- If GDA price is at or below target → buy now before others drive it up
-- Factor in travel cost (stamina) to reach the NPC's room
-
-### Decision: When to Sell to NPC
-
-- NPC sell prices are typically FIXED — no timing advantage
-- Compare to P2P trade value (NPC has no tax, but price may be lower)
-- Sell excess items that aren't worth trading P2P
+rate. Price decays back down when buying slows.
 
 ### Projecting GDA Price
 
@@ -91,14 +78,9 @@ The vendor shows **3 Kamis** from a rotating pool. Display rotates every
 
 ### Restrictions
 
-- Purchased Kami is **soulbound for 3 days** (can't list, unstake, or accept offers)
+- Purchased Kami is **soulbound for 3 days** (can't list, unstake, or accept
+  offers; harvest, equip, and other gameplay are unaffected)
 - Only 1 purchase per account, ever
-
-### Decision: Should a New Account Buy?
-
-- **Yes** if the price is below marketplace floor — guaranteed good deal
-- Check the 3 displayed Kamis' stats/affinities before buying
-- The soulbind prevents flipping but doesn't restrict gameplay (harvest, equip, etc.)
 
 ## Global Auctions
 
@@ -116,27 +98,8 @@ System: `system.auction.buy`
 executeTyped(uint32 itemIndex, uint256 amount)
 ```
 
-### Decision: When to Buy from Auction
-
-**Gacha Tickets** (alternative to NPC shop):
-- If auction price < NPC shop price → buy from auction
-- If auction price is spiked (heavy recent buying) → wait for decay
-- 32,000 Musu target price at equilibrium — compare to your income rate
-
-**Reroll Tokens**:
-- 50 Onyx target price at equilibrium
-- Only buy if you have a Kami worth rerolling (poor stats)
-- Compare cost of reroll vs just minting new
-
-### Price Timing
-
 Both auctions use decay factors < 1.0, so price drops over time when nobody
-buys. Best strategy:
-
-1. Check current price locally (same GDA formula)
-2. If price > 1.5x target → wait
-3. If price <= target → buy
-4. If you urgently need the item → buy regardless of premium
+buys.
 
 ## How to Execute
 

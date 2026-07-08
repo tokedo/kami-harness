@@ -301,7 +301,7 @@ All of the following must be true or the transaction reverts:
 
 ## Yield & Timing
 
-Harvest rewards accumulate continuously over time. Understanding the yield formula helps optimize Kami placement.
+Harvest rewards accumulate continuously over time. The yield formula below determines harvest output.
 
 ### How Bounty Accrues
 
@@ -340,7 +340,7 @@ Efficacy modifies fertility based on how well the Kami's **body and hand affinit
 
 Nodes can have one or two affinities (e.g., "Eerie, Scrap"). The system picks the most favorable matchup order — body affinity has more impact than hand affinity.
 
-**Key takeaway:** Place Kamis on nodes whose affinity matches their body and hand types.
+Matching a node's affinity to a Kami's body/hand types increases efficacy.
 
 ### Intensity (Time Bonus)
 
@@ -356,12 +356,12 @@ intensity = (precision × (violence_base + minutes_elapsed) × boost) / (ratio �
 
 Intensity increases the longer a Kami stays on a node. It resets when a harvest is started or moved.
 
-### When to Collect
+### Collecting Bounty
 
 - Bounty accrues **continuously** — there is no "ready" timer or fixed interval.
 - **Collecting early** gives you whatever has accumulated so far; **collecting later** gives more.
 - Calling `harvest.collect()` syncs the bounty (snapshots the accrued amount), resets the duration timer, and adds the bounty to the account's inventory.
-- The Kami's **Health decreases** over time while harvesting (strain). If health reaches zero, the Kami is liquidated. Monitor health and collect/stop before it gets critical.
+- The Kami's **Health decreases** over time while harvesting (strain). If health reaches zero, the Kami is liquidated.
 - Calling `harvest.stop()` automatically collects any remaining bounty before stopping.
 - **Block time:** Yominet has ~1 second block times, so duration-based calculations update approximately once per second.
 
@@ -381,13 +381,13 @@ See the [Harvest Nodes table](../game-data.md#harvest-nodes) for per-node affini
 | Bounty boost | Skills/Equipment | Percentage multiplier on total output |
 | Strain | Health/Harmony | Higher Harmony/skills → slower health drain |
 
-> **Stamina:** Each room move costs stamina. Current stamina is readable via `getAccount(accountId).currStamina`. Stamina regenerates over time (rate configured on-chain via `ACCOUNT_STAMINA` config). Plan your movements to avoid running out.
+> **Stamina:** Each room move costs stamina. Current stamina is readable via `getAccount(accountId).currStamina`. Stamina regenerates over time (rate configured on-chain via `ACCOUNT_STAMINA` config).
 
 ---
 
 ## Feeding During Harvest
 
-There is no dedicated `harvest.feed()` system. To heal a Kami while it is harvesting, use the [kami.item.use()](kami.md#kamiitemuse) system (`system.kami.use.item`) with a healing item (e.g., food). This restores the Kami's health without interrupting the active harvest. Monitor your Kami's health via `getKami()` and feed before it reaches zero to avoid liquidation.
+There is no dedicated `harvest.feed()` system. To heal a Kami while it is harvesting, use the [kami.item.use()](kami.md#kamiitemuse) system (`system.kami.use.item`) with a healing item (e.g., food). This restores the Kami's health without interrupting the active harvest. Health is readable via `getKami()`; at zero HP a harvesting Kami is liquidated.
 
 ## Health Monitoring
 
@@ -438,7 +438,7 @@ const interval = setInterval(async () => {
 ### Health Thresholds
 
 - **0** — Kami is dead. Harvest stops automatically. Must revive before further use.
-- **< 50** — Conservative healing threshold. Feed before reaching zero.
+- **< 50** — HP below this leaves little margin before 0 (death).
 - **> 100** — Safe range for most harvests.
 
 Health drain (strain) is calculated by `LibKami.calcStrain` each time a harvest is synced:

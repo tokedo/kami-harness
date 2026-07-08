@@ -30,6 +30,7 @@ from mcp.server.fastmcp import FastMCP
 from web3 import Web3
 
 import rooms_graph
+from schema_version import SCHEMA_VERSION
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -993,6 +994,9 @@ async def _api_delete(path: str, body: dict | None, account: str) -> dict:
 # ---------------------------------------------------------------------------
 
 mcp = FastMCP("kamigotchi-executor")
+# Surface the environment-interface schema version as the MCP server_version,
+# returned to clients in the initialize handshake (serverInfo metadata).
+mcp._mcp_server.version = SCHEMA_VERSION
 
 # ---- Setup & account management ----
 
@@ -1019,7 +1023,7 @@ async def register_kamibots(account: str = "main") -> dict:
 
     Signs a registration message, obtains API key and privy_id, and saves
     them to .env as {LABEL}_KAMIBOTS_API_KEY and {LABEL}_PRIVY_ID.
-    Each account gets its own credentials — call once per account.
+    Each account has its own credentials.
 
     Args:
         account: Account label (must have an owner key in .env).
@@ -1076,7 +1080,7 @@ async def store_operator_key(account: str = "main") -> dict:
     """Send the account's operator key to Kamibots for strategy execution.
 
     The key is encrypted at rest (AES-256-GCM) on Kamibots servers.
-    Must be called after register_kamibots() and before starting strategies.
+    Requires register_kamibots() to have completed first (needs the API key).
 
     Args:
         account: Account label.
@@ -1149,9 +1153,9 @@ async def get_kamis_progress_batch(
 ) -> dict:
     """Compact level/XP/skills summary for many kamis in one call.
 
-    Fetches the full playwright state concurrently and returns only the
-    fields needed for level-up / skill-allocation planning. Avoids
-    blowing up the agent's context with traits/config blobs.
+    Fetches the full playwright state concurrently and returns only a
+    compact subset (level, XP, skill allocation), omitting the
+    traits/config blobs present in the full state.
 
     Args:
         kami_ids: List of kami token indices.
@@ -1216,8 +1220,6 @@ async def get_all_strategies(account: str = "main") -> dict:
 async def get_guild_members(account: str = "main") -> dict:
     """List all guild and team member account names.
 
-    Useful for building a dynamic friendly list (e.g. bodyguard
-    friendAccountNames) so guild members don't attack each other.
     Restricted to GUILD and TEAM tier accounts.
 
     Args:
@@ -1275,10 +1277,6 @@ async def get_npc_prices(account: str = "main") -> dict:
 async def get_killer_ranking(account: str = "main") -> dict:
     """Top predator kamis ranked by kill count. Cached 1h.
 
-    Use this to identify the strongest predators in the game.
-    Cross-reference with get_kami_state to check their affinity,
-    violence, attack bonuses, and equipment.
-
     Args:
         account: Account label (any registered account works).
     """
@@ -1301,9 +1299,7 @@ async def get_all_kamis(account: str = "main") -> dict:
     """All kamis in the game with stats, affinities, bonuses. Cached 24h.
 
     Returns every kami's violence, harmony, power, health, affinity (body/hand),
-    level, state, and bonuses. Use for predator threat modeling:
-    filter by high violence + attack bonuses to find dangerous predators,
-    then cross-reference affinity against your kamis' body type.
+    level, state, and bonuses.
 
     Args:
         account: Account label (any registered account works).
@@ -1568,8 +1564,8 @@ def harvest_collect(kami_ids: list[int], account: str = "main") -> dict:
 def move_to_room(room_index: int, account: str = "main") -> dict:
     """Move the account to a different room. Costs stamina.
 
-    Single-hop escape hatch. For multi-hop travel prefer travel_to_room —
-    it pathfinds and manages stamina automatically.
+    Issues a single room-change transaction. travel_to_room performs
+    multi-hop pathfinding over the room graph and manages stamina.
 
     Args:
         room_index: Target room number (1-70). See catalogs/rooms.csv.
@@ -1887,7 +1883,7 @@ def auction_buy(
     Uses the OWNER wallet (not operator). GDA-priced: decays over time,
     each purchase resets the price upward. No room gating on the tx
     itself, but MSQ 29 ("Buy something in the Marketplace") is satisfied
-    by this system. Check the live price first with get_prices().
+    by this system.
 
     Auction items (live as of 2026-04):
         10 = Gacha Ticket (paid in MUSU, target 32,000)
@@ -2085,9 +2081,8 @@ async def level_and_allocate_batch(
     """Batch level-up and skill allocation across many kamis in one call.
 
     For each target, optionally levels the kami to `target_level`, then
-    optionally spends the given `skill_plan`. Use this instead of firing
-    N parallel `level_to` + N parallel `allocate_skills` calls — it is one
-    MCP round-trip and one compact result blob.
+    optionally spends the given `skill_plan`, in a single MCP round-trip
+    that returns one compact result blob.
 
     Failures are captured per-kami: one kami's error does not abort the
     rest of the batch. Nonce conflicts are handled by `_send_tx_retry`.
@@ -2377,10 +2372,10 @@ def list_open_sell_offers(
     each one's open offers. Returns offers where MAKER sells items for MUSU
     (i.e., where TAKER is the buyer), sorted cheapest-first by total MUSU cost.
 
-    Use the returned `trade_id` with `take_trade()` to buy.
+    Each returned `trade_id` is the argument `take_trade()` expects.
 
-    Caveat: discovery is bounded by the seed account's trade history. To widen
-    the search, complete more trades or pass an account that has done many.
+    Discovery is bounded by the seed account's trade history: counterparties
+    absent from that history are not surfaced.
 
     Args:
         seed_account: Account label whose trade history seeds the search.
@@ -2765,11 +2760,11 @@ def stop_harvest_batch(
     Uses executeBatchedAllowFailure — individual reverts skip silently
     instead of reverting the entire batch. After the tx commits, this
     function reads each kami's harvest entity state on-chain to detect
-    silent skips (session 46 bug: 15 starving kamis silently failed).
+    silent skips.
     Returns `per_kami` map with the resulting harvest state and a
     `stopped` boolean. `stopped_count`/`failed_count` summarize.
 
-    Max ~5 per batch is the safe upper bound (eth_estimateGas cap).
+    Max ~5 per batch (eth_estimateGas cap).
 
     Args:
         kami_ids: List of kami token indices (e.g. [45, 46, 47]).
@@ -2861,9 +2856,8 @@ def get_active_quests(account: str = "main") -> dict:
     Returns:
         owned_count, completed_count, truly_active_count, plus per-quest
         dicts with {entity_id, quest_index?, completed}. `active_quest_count`
-        kept as a back-compat alias for `owned_count` — deprecated; future
-        callers should read `truly_active_count` if they want only the
-        in-progress quests.
+        is a deprecated back-compat alias for `owned_count`;
+        `truly_active_count` counts only the in-progress quests.
     """
     acc_id = _account_entity_id(account)
 
@@ -2903,7 +2897,7 @@ def get_active_quests(account: str = "main") -> dict:
         "owned_count": owned,
         "completed_count": completed_count,
         "truly_active_count": owned - completed_count,
-        "active_quest_count": owned,  # back-compat alias; prefer owned_count
+        "active_quest_count": owned,  # back-compat alias for owned_count
         "quests": quests,
     }
 
@@ -3093,10 +3087,10 @@ def quest_state(quest_index: int, account: str = "main") -> dict:
 def get_expected_objective(quest_index: int) -> dict:
     """Return the catalog-expected objectives for a quest (NOT chain truth).
 
-    Reads `catalogs/quests/quests.csv` + `objectives.csv`. Use this BEFORE
-    spending gas on hypothesis-testing a stuck quest: it tells you what the
-    catalog *expects* the objective to be, which you can then compare to
-    the on-chain `complete()` revert (via `quest_state`).
+    Reads `catalogs/quests/quests.csv` + `objectives.csv` and reports what the
+    catalog *expects* the objectives to be. This is catalog data, not chain
+    truth; it is comparable against the on-chain `complete()` revert reported
+    by `quest_state`.
 
     Returns objectives as a list of {description, type, delta_type, operator,
     index, value}; if the catalog row or any objective description is
@@ -3193,7 +3187,7 @@ def burn_items(
     amounts: list[int],
     account: str = "main",
 ) -> dict:
-    """Burn (destroy) items from inventory. Used for quest turn-ins.
+    """Burn (destroy) items from inventory, reducing their balances.
 
     Args:
         item_indices: List of item indices to burn (e.g. [1005]).

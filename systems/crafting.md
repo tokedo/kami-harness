@@ -1,4 +1,4 @@
-# Crafting & Items — Agent Decision Guide
+# Crafting & Items
 
 How to craft items, use consumables, and manage inventory.
 
@@ -19,21 +19,10 @@ CraftSystem.execute(recipeIndex, amount)
 4. Produce outputs: `outputAmount[i] * amount` for each output
 5. Grant account XP: `recipeXP * amount`
 
-Batch crafting: the `amount` parameter multiplies everything. Craft 5x at once
-to save transactions.
+Batch crafting: the `amount` parameter multiplies everything.
 
-### Decision: When to Craft
-
-Craft when:
-- You have excess input materials and need the output
-- The output is needed for a quest objective (`CRAFT_ITEM` tracking)
-- The recipe produces items worth more than inputs (check shop prices)
-- You have enough stamina (crafting depletes stamina, same pool as movement)
-
-Don't craft when:
-- Stamina is needed for movement (e.g., room changes for quests)
-- Input items are more valuable on the market than outputs
-- You don't meet recipe requirements (level, room)
+Crafting draws from the same stamina pool as movement. Quest objectives can
+track crafting completions via `CRAFT_ITEM`.
 
 ### Recipe Data
 
@@ -82,7 +71,7 @@ executeTyped(uint256 kamiID, uint32 itemIndex)
 - Kami must be off cooldown
 - Consumes 1 item
 - Effects: healing (sync HP), stat buffs (shift), temporary bonuses
-- **Resets harvest intensity** — avoid using items mid-harvest unless necessary
+- **Resets harvest intensity**
 
 ### On Enemy Kami (Cast)
 
@@ -135,13 +124,6 @@ executeTyped(uint32[] indices, uint256[] amounts, uint256 targetAccountID)
 - Cannot transfer items flagged `NOT_TRADABLE`
 
 ## Inventory Management
-
-### Decision: What to Keep
-
-- **Always keep**: Musu (currency), Onyx Shards (revival), Gacha Tickets
-- **Keep if needed**: crafting materials for planned recipes, quest items
-- **Sell or trade**: excess items with market value
-- **Burn**: items needed for quest turn-ins
 
 ### Inventory Queries
 

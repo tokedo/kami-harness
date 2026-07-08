@@ -1,8 +1,6 @@
-memory/*
-!memory/.gitkeep
 __pycache__/
 .DS_Store
 .mcp.json
 
-# Private fork state
+# Local server config (keys live outside the repo; see SETUP.md)
 .claude/settings.json

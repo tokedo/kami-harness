@@ -256,14 +256,14 @@ Do not point `OPERATOR_PRIVATE_KEY` at the owner key. Derive or supply a distinc
 
 Once registered with a Kami, a bot's core loop looks like this:
 
-1. **Harvest & scavenge** — Send your Kami to a node (`system.harvest.start`) to earn $MUSU. Certain nodes also have scavenge bars where you can claim items (`system.scavenge.claim`). Harvesting drains HP over time — when it gets dangerous, feed items to your Kami (`system.kami.use.item`) to heal and reset the danger, or stop (`system.harvest.stop`) and rest until full HP. If HP drops below a certain threshold, other players at the same node can kill your Kami. If HP hits 0, your Kami is *starving* — you cannot stop or collect, only feed to heal first, then stop. Never leave a Kami unattended.
+1. **Harvest & scavenge** — Send your Kami to a node (`system.harvest.start`) to earn $MUSU. Certain nodes also have scavenge bars where you can claim items (`system.scavenge.claim`). Harvesting drains HP over time — when it gets dangerous, feed items to your Kami (`system.kami.use.item`) to heal and reset the danger, or stop (`system.harvest.stop`) and rest until full HP. If HP drops below a certain threshold, other players at the same node can kill your Kami. If HP hits 0, your Kami is *starving* — you cannot stop or collect, only feed to heal first, then stop.
 2. **Level up** — Spend earned XP to level (`system.kami.level`), then allocate skill points (`system.skill.upgrade`) to strengthen your Kami's stats.
 3. **Equip & craft** — Craft items from materials (`system.craft`) and equip gear for stat bonuses (`system.kami.equip`).
 4. **Quests** — Accept quests (`system.quest.accept`) and complete them for rewards (`system.quest.complete`).
 5. **Trade** — Trade items with players (`system.trade.create`) or buy/sell Kamis on KamiSwap (`system.kamimarket.buy` / `system.kamimarket.list`).
 6. **Expand** — Mint new Kamis via gacha (`system.kami.gacha.mint` → `reveal()`), build NPC relationships (`system.relationship.advance`), and contribute to community goals (`system.goal.contribute`).
 
-> ⚠️ **Death is punishing but not permanent.** A dead Kami can be revived with Onyx Shards or a Red Gakki Ribbon. Always monitor your Kami's health while harvesting.
+> ⚠️ **A dead Kami must be revived (Onyx Shards, or a Red Gakki Ribbon) before reuse.**
 
 ---
 
@@ -271,7 +271,7 @@ Once registered with a Kami, a bot's core loop looks like this:
 
 After registering, you need a Kami to play. The primary way to acquire one is **KamiSwap** (`system.kamimarket.buy`) — the in-game marketplace where players list Kamis for ETH. The **Owner wallet** pays for the purchase, and the Kami is assigned to your shared account entity (accessible by both Owner and Operator).
 
-For bots, the recommended first-Kami flow is:
+One first-Kami flow is:
 
 1. Pull active listings from `GetKamiMarketListings`
 2. Filter by budget and present the available options to the player (show Kami index, price, traits, affinities)
@@ -280,7 +280,7 @@ For bots, the recommended first-Kami flow is:
 
 See [Kamiden Indexer](api/indexer.md#getkamimarketlistings) for the listing query and [KamiSwap Marketplace](api/marketplace.md#2-buy-a-listing) for the on-chain buy call.
 
-When choosing a Kami, look at:
+A Kami's key attributes are:
 
 - **Body trait** — determines affinity (Normal, Eerie, Insect, Scrap) and base stat bonuses
 - **Hand trait** — also carries an affinity, affects harvest efficacy alongside body
@@ -315,7 +315,7 @@ console.log("T1 Defensiveness and Toughness maxed.");
 
 ### Staying Alive
 
-A bot must monitor HP and act before its Kami dies. Dead Kamis can't harvest, and other players can kill low-HP Kamis for loot.
+Dead Kamis can't harvest, and other players can kill low-HP Kamis for loot.
 
 **Check HP:**
 
@@ -333,7 +333,7 @@ console.log(`HP: ${effectiveHP} (base=${h[0]} shift=${h[1]} boost=${h[2]})`);
 const feedABI = ["function executeTyped(uint256 kamiID, uint32 itemIndex) returns (bytes)"];
 const feedSystem = await getSystem("system.kami.use.item", feedABI, operatorSigner);
 
-// Feed a Cheeseburger (item 11302, HP+50) when health drops below 50
+// Cheeseburger (item 11302) restores HP+50
 if (effectiveHP < 50) {
   const tx = await feedSystem.executeTyped(kamiEntityId, 11302);
   await tx.wait();

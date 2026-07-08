@@ -278,7 +278,7 @@ Nodes are the harvestable locations within rooms. Each node shares an index with
 | 52 | Airplane Crash | Eerie | MUSU | — | 300 |
 | 53 | Blooming Tree | Eerie | MUSU | — | 300 |
 
-> **Total nodes:** 64. Shown above are the first 30; for the full list see `packages/contracts/deployment/world/data/rooms/nodes.csv`. Node affinity affects harvest efficacy — match your Kami's body/hand affinities to the node affinity for bonuses.
+> **Total nodes:** 64. Shown above are the first 30; for the full list see `packages/contracts/deployment/world/data/rooms/nodes.csv`. Node affinity affects harvest efficacy — matching a Kami's body/hand affinity to the node affinity yields bonuses.
 >
 > **Yield Index:** Most nodes use YieldIndex=1 (yields MUSU, item index 1). The following nodes use YieldIndex=2, which yields **VIPP** (VIP Points token, item index 2 — can be burned at Forest Hut room 65): 18 (Cave Crossroads), 60 (Scrap Trees), 61 (Musty Forest Path), 62 (Centipedes), 63 (Deeper Forest Path), 65 (Forest Hut), 73 (Broken Tube), 75 (Flood Mural), 79 (Abandoned Campsite), 83 (Canyon Bridge), 88 (Treasure Hoard).
 
@@ -932,7 +932,7 @@ Each Kami has **body** and **hand** traits, each with an affinity (Normal, Eerie
 
 ### Efficacy
 
-Harvest efficacy depends on body and hand affinity matching the node affinity. The config keys `KAMI_HARV_EFFICACY_BODY` and `KAMI_HARV_EFFICACY_HAND` define multipliers: `base` (neutral), `up` (matching affinity), `down` (mismatched), `special`. Match both body and hand to the node affinity for maximum harvest rate.
+Harvest efficacy depends on body and hand affinity matching the node affinity. The config keys `KAMI_HARV_EFFICACY_BODY` and `KAMI_HARV_EFFICACY_HAND` define multipliers: `base` (neutral), `up` (matching affinity), `down` (mismatched), `special`. Matching both body and hand to the node affinity produces the highest harvest rate.
 
 ---
 

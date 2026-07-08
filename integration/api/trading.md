@@ -202,8 +202,6 @@ Trades incur MUSU fees at multiple stages:
 - **Delivery fee:** A flat MUSU fee (`TRADE_DELIVERY_FEE` config) is charged to the caller on **every** trade action (create, execute, complete, cancel). Being in the Trade Room (room 66) waives this fee for that action.
 - **Trade tax:** On both execution and completion, a percentage-based tax is applied to MUSU amounts exchanged. The rate is configured via `TRADE_TAX_RATE` as `[precision, numerator]` — tax = `amount × numerator / 10^precision`. Only MUSU (item index 1, see [Entity Discovery — Key Constants](../entity-ids.md#key-constants)) is taxed; non-MUSU items pass through untaxed. The tax is deducted from the received amounts.
 
-> **Tip:** To avoid the delivery fee, move to room 66 (the Trade Room) before performing any trade action.
-
 ---
 
 ## Trade Lifecycle

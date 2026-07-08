@@ -1,6 +1,6 @@
-# Leveling & Skills — Agent Decision Guide
+# Leveling & Skills
 
-When to level up, how skill points work, which tree to invest in.
+How leveling, skill points, and skill trees work.
 
 ## XP Sources
 
@@ -39,19 +39,16 @@ XP is **consumed** on level-up — surplus is retained.
 | 25 | 10,162 | 53,000 (approx) |
 | 30 | 32,285 | 163,000 (approx) |
 
-### Decision: When to Level Up
+### Level-Up Requirements
 
-Level up when:
+Requirements to level up:
 - Kami is `RESTING` (required)
 - `currentXP >= levelCost`
-- You have a skill point target in mind (don't waste SP on nothing)
 - **Batch levels**: if XP covers multiple levels, call `level()` repeatedly
   (one level per call, no batch function)
 
-Don't rush to level up if:
-- The Kami is in the middle of a productive harvest session (stop first)
-- You're near a level cap on a node — leveling past a node's level limit
-  locks you out
+Level-cap note:
+- Leveling past a node's level limit locks the Kami out of that node.
 
 ## Skill Points
 
@@ -72,12 +69,12 @@ Config defines 8 tier slots (0–7), but only tiers 1–6 have deployed skills.
 Tier 0 is unlocked at 0 points (no skills there), tier 7 (95 points) has no
 skills currently. The agent only needs to plan around tiers 1–6.
 
-| Tree | Focus | Best for |
-|---|---|---|
-| **Predator** | Violence, attack threshold, spoils, cooldown | Liquidation-focused Kamis |
-| **Enlightened** | Resting recovery, harvest bounty, strain reduction | Sustain harvesting |
-| **Guardian** | Harmony, defense threshold, salvage, health | Tanky harvesters |
-| **Harvester** | Power, harvest fertility/bounty, strain reduction | Max income harvesters |
+| Tree | Focus |
+|---|---|
+| **Predator** | Violence, attack threshold, spoils, cooldown |
+| **Enlightened** | Resting recovery, harvest bounty, strain reduction |
+| **Guardian** | Harmony, defense threshold, salvage, health |
+| **Harvester** | Power, harvest fertility/bounty, strain reduction |
 
 ### Tier Gates
 
@@ -98,7 +95,7 @@ tree points = number of skill upgrades in tree).
 ### Tier 3 and Tier 6 Exclusions
 
 At tiers 3 and 6, the three skills are **mutually exclusive** — choosing one
-locks out the other two in that tier. Choose carefully; only respec can undo.
+locks out the other two in that tier. Only respec can undo the choice.
 
 ## Skill Effects
 
@@ -124,38 +121,6 @@ Skills grant bonuses via these effect types:
 | `CS` | Cooldown shift (seconds) | Predator (negative = shorter cooldown) |
 
 Percent effects have precision 3 (×1000 in storage).
-
-## Skill Build Decisions
-
-### Primary Harvester
-
-Goal: maximize income, minimize downtime.
-
-- **Harvester tree** for Power + Fertility bonuses
-- **Enlightened tree** for strain reduction + recovery boost
-- At tier 3/6, choose sustain over combat options
-
-### PvP Liquidator
-
-Goal: kill other players' Kamis for spoils.
-
-- **Predator tree** for Violence + attack threshold
-- Some **Guardian** for survivability
-- At tier 3, choose spoils-boosting option
-
-### Defensive Tank
-
-Goal: harvest safely on contested nodes.
-
-- **Guardian tree** for Harmony + defense threshold + health
-- **Enlightened tree** for strain reduction
-- High Harmony makes the Kami very hard to liquidate
-
-### Planning Tip
-
-- Calculate total SP needed to reach the next meaningful tier gate
-- Set a tactical plan: "Level Kami to X to unlock tier Y in Z tree"
-- Check [catalogs/skills.csv](../catalogs/skills.csv) for exact skill effects
 
 ## How to Execute
 
@@ -203,17 +168,16 @@ fold multiple operations into one on-chain tx.
 
 | MCP tool | on-chain tx model | use when |
 |---|---|---|
-| `use_item_batch(kami_id, item_id, count=N)` | N txs (`system.kami.use.item`), one per item | Always — it's the only way to use multiple of the same item without N MCP calls. |
+| `use_item_batch(kami_id, item_id, count=N)` | N txs (`system.kami.use.item`), one per item | Only way to use multiple of the same item in one MCP call. |
 | `use_account_item(item_id, amount=N)` | N txs (`system.account.use.item`) | Account-level items only (stamina ice cream, VIPP). NOT for kami XP potions. |
-| `level_up_kami(kami_id)` | 1 tx (`system.kami.level`) | Single level-up; rare. |
+| `level_up_kami(kami_id)` | 1 tx (`system.kami.level`) | Single level-up. |
 | `level_to(kami_id, target_level=N)` | (target − current) txs (`system.kami.level`) | Single-kami level-ups, no skill alloc needed. |
-| `upgrade_skill(kami_id, skill_index)` | 1 tx (`system.skill.upgrade`) | One SP at a time; rare. |
+| `upgrade_skill(kami_id, skill_index)` | 1 tx (`system.skill.upgrade`) | One SP at a time. |
 | `allocate_skills(kami_id, skill_plan)` | sum-of-points txs (`system.skill.upgrade`) | Single-kami SP plan. |
-| **`level_and_allocate_batch(targets=[...])`** | per kami: (target − current) `level` txs **+** sum-of-points `skill.upgrade` txs | **Preferred for any level + allocate flow.** Handles many kamis in one MCP call. |
+| **`level_and_allocate_batch(targets=[...])`** | per kami: (target − current) `level` txs **+** sum-of-points `skill.upgrade` txs | Handles many kamis in one MCP call. |
 
-Always prefer `level_and_allocate_batch` for the level + allocate flow,
-even for a single kami — it's a one-call MCP round-trip with structured
-per-kami result and per-kami error capture.
+`level_and_allocate_batch` runs the level + allocate flow in one MCP
+round-trip with structured per-kami result and per-kami error capture.
 
 ### Calibrated XP grants per item
 
@@ -244,7 +208,7 @@ From `cost = floor(40 * 1.259^(level - 1))`. Verified empirically:
 So 4 Fortified XP Potions = 200K XP = exactly the budget for L1 → L32
 (with ~5K leftover toward L32 → L33).
 
-### Deterministic playbook — fresh L1 kami → fully-built L32 guardian
+### Worked example — L1 → L32, 0/16/16/0 allocation (tx accounting)
 
 For a SCRAP-bodied L1 kami at 0/0/0/0, going to a 0/16/16/0 guardian
 build, with 4× Fortified XP Potions in account inventory:
@@ -322,8 +286,8 @@ min for the full sequence. Gas cost is negligible (0.0025 gwei flat).
   error}`. If `target_level` exceeds available XP, it levels as far
   as it can; the subsequent skill plan still runs but `upgrade_skill`
   txs that need more SP than the kami has will fail individually.
-- Pre-flight is the cheap defense: confirm inventory, kami state
-  (RESTING required), and current level/XP before issuing the batch.
+- Pre-flight reads: `get_inventory` and `get_kami_state` confirm
+  inventory, RESTING state, and current level/XP before the batch.
 
 ### Concurrency rule — serialize writes on one operator wallet
 

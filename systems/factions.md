@@ -1,6 +1,6 @@
-# Factions & Reputation — Agent Decision Guide
+# Factions & Reputation
 
-Reputation strategy, faction quest priority.
+Reputation sources, tracking, and how to read reputation.
 
 ## Factions
 
@@ -20,7 +20,11 @@ Reputation is gained primarily through **quest rewards**:
 | Elders (Mina) | Mina's faction quests (2001–2016) | 2, 4, or 6 |
 | Nursery | Specific quests | 4 |
 
-Reputation values vary per quest — check quest reward data for exact amounts.
+Reputation values vary per quest; exact amounts are in quest reward data.
+
+Agency reputation accrues from main story quest progression. Mina (Elders)
+faction quests (2001–2016) unlock after meeting their main quest
+prerequisites. Nursery reputation comes from specific quest rewards.
 
 ## Reputation Tracking
 
@@ -32,37 +36,15 @@ reputationId = keccak256("faction.reputation", accountId, factionIndex)
 
 Reputation can be read via the score system's `Value` component.
 
-## Decision Rules
-
-### Priority
-
-1. **Agency reputation** — comes naturally from main quest progression.
-   No special effort needed; just keep completing main quests
-2. **Elders (Mina) reputation** — requires accepting and completing Mina's
-   faction quests (2001–2016). These unlock through main quest requirements
-3. **Nursery reputation** — from specific quest rewards
-
-### Strategy
-
-- **Don't delay main quests** for faction reputation — Agency rep comes
-  automatically from the main chain
-- **Accept faction quests** as soon as they unlock (after meeting main quest
-  prerequisites)
-- **Repeatable faction quests** are the best way to farm reputation if
-  available
-
 ### Quest-Gated Content
 
-> HEURISTIC: some quests or goals may eventually gate on reputation
-> thresholds, but no specific threshold values are currently known.
-> Build reputation passively through quest completion — don't grind it
-> speculatively.
+Some quests or goals may gate on reputation thresholds; no specific values
+are currently known.
 
 ## NPC Faction Assignment
 
 NPCs belong to factions (tracked via `IndexFaction` component). This
-determines which faction their quests serve. Not directly actionable by
-the agent, but useful context for understanding quest givers.
+determines which faction each NPC's quests serve.
 
 ## How to Read Reputation
 

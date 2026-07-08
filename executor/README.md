@@ -140,7 +140,7 @@ The server runs as a stdio MCP server, launched by Claude Code:
 | `unequip_item(kami_id, slot_type, account)` | Unequip from slot |
 | `upgrade_skill(kami_id, skill_index, account)` | Spend 1 SP on a skill |
 | `use_account_item(item_id, account, amount)` | Use consumable on account (stamina restores, etc.) |
-| `burn_items(item_indices, amounts, account)` | Burn/destroy items (for quest turn-ins) |
+| `burn_items(item_indices, amounts, account)` | Burn/destroy items from inventory |
 | `craft_item(recipe_index, amount, account)` | Craft items from a recipe (see catalogs/recipes.csv) |
 
 ### Quest management
@@ -179,8 +179,10 @@ The server runs as a stdio MCP server, launched by Claude Code:
 
 ### Batch / composite tools
 
-Prefer these over firing N parallel single-kami calls — one MCP round-trip,
-one compact result, per-item failure isolation, nonce-retry built in.
+Each of these touches multiple kamis (or repeats an action) in one MCP
+round-trip, returning one compact result with per-item failure isolation
+and built-in nonce-retry. They serialize their on-chain writes internally,
+so a single call never issues concurrent write-txs on the same wallet.
 
 | Tool | Description |
 |---|---|

@@ -4,7 +4,7 @@
 
 # KamiSwap — Kami Marketplace
 
-KamiSwap is Kamigotchi's native on-chain Kami marketplace. Players can list Kamis for sale, make offers on specific Kamis or the collection, and purchase Kamis — all without leaving the game. **New players should purchase their first Kami on KamiSwap.**
+KamiSwap is Kamigotchi's native on-chain Kami marketplace. Players can list Kamis for sale, make offers on specific Kamis or the collection, and purchase Kamis — all without leaving the game.
 
 ---
 

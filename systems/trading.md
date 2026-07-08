@@ -1,7 +1,6 @@
-# Trading — Agent Decision Guide
+# Trading
 
-P2P item trading and the Kami marketplace. When to trade, fee awareness,
-price evaluation.
+P2P item trading and the Kami marketplace.
 
 ## P2P Item Trading
 
@@ -76,23 +75,6 @@ tax = amount * TRADE_TAX_RATE[1] / 10^TRADE_TAX_RATE[0]
 
 Non-Musu items are not taxed. Tax is burned (not redistributed).
 
-### Decision: When to Trade
-
-**As maker** (posting an offer):
-- Move to room 66 first to avoid delivery fees
-- Set prices based on NPC shop values + scarcity
-- Consider tax in your pricing — the recipient gets less than face value
-
-**As taker** (accepting an offer):
-- Compare trade price to NPC shop alternative
-- Factor in delivery fee (move to room 66 if worthwhile)
-- Tax reduces the Musu you receive
-
-**Don't trade when**:
-- NPC shop price is better (no tax, no delivery fee)
-- You'd leave room 66 and lose the delivery fee waiver
-- The item can be crafted cheaper
-
 ## Kami Marketplace
 
 On-chain orderbook for trading Kami NFTs. Three order types.
@@ -126,20 +108,8 @@ Buyer offers WETH per Kami, quantity N.
 - Balance decrements per fill
 - Auto-completes when balance reaches 0
 
-### Decision: When to Buy/Sell Kamis
-
-**Buy when**:
-- You need a specific affinity/stat combination not available via gacha
-- The price is below the TWAP-based newbie vendor price
-- You need more Kamis for parallel harvesting
-
-**Sell when**:
-- The Kami has poor stats for your strategy
-- Market price exceeds the expected value of keeping it (harvest income)
-- You have excess Kamis beyond your active roster needs
-
-**Don't forget**: newly purchased Kamis have a 1-hour cooldown before they can
-act. Newbie vendor purchases are soulbound for 3 days.
+Newly purchased Kamis have a 1-hour cooldown before they can act. Newbie
+vendor purchases are soulbound for 3 days.
 
 ## How to Execute
 

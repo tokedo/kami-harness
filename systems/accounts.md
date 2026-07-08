@@ -1,7 +1,6 @@
-# Accounts, Stats & Cooldowns — Agent Decision Guide
+# Accounts, Stats & Cooldowns
 
-Stamina management, cooldown awareness, stat formulas, and the
-owner/operator wallet model.
+Stamina, cooldowns, stat formulas, and the owner/operator wallet model.
 
 ## Stat System
 
@@ -83,16 +82,6 @@ Partial periods are lost (rounds down).
 With 100 max stamina:
 - **20 room moves** from full (5 per move)
 - Crafting also costs stamina (per recipe)
-- Plan routes and crafting batches to fit stamina budget
-
-### Decision: Stamina Allocation
-
-- **Movement takes priority** if you need to reach a specific room for
-  quests or harvesting
-- **Crafting can wait** — do it when stamina is available and you're in
-  the right room
-- **Project stamina**: before planning multiple moves, calculate total
-  cost and check projected stamina
 
 ## Cooldowns
 
@@ -123,15 +112,7 @@ A Kami is on cooldown when `block.timestamp < TimeNext` component value.
 remaining = cooldownEnd - now
 ```
 
-If remaining > 0 → skip this Kami, process others or wait.
-
-### Decision: Cooldown Management
-
-- **Plan around cooldowns**: after collecting, you have ~3 minutes before
-  the next action on that Kami
-- **Multi-Kami rotation**: if one Kami is on cooldown, process another
-- **Don't waste time**: use cooldown windows for non-Kami actions
-  (account moves, quest checks, crafting)
+If remaining > 0, the Kami is still on cooldown.
 
 ## Account XP
 

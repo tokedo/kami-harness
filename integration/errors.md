@@ -157,13 +157,13 @@ If you have neither ONYX nor a revive item, you need to acquire ONYX (via harves
 
 Purchase a Kami on the **KamiSwap** marketplace, or mint one via the gacha system — see [Minting](api/minting.md) and [KamiSwap](api/marketplace.md).
 
-### "Which room should my Kami harvest in?"
+### "Which rooms have harvest nodes?"
 
 Room 1 (Misty Riverside) has a harvest node at index 1, and most rooms have nodes. Check [Game Data — Harvest Nodes](game-data.md) for the full list of rooms and node indices.
 
-### "How do I know when to collect my harvest?"
+### "How does collecting a harvest work?"
 
-You can query the harvest entity's on-chain components to check accumulated rewards, or simply collect periodically with `system.harvest.collect`. Harvesting for too long can be dangerous due to predators.
+You can query the harvest entity's on-chain components to check accumulated rewards, or simply collect periodically with `system.harvest.collect`. While harvesting, a Kami's HP drains; low-HP Kamis can be liquidated by others.
 
 ---
 

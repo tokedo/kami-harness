@@ -1,6 +1,6 @@
-# Equipment — Agent Decision Guide
+# Equipment
 
-What to equip, slot management, and stat bonuses.
+Slot management and stat bonuses.
 
 ## How Equipment Works
 
@@ -70,32 +70,17 @@ Equipment bonuses are applied via the bonus system. Common effects:
 Bonuses are **automatically cleared** when the item is unequipped (tagged with
 `ON_UNEQUIP_{SLOT}` end type).
 
-## Decision: What to Equip
+### Stat Effects
 
-### For Harvesters
+- Harmony reduces strain and improves liquidation defense.
+- Power increases harvest output (Fertility).
+- Strain reduction extends harvest duration.
+- Violence increases the kill threshold.
 
-Priority: Harmony boosts > strain reduction > Power boosts
-- Harmony reduces strain AND improves liquidation defense
-- Power increases harvest output (Fertility)
-- Strain reduction lets you harvest longer
+Equipment can only be changed while the Kami is `RESTING`; a `HARVESTING` Kami
+must stop its harvest session first, which ends that session.
 
-### For Liquidators
-
-Priority: Violence boosts > attack threshold > spoils ratio
-- Violence increases kill threshold (easier kills)
-- Attack bonuses improve PvP effectiveness
-
-### When to Change Equipment
-
-- Before starting a harvest session (can't equip while `HARVESTING`)
-- When switching Kami roles (harvester → PvP or vice versa)
-- When you get a strictly better item for the same slot
-- **Don't swap mid-harvest** — must stop first, losing current session
-
-### Equipment vs No Equipment
-
-With only 1 slot, choose the single best item for the Kami's current role.
-Check [catalogs/items.csv](../catalogs/items.csv) for equipment items and their
+See [catalogs/items.csv](../catalogs/items.csv) for equipment items and their
 stat bonuses.
 
 ## How to Execute
