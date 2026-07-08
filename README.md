@@ -13,10 +13,9 @@ server process and are never exposed to the connected client.
 
 > **This repo contains no agent policy** — no strategy, no decision
 > procedures, no memory schema. Those live in the separate **`kami-agent`**
-> repo (the reference agent scaffold). What was removed from here during
-> the environment-interface refactor is staged in
-> [`migration/to-kami-agent/`](migration/to-kami-agent/) with a full record
-> in [`migration/judgment-sweep.md`](migration/judgment-sweep.md).
+> repo (the reference agent scaffold). The policy content removed during
+> the environment-interface refactor was relocated to a private experiment
+> repo; [`CHANGELOG.md`](CHANGELOG.md) records what was removed and why.
 >
 > For the KamiBench project story, see **[kamibench.xyz](https://kamibench.xyz)**.
 
@@ -226,10 +225,9 @@ Current: **`1.0.0`** — the environment-interface baseline.
 This repo is deliberately policy-free. It documents *what the world is and
 what you can do to it*, never *what an agent should do*. Strategy, memory,
 and decision procedures are the agent's concern — see the `kami-agent`
-reference scaffold. Content removed during the refactor is preserved in
-[`migration/to-kami-agent/`](migration/to-kami-agent/); every removed
-judgment sentence is catalogued in
-[`migration/judgment-sweep.md`](migration/judgment-sweep.md).
+reference scaffold. The policy content removed during the refactor was
+relocated to a private experiment repo; [`CHANGELOG.md`](CHANGELOG.md)
+records everything that was removed.
 
 ## File map
 

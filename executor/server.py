@@ -1,17 +1,17 @@
 """
-Kamigotchi MCP Executor — the agent's muscle.
+Kamigotchi MCP Executor — the environment-interface server.
 
 Reads private keys from ~/.blocklife-keys/.env (outside the repo).
-Exposes game actions as MCP tools. The LLM (brain) calls tools through
-Claude Code; this server (muscle) handles secrets, API auth, and
-transaction signing. The LLM never sees private keys.
+Exposes game actions as MCP tools. The connected MCP client calls tools
+over MCP; this server handles secrets, API auth, and transaction signing.
+The client never sees private keys.
 
 Multi-account: keys file holds {LABEL}_OPERATOR_KEY / {LABEL}_OWNER_KEY
 pairs. accounts/roster.yaml (in-repo) maps labels to public addresses.
 All per-account tools accept an `account` label parameter (default "main").
 
 Architecture:
-  Claude Code (brain) --MCP--> executor (muscle) ---> Kamibots API / Yominet RPC
+  MCP client --MCP--> executor (server.py) ---> Kamibots API / Yominet RPC
 """
 
 import asyncio

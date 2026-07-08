@@ -1,7 +1,6 @@
-# Kamibots API Integration — V1 Primary
+# Kamibots API Integration
 
-> **V1 primary integration** for both world-state reads and strategy
-> execution. This is what V1 agents use.
+> The Kamibots API provides both world-state reads and strategy execution.
 
 Base URL: `https://api.kamibots.xyz`
 

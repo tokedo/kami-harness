@@ -38,7 +38,7 @@ KamiBench. Establishes the versioned tool contract.
 - Rewrote `README.md` as an interface specification.
 - Reworked `SETUP.md` to cover only environment setup (server + client).
 
-### Removed (relocated to `migration/to-kami-agent/`)
+### Removed (policy content — extracted to a private experiment repo)
 - `strategies/` — calibrated decision heuristics.
 - `CLAUDE.md` — playing-agent instructions and per-tick decision priorities.
 - `systems/memory.md` — agent memory schema and templates.
@@ -46,8 +46,9 @@ KamiBench. Establishes the versioned tool contract.
   README; the Hybrid/Autonomous operating-mode narrative from SETUP.
 - The autonomous session runner and prompt templates.
 
-See [`migration/judgment-sweep.md`](migration/judgment-sweep.md) for the
-full record of every judgment sentence removed and its source location.
+The extracted policy content, and a `judgment-sweep` audit record of every
+judgment sentence removed and its source location, were relocated to a
+private experiment repo — they are not part of this environment interface.
 
 ### Added
 - `SCHEMA_VERSION` (`executor/schema_version.py`), surfaced via MCP

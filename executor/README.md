@@ -1,12 +1,11 @@
 # Kamigotchi MCP Executor
 
-The agent's **muscle**. An MCP server that reads private keys from
-`~/.blocklife-keys/.env` (outside the repo) and exposes game actions
-as tools. The LLM (brain) never sees secrets.
+An MCP server that reads private keys from `~/.blocklife-keys/.env`
+(outside the repo) and exposes game actions as tools. The connected MCP
+client never sees secrets.
 
 ```
-Claude Code (brain) --MCP--> executor (muscle) ---> Kamibots API
-                                                 \-> Yominet RPC
+MCP client --MCP--> executor (server.py) ---> Kamibots API / Yominet RPC
 ```
 
 ## Account labeling system
@@ -20,8 +19,8 @@ together private keys in `.env` and public addresses in `roster.yaml`:
 | `accounts/roster.yaml` | Label, owner address, operator address | Yes (committed) |
 
 Keys live **outside the project directory** at `~/.blocklife-keys/.env`.
-Claude Code auto-indexes files in the working directory on startup — by
-keeping keys external, there is nothing sensitive to discover.
+Some MCP clients auto-index files in the working directory on startup —
+keeping keys external means there is nothing sensitive in the tree to read.
 
 On startup, the server scans `~/.blocklife-keys/.env` for all
 `*_OPERATOR_KEY` / `*_OWNER_KEY` pairs, builds an account registry,
@@ -51,7 +50,7 @@ pip install -r requirements.txt
    # Edit: set owner_address and operator_address for each label
    ```
 
-3. **Start MCP server** (via Claude Code config)
+3. **Start MCP server** (via your MCP client's config)
 
 4. **Register with Kamibots** (agent calls once):
    ```
@@ -70,7 +69,8 @@ pip install -r requirements.txt
 
 ## Running
 
-The server runs as a stdio MCP server, launched by Claude Code:
+The server runs as a stdio MCP server, launched by the MCP client.
+Example config (Claude Code's `.mcp.json` shown):
 
 ```json
 {
