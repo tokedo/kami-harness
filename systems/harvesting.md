@@ -1,6 +1,6 @@
-# Harvesting — Agent Decision Guide
+# Harvesting
 
-Harvesting is the primary income loop. A Kami sits on a node, earns Musu over
+Harvesting is an income loop. A Kami sits on a node, earns Musu over
 time, takes HP strain, and can be liquidated (killed) by another player's Kami
 on the same node.
 
@@ -16,11 +16,9 @@ START (kami + node) → accruing bounty, taking strain
 Prerequisites for START: Kami is `RESTING`, off cooldown, HP > 0, account in
 same room as node, node requirements met (e.g., level limit).
 
-## Node Selection
+## Node Factors
 
-Evaluate nodes in this priority:
-
-### 1. Affinity Match (biggest multiplier)
+### Affinity Match
 
 Efficacy multiplier on Fertility (base income):
 
@@ -34,10 +32,6 @@ Efficacy multiplier on Fertility (base income):
 | Body mismatches, hand matches | 1000 - 250 + 350 = **1100** | **1.1x** |
 | Both mismatch | 1000 - 250 - 100 = **650** | **0.65x** |
 
-**Decision rule**: if body affinity matches → strong signal. If both match →
-3x more income than full mismatch. Never harvest at a full-mismatch node
-unless no alternative exists.
-
 Affinity types: `EERIE`, `SCRAP`, `INSECT`, `NORMAL`.
 - NORMAL Kami/node → always neutral (1.0x)
 - Same non-NORMAL → Strong
@@ -46,9 +40,9 @@ Affinity types: `EERIE`, `SCRAP`, `INSECT`, `NORMAL`.
 Dual-affinity nodes (e.g., "EERIE, SCRAP"): system picks best matchup order
 for body (higher impact) vs hand.
 
-### 2. Scavenge Droptable Value
+### Scavenge Droptable Value
 
-Nodes with rarer scavenge drops are worth more long-term. Check
+Nodes with higher scavenge cost have rarer droptables. Check
 [catalogs/scavenge-droptables.csv](../catalogs/scavenge-droptables.csv) for
 reward tables per node.
 
@@ -60,22 +54,20 @@ Higher scav cost (points to fill bar) = rarer drops:
 
 Scavenge points = harvest output. So higher Fertility = faster scavenge fills.
 
-### 3. Node Yield Item
+### Node Yield Item
 
 All nodes yield Musu (item index 1) as the primary harvest output. The
 scavenge droptable determines secondary item drops. See
 [catalogs/nodes.csv](../catalogs/nodes.csv) for the "Drops" column.
 
-### 4. Level Restrictions
+### Level Restrictions
 
 Some nodes have level caps (e.g., `Level Limit = 15` means only Kamis at or
 below level 15). Check the node catalog before assigning.
 
-### 5. Occupancy & Liquidation Risk
+### Occupancy & Liquidation Risk
 
 If other Kamis are harvesting on the same node, your Kami can be liquidated.
-Prefer nodes with fewer active harvesters when your Kami is defensively weak
-(low Harmony, high Violence attackers present).
 
 ## Bounty Accumulation
 
@@ -145,20 +137,9 @@ strain_per_musu ≈ 6.5 / (H + 20)
 
 > Higher Harmony = longer harvest sessions before HP danger.
 
-## When to Collect vs Stop
+## Collect vs Stop Effects
 
-### HP Danger Zones
-
-Monitor estimated HP and act:
-
-| Current HP (% of max) | Action |
-|---|---|
-| > 50% | Safe to continue. Collect if bounty is large enough to justify cooldown |
-| 30-50% | Collect now to bank bounty. Consider stopping if Harmony is low |
-| 15-30% | **Stop immediately**. HP is in liquidation danger zone |
-| < 15% | **Emergency stop**. Risk of strain-death or liquidation is critical |
-
-### Collect Decision
+### Collect Effects
 
 Collecting triggers:
 - Bounty transferred to account (split by tax if taxer set)
@@ -167,15 +148,10 @@ Collecting triggers:
 - Cooldown resets (180s base)
 - Harvest continues
 
-**Collect when**: bounty is meaningful AND HP > 50% AND cooldown is clear.
-
-### Stop Decision
+### Stop Effects
 
 Stopping does everything Collect does, plus ends the harvest → Kami goes to
 `RESTING` and begins healing.
-
-**Stop when**: HP is getting low, or you need the Kami to level up / equip /
-move rooms / any non-harvest action.
 
 ## Liquidation Risk
 
@@ -193,9 +169,8 @@ threshold = animosity(attacker.Violence, victim.Harmony) * efficacy * victim.max
   Violence relative to your Harmony = higher threshold
 - Affinity matchups modify efficacy (attacker hand vs victim body)
 
-**Practical rule**: if your Kami has low Harmony and has been harvesting a long
-time (HP drained), any Violence-heavy Kami on the same node can potentially
-liquidate you.
+Low Harmony plus drained HP raises liquidation exposure to Violence-heavy
+Kamis on the same node.
 
 ### Consequences of Liquidation
 
@@ -205,18 +180,14 @@ liquidate you.
 - **Remaining bounty is destroyed** (not transferred to anyone)
 - **Revival costs 33 Onyx Shards** and only restores 33 HP
 
-### Defensive Heuristics
+### Defensive Mechanics
 
-- If Harmony is low (< 10), harvest in shorter sessions — collect early, stop
-  before HP drops below 40%
-- Avoid high-traffic nodes if your Kami can't sustain the fight
 - High Harmony + low Violence = hard to liquidate (high effective threshold
   from defender side, low animosity from attacker perspective)
 - Skills in **Guardian** tree increase defense threshold and salvage ratio
-- Skills in **Enlightened** tree reduce strain (harvest longer safely)
+- Skills in **Enlightened** tree reduce strain
 
-> HEURISTIC: without occupancy data, assume any non-starter node may have
-> active harvesters. Starter nodes (level limit 15) are safer for weak Kamis.
+Starter nodes have a level limit of 15.
 
 ## Tax System
 
@@ -231,7 +202,7 @@ Every collect/stop also triggers:
 2. **Scavenge** = bar increment by harvest amount → claim when tier is full
 3. **Score** = account leaderboard increment
 
-## Quick Reference: Optimal Harvest Session
+## Estimating Harvest Duration
 
 Two-step estimate using the tables above:
 
@@ -244,9 +215,6 @@ strain_per_musu = 6.5 / (10 + 20) = 0.217
 safe_musu = 25 / 0.217 ≈ 115 Musu
 At ~15 Musu/hr (Power=10, neutral): safe_hours ≈ 115 / 15 ≈ 7.7 hours to 50% HP
 ```
-
-This Kami can harvest for several hours safely. Collect periodically to bank
-bounty and reset scavenge progress, but no urgency to stop for HP reasons.
 
 ## Node Catalog Reference
 

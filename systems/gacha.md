@@ -1,7 +1,6 @@
-# Gacha & Sacrifice — Agent Decision Guide
+# Gacha & Sacrifice
 
-When to mint new Kamis, when to reroll, when to sacrifice, and pity system
-tracking.
+Minting, rerolling, sacrifice, and the pity system.
 
 ## Minting New Kamis
 
@@ -72,18 +71,8 @@ Each Kami deposited costs 1 Reroll Token.
 Each Kami tracks how many times it has been rerolled. This counter increments
 each time a Kami is withdrawn from the pool.
 
-### Decision: When to Reroll
-
-Reroll when:
-- Kami has poor stats/affinities for any useful role
-- Kami is not actively needed (resting, no harvest plan)
-- You have Reroll Tokens available
-- The pool is large enough for reasonable odds of getting something better
-
-Don't reroll when:
-- The Kami has invested skills (skills are lost — level, SP, all gone)
-- The Kami has good affinities for your strategy
-- Reroll Tokens are expensive (check auction price)
+Rerolling a Kami discards its progress — level, skill points, and skills are
+all lost.
 
 ## Sacrifice
 
@@ -117,25 +106,11 @@ tracks a running sacrifice counter.
 **Rare pity takes precedence** when both thresholds align (e.g., sacrifice
 #100 uses rare, not uncommon).
 
-### Decision: When to Sacrifice
+### Pity Counter
 
-Sacrifice when:
-- Kami has very poor stats and isn't worth the Reroll Token cost
-- You're farming sacrifice drops (pity counter tracking)
-- You have excess Kamis beyond your active roster
-- You're close to a pity threshold (e.g., sacrifice #19 → next one is uncommon)
-
-Don't sacrifice when:
-- Kami has invested skills or good stats
-- Kami has useful affinities
-- You're low on Kamis for parallel harvesting
-
-### Pity Counter Tracking
-
-Track your sacrifice count in `memory/account.md`. Plan sacrifices to hit
-pity thresholds efficiently:
-- If at 18/20 → 2 more sacrifices guarantees uncommon+ reward
-- If at 95/100 → 5 more guarantees rare+ reward
+The pity counter increments per sacrifice; see thresholds above.
+- At 18/20, 2 more sacrifices reach the uncommon+ threshold
+- At 95/100, 5 more reach the rare+ threshold
 
 ## Obtaining Tickets and Tokens
 
@@ -203,4 +178,4 @@ executeTyped(uint256[] commitIDs)
 
 - Gacha Ticket auction pricing: [npc-shops.md](npc-shops.md)
 - Kami stats and affinities: [accounts.md](accounts.md)
-- What to do with new Kamis: [harvesting.md](harvesting.md), [leveling.md](leveling.md)
+- New Kami stats/handling: [harvesting.md](harvesting.md), [leveling.md](leveling.md)

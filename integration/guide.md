@@ -289,7 +289,7 @@ console.log("Operator updated to:", newOperator.address);
 
 After registering, you need at least one Kami to participate in gameplay (harvesting, quests, combat). There are four ways to acquire a Kami:
 
-### Option A: KamiSwap Marketplace (Recommended for New Players)
+### Option A: KamiSwap Marketplace
 
 The **KamiSwap** marketplace lets players buy Kamis listed by other players. This is the simplest way to get your first Kami — browse available listings and purchase one with native ETH.
 

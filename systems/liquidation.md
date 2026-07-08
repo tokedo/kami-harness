@@ -1,7 +1,6 @@
-# Liquidation (PvP) — Agent Decision Guide
+# Liquidation (PvP)
 
-When another player can kill your Kami, when you should attack, and how to
-assess threats.
+How liquidation eligibility, kill threshold, recoil, and loot are computed.
 
 ## Kill Eligibility
 
@@ -136,9 +135,6 @@ Where:
 - **Strain** = attacker's accumulated harvest strain (HP already lost to harvesting)
 - **Boost** = from config + skill bonuses (DEF_RECOIL_BOOST currently unused)
 
-**Practical rule**: attacking a high-Violence Kami while you have accumulated
-significant strain is risky — recoil can drain substantial HP.
-
 ## Loot Distribution
 
 On a successful kill:
@@ -177,57 +173,6 @@ spoils = (bounty - salvage) * ratio / 10^(KAMI_LIQ_SPOILS[1] + KAMI_LIQ_SPOILS[3
 destroyed = bounty - salvage - spoils
 ```
 Destroyed bounty is lost — benefits nobody.
-
-## Defensive Decision Rules
-
-### Should I Keep Harvesting?
-
-If on a node with other harvesters:
-- If Harmony > 20 and HP > 50% → generally safe
-- If Harmony < 10 → harvest in short sessions, collect early, stop before 40% HP
-- If you see high-Violence Kamis on the same node → reduce session length
-
-### When to Stop (Liquidation Risk)
-
-- If projected HP < threshold for the strongest potential attacker → **stop now**
-- If HP < 30% of max on a contested node → **stop now**
-- Low Harmony + long session = high risk
-
-### Node Safety Assessment
-
-| Factor | Safer | Riskier |
-|---|---|---|
-| Node level limit | 15 (starter) | None (open to all) |
-| Occupancy | Low / empty | Many harvesters |
-| Your Harmony | High (20+) | Low (< 10) |
-| Your HP | > 50% | < 30% |
-
-> HEURISTIC: without occupancy data, assume any non-starter node may have
-> active harvesters. Starter nodes (level limit 15) are safer for weak Kamis.
-
-## Offensive Decision Rules
-
-### Should I Attack?
-
-Attack when:
-- You have a high-Violence Kami with good affinity matchup
-- Target's projected HP is below your kill threshold
-- The target has accumulated significant bounty (worth stealing)
-- You can afford the recoil damage
-- You have spoils-boosting skills (Predator tree)
-
-Don't attack when:
-- Your own HP is low (recoil could kill you)
-- The target has high Violence (heavy recoil)
-- You have no bounty advantage (your spoils would be small)
-- You're on cooldown
-
-### Estimating If Target Is Killable
-
-1. Estimate target's projected HP (from strain over time)
-2. Calculate your kill threshold (Violence vs their Harmony)
-3. If projected HP < threshold → killable
-4. Factor in affinity matchup for threshold modifier
 
 ## How to Execute
 

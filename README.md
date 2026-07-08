@@ -1,270 +1,253 @@
-# Kamigotchi Agent Context
+# Kamigotchi Environment Interface
 
-A plug-and-play harness for AI agents that play Kamigotchi — a pure
-on-chain MMORPG on Yominet. The repo bundles game-mechanics
-documentation, calibrated catalogs, MCP tools that wrap on-chain
-actions, and prebuilt operating modes for both supervised and
-autonomous play.
+This repo is the **environment interface for KamiBench**: an MCP server
+that exposes *perception* (state reads) and *action* (on-chain
+transactions) for Kamigotchi — a pure on-chain MMORPG on Yominet —
+together with the world-knowledge docs and reference catalogs an agent
+needs to interpret that surface.
 
-> **Setting up?** → Start at [`SETUP.md`](SETUP.md). It walks through
-> the two operating modes (Hybrid = interactive Claude Code, Fully
-> Autonomous = VM with cron) and the steps to get the harness running.
+It is the **contract that every KamiBench agent builds against.** The
+server handles wallets, nonces, gas, retries, and API auth; an agent
+connects over MCP and calls tools. Private keys live only inside the
+server process and are never exposed to the connected client.
+
+> **This repo contains no agent policy** — no strategy, no decision
+> procedures, no memory schema. Those live in the separate **`kami-agent`**
+> repo (the reference agent scaffold). What was removed from here during
+> the environment-interface refactor is staged in
+> [`migration/to-kami-agent/`](migration/to-kami-agent/) with a full record
+> in [`migration/judgment-sweep.md`](migration/judgment-sweep.md).
 >
-> **Already set up?** → The agent reads [`CLAUDE.md`](CLAUDE.md) for
-> operational instructions and [`executor/README.md`](executor/README.md)
-> for the full MCP tool reference (64 tools).
->
-> The rest of this README is the **agent's view of the game** — the
-> mechanics, resources, and decision priorities the agent reasons over.
+> For the KamiBench project story, see **[kamibench.xyz](https://kamibench.xyz)**.
 
-## Core Loop
+## The interface contract
+
+```
+MCP client (any KamiBench agent) --MCP--> executor (server.py) --> Kamibots API
+                                                               \-> Yominet RPC
+```
+
+- **Perception** — state-read tools return account, kami, node, market,
+  quest, and scavenge state.
+- **Action** — transaction tools perform harvesting, movement, leveling,
+  equipment, crafting, trading, quests, and scavenging.
+- **Secrets boundary** — the server reads owner/operator keys from
+  `~/.blocklife-keys/.env` (outside the repo) and signs on the client's
+  behalf. The client never sees a key.
+- **Versioned** — the tool contract carries a `SCHEMA_VERSION`
+  ([`executor/schema_version.py`](executor/schema_version.py)), surfaced to
+  clients as the MCP `server_version` in the initialize handshake. See
+  [Versioning](#versioning).
+
+## Tool surface
+
+The server exposes **64 tools**. The authoritative, per-tool reference —
+signatures, parameters, and behavior — is
+[`executor/README.md`](executor/README.md). Grouped overview:
+
+| Group | Tools (examples) | What it covers |
+|---|---|---|
+| **Setup** | `list_accounts`, `register_kamibots`, `store_operator_key` | Account registry, Kamibots API registration, operator-key delegation |
+| **Reads** | `get_tier`, `get_inventory`, `get_kami_state(_slim)`, `get_kamis_progress_batch`, `get_nodes`, `get_prices`, `get_npc_prices`, `get_account_kamis`, `get_all_kamis`, `get_killer_ranking`, `get_leaderboard`, `get_account_trades` | Perception: account, kami, node, market, and ranking state |
+| **Strategy execution (Kamibots)** | `start_strategy`, `stop_strategy`, `get_all_strategies`, `get_strategy_status`, `get_strategy_logs` | Kamibots-managed harvest/rest/craft loops |
+| **On-chain actions** | `harvest_start/stop/collect`, `move_to_room`, `travel_to_room`, `listing_buy`, `auction_buy`, `feed_kami`, `revive_kami`, `level_up_kami`, `name_kami`, `equip_item`, `unequip_item`, `upgrade_skill`, `use_account_item`, `burn_items`, `craft_item` | Direct Yominet transactions |
+| **Quests** | `get_active_quests`, `quest_state`, `get_expected_objective`, `accept_quest`, `complete_quest`, `check_quest_completable`, `drop_quest`, `get_quest_status` | Quest enumeration, state reads, accept/complete/drop |
+| **Scavenge & droptable** | `get_scavenge_points`, `scavenge_claim`, `droptable_reveal`, `scavenge_claim_and_reveal` | Scavenge points, commit-reveal droptables |
+| **Trading** | `create_trade`, `cancel_trade`, `take_trade`, `complete_trade`, `complete_all_trades`, `list_open_sell_offers` | P2P orderbook trades and discovery |
+| **Batch wrappers** | `level_and_allocate_batch`, `level_to`, `allocate_skills`, `use_item_batch`, `stop_harvest_batch`, `get_kamis_progress_batch` | Multi-kami operations serialized in one call |
+
+> **Concurrency:** batch wrappers serialize their on-chain writes
+> internally. Two separate write-tx calls issued in parallel against the
+> same operator wallet contend for the nonce; the batch wrappers exist so a
+> single call never does that.
+
+## World-knowledge docs
+
+The interface is only useful with a model of what the returned state
+*means*. These docs distil the game's mechanics into machine-readable
+reference.
+
+### Systems (`systems/`)
+
+One file per game system — the rules an agent's world model needs.
+
+| File | Covers |
+|---|---|
+| [harvesting.md](systems/harvesting.md) | Node assignment, bounty, strain, liquidation exposure |
+| [health.md](systems/health.md) | HP mechanics, resting recovery, death, revival |
+| [leveling.md](systems/leveling.md) | XP, level-up costs, skill trees, tier gates |
+| [scavenging.md](systems/scavenging.md) | Scavenge bar, tier claiming, droptable commit-reveal |
+| [liquidation.md](systems/liquidation.md) | PvP kill mechanics, affinity combat triangle |
+| [crafting.md](systems/crafting.md) | Recipes, item types, using/burning/transferring |
+| [trading.md](systems/trading.md) | P2P trades, marketplace, fees, tax |
+| [npc-shops.md](systems/npc-shops.md) | NPC buy/sell, GDA pricing, auctions |
+| [equipment.md](systems/equipment.md) | Equip/unequip, slot system, stat bonuses |
+| [rooms.md](systems/rooms.md) | World map, movement, stamina cost, gates |
+| [quests.md](systems/quests.md) | Quest types, objectives, rewards |
+| [gacha.md](systems/gacha.md) | Minting, rerolling, sacrifice, pity system |
+| [day-night.md](systems/day-night.md) | 36-hour phase cycle, phase-gated actions |
+| [factions.md](systems/factions.md) | Faction reputation, quest-based rep |
+| [accounts.md](systems/accounts.md) | Stats, stamina, cooldowns, owner/operator wallets |
+| [state-reading.md](systems/state-reading.md) | On-chain queries, HP/stamina projection |
+
+### Catalogs (`catalogs/`)
+
+CSV reference data — some is loaded directly by tools (e.g.
+`get_expected_objective` reads `catalogs/quests/`).
+
+| File | Contents |
+|---|---|
+| [nodes.csv](catalogs/nodes.csv) | Harvest nodes: affinity, drops, level limits, scav cost |
+| [items.csv](catalogs/items.csv) | Items: type, tradability, stats |
+| [skills.csv](catalogs/skills.csv) | Skill trees: effects, costs, tiers, exclusions |
+| [recipes.csv](catalogs/recipes.csv) | Crafting recipes: inputs, outputs, stamina cost |
+| [rooms.csv](catalogs/rooms.csv) | Room map: coordinates, exits, gates |
+| [shop-listings.csv](catalogs/shop-listings.csv) | NPC shop items and prices |
+| [scavenge-droptables.csv](catalogs/scavenge-droptables.csv) | Node scavenge reward tables |
+| [quests/](catalogs/quests/) | Quests, objectives, requirements, rewards |
+
+### Integration (`integration/`)
+
+On-chain interaction reference — chain ID, world contract, system IDs,
+entity-ID derivation, ABIs, and the Kamibots API. See
+[integration/game-data.md](integration/game-data.md) for the game-data
+tables and the [file map](#file-map) below for the full index.
+
+## World model (reference facts)
+
+Facts the returned state is expressed in terms of.
+
+### Core loop
 
 ```
 HARVEST (earn Musu + XP) → COLLECT/STOP → REST (heal) → repeat
          ↓ side effects                      ↓ while resting
     scavenge rolls                      level up, equip, craft,
-    liquidation risk                    trade, accept quests, move
+    liquidation exposure                trade, quests, move
 ```
 
-All actions are on-chain transactions. Health syncs lazily on each action —
-the Kami's actual HP is only computed when it does something.
+All actions are on-chain transactions. Health syncs lazily on each
+action — a kami's actual HP is only computed when it does something.
 
-## Key Resources
+### Resources
 
-| Resource | How to get | What it's for |
+| Resource | Source | Function |
 |---|---|---|
-| **Musu** (item 1) | Harvesting, trading, selling items | Base currency. Buy items, craft, trade fees, NPC shops |
-| **XP** | Harvesting output (1:1), quest completion | Level up → skill points |
-| **Skill Points** | 1 per level-up | Invest in skill trees (permanent bonuses) |
-| **Onyx Shards** (item 100) | Scavenging, quests, drops | Revive dead Kamis (33 shards per revive) |
-| **Stamina** | Account stat, regens over time | Movement between rooms, crafting |
-| **Gacha Ticket** (item 10) | NPC shop, quests | Mint new Kamis |
-| **Reroll Token** (item 11) | NPC shop, quests | Sacrifice a Kami for a new random one |
+| **Musu** (item 1) | Harvesting, trading, selling | Base currency: items, crafting, fees, NPC shops |
+| **XP** | Harvest output (1:1), quests | Level-ups → skill points |
+| **Skill Points** | 1 per level-up | Skill-tree investment (permanent bonuses) |
+| **Onyx Shards** (item 100) | Scavenging, quests, drops | Revive dead kamis (33 per revive) |
+| **Stamina** | Account stat, regens over time | Movement, crafting |
+| **Gacha Ticket** (item 10) | NPC shop, quests | Mint new kamis |
+| **Reroll Token** (item 11) | NPC shop, quests | Sacrifice a kami for a new random one |
 
-## Kami Stats
+### Kami stats
 
 | Stat | Role |
 |---|---|
 | **Health** | Depletable. Drained by harvest strain, restored by resting. Death at 0 |
 | **Power** | Scales harvest Fertility (base income rate) |
-| **Violence** | Scales harvest Intensity (time-ramping bonus) + liquidation attack power |
-| **Harmony** | Reduces harvest strain, speeds resting recovery, defends against liquidation |
+| **Violence** | Scales harvest Intensity (time-ramping bonus) + liquidation attack |
+| **Harmony** | Reduces harvest strain, speeds resting recovery, defends liquidation |
 | **Slots** | Equipment capacity (depletable) |
 
 Effective stat: `Total = (1000 + boost) * (base + shift) / 1000`
 
-## Kami Affinities
+### Affinities
 
-Each Kami has **body** and **hand** affinities from traits. Four types:
+Each kami has **body** and **hand** affinities from traits. Four types:
 `EERIE`, `SCRAP`, `INSECT`, `NORMAL`.
 
-- **Harvest**: matching Kami affinity to node affinity → up to 2x yield.
-  Mismatch → 0.65x. See [systems/harvesting.md](systems/harvesting.md).
-- **Combat**: rock-paper-scissors. EERIE > SCRAP > INSECT > EERIE.
-  NORMAL is neutral.
+- **Harvest** — matching kami affinity to node affinity yields up to 2×;
+  mismatch yields 0.65×. See [systems/harvesting.md](systems/harvesting.md).
+- **Combat** — rock-paper-scissors: EERIE > SCRAP > INSECT > EERIE;
+  NORMAL is neutral. See [systems/liquidation.md](systems/liquidation.md).
 
-## Systems
+### Cooldowns
 
-### Harvesting (primary income)
-Assign Kami to a node → passively earn Musu. Drains HP via strain. Risk of
-PvP liquidation. **This is where the agent spends most of its time.**
-See [systems/harvesting.md](systems/harvesting.md).
+Base cooldown after most actions is **180 seconds**, modified by the
+`STND_COOLDOWN_SHIFT` bonus (skills can reduce it). See
+[systems/accounts.md](systems/accounts.md).
 
-### Health & Resting
-While `RESTING`, HP regens at `~(Harmony + 20) * 0.6 / 3600` HP/s base.
-A Harmony-10 Kami heals ~18 HP/hr. Full heal from 0 takes ~2.8h at Harmony 10.
-If HP = 0, Kami dies. Revival costs 33 Onyx Shards and restores only 33 HP.
-See [systems/health.md](systems/health.md).
+### Chain
 
-### Leveling & Skills
-XP cost per level: `40 * 1.259^(level-1)`. Each level grants 1 skill point.
-Four skill trees: **Predator** (combat), **Enlightened** (sustain),
-**Guardian** (defense), **Harvester** (harvest). Tier gates at 5/15/25/40/55/75/95
-tree points. Mutual exclusions at tiers 3 and 6.
-See [systems/leveling.md](systems/leveling.md).
+- **Chain**: Yominet, ID `428962654539583`
+- **RPC**: `https://jsonrpc-yominet-1.anvil.asia-southeast.initia.xyz`
+- **World**: `0x2729174c265dbBd8416C6449E0E813E88f43D0E7`
+- **Gas**: flat `0.0025 gwei`. Cost is negligible; gas *limits* matter for
+  complex calls (e.g. `harvest_start` 3M, `harvest_stop` 4M).
+- **Wallets**: dual model. **Owner** registers/trades/mints; **Operator**
+  is delegated for gameplay txs (via `system.account.set.operator`).
 
-### Scavenging (secondary loot)
-Harvest output fills a per-node scavenge bar. When full, claim for a
-droptable roll. Tier costs: 100–500 depending on node. Higher-cost nodes
-have rarer droptables. Uses commit-reveal (two transactions).
-See [systems/scavenging.md](systems/scavenging.md).
+## Setup
 
-### Liquidation (PvP)
-Another harvesting Kami on the same node can kill yours if your HP drops
-below a threshold based on attacker Violence vs your Harmony. Victim dies,
-loses most bounty. Attacker steals spoils and earns 1 Obol.
-See [systems/liquidation.md](systems/liquidation.md).
+Setting up the environment interface means configuring wallets/RPC,
+running the MCP server, and connecting a client. Full instructions are in
+[`SETUP.md`](SETUP.md). In brief:
 
-### Crafting
-Convert input items → output items via recipes. Costs stamina. Grants
-account XP. Recipes may require specific room or level.
-See [systems/crafting.md](systems/crafting.md).
+1. Install server deps: `cd executor && pip install -r requirements.txt`.
+2. Put owner/operator keys in `~/.blocklife-keys/.env` (outside the repo);
+   see [`env.template`](env.template).
+3. Map labels to public addresses in `accounts/roster.yaml` (see the
+   template).
+4. Register the MCP server with your client (Claude Code or any MCP
+   client):
+   ```json
+   {
+     "mcpServers": {
+       "kamigotchi": {
+         "command": "python",
+         "args": ["executor/server.py"],
+         "cwd": "/absolute/path/to/kami-harness"
+       }
+     }
+   }
+   ```
+5. Smoke-test: `cd executor && python3 -m pytest tests/ -v`.
 
-### Trading (P2P)
-Orderbook model: Create → Execute → Complete. One item each side, one side
-must be Musu. Fees apply (creation fee + delivery fee; delivery waived in
-room 66). Tax on Musu transfers.
-See [systems/trading.md](systems/trading.md).
+The connected client bootstraps an account by calling
+`register_kamibots(account=...)` then `store_operator_key(account=...)`.
 
-### NPC Shops
-Buy/sell items at NPCs. Must be in same room (or NPC is global). Buy prices
-may use GDA (dynamic pricing — rises with demand, decays over time).
-See [systems/npc-shops.md](systems/npc-shops.md).
+## Versioning
 
-### Equipment
-Equip items to Kami for stat bonuses. One item per slot. Must be `RESTING`
-to equip/unequip. Default capacity: 1 slot.
-See [systems/equipment.md](systems/equipment.md).
+The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
+`server_version`. Policy (semver) and release history are in
+[`CHANGELOG.md`](CHANGELOG.md):
 
-### Movement & Rooms
-70 rooms across 4 z-planes. Move to adjacent rooms or via special exits.
-Costs stamina. Gates may restrict access (level, quest flags, items).
-Room 66 = Marketplace (no trade delivery fee). Room 1 = start.
-See [systems/rooms.md](systems/rooms.md).
+- **MAJOR** — breaking change to an existing tool (name, params, semantics).
+- **MINOR** — additive: new tools or new optional params. The expected
+  path for future studies.
+- **PATCH** — doc/non-semantic changes.
 
-### Quests
-~130 quests (main story chain, faction, side). Accept → complete objectives
-→ claim rewards (items, reputation, flags). Most main quests are sequential.
-Objectives track deltas from acceptance (snapshot-based).
-See [systems/quests.md](systems/quests.md).
+Current: **`1.0.0`** — the environment-interface baseline.
 
-### Gacha & Sacrifice
-Mint new Kamis with Gacha Tickets (commit-reveal randomness from pool).
-Sacrifice permanently burns a Kami for a random item; pity system guarantees
-uncommon every 20, rare every 100 sacrifices.
-See [systems/gacha.md](systems/gacha.md).
+## No agent policy
 
-### Day/Night Cycle
-36-hour cycle: DAYLIGHT (0-11h), EVENFALL (12-23h), MOONSIDE (24-35h).
-`phase = ((timestamp / 3600) % 36) / 12 + 1`. Some quests and mechanics
-are phase-gated.
-See [systems/day-night.md](systems/day-night.md).
+This repo is deliberately policy-free. It documents *what the world is and
+what you can do to it*, never *what an agent should do*. Strategy, memory,
+and decision procedures are the agent's concern — see the `kami-agent`
+reference scaffold. Content removed during the refactor is preserved in
+[`migration/to-kami-agent/`](migration/to-kami-agent/); every removed
+judgment sentence is catalogued in
+[`migration/judgment-sweep.md`](migration/judgment-sweep.md).
 
-### State Reading (perception)
-How to query on-chain state, project HP/stamina between syncs, and
-enumerate inventory/quests. The agent's "nervous system."
-See [systems/state-reading.md](systems/state-reading.md).
+## File map
 
-### Memory (persistence)
-Multi-account state — portfolio plans, per-account snapshots, decisions —
-persisted in `memory/` (gitignored). A single mastermind agent controls 1–N
-accounts. Reads the roster, perceives all accounts, then executes
-portfolio-level plans that coordinate work across accounts.
-See [systems/memory.md](systems/memory.md).
-
-### Strategies (calibrated wisdom)
-Proven decision heuristics learned through gameplay and human review. Committed
-to the repo — shared across agent instances. Read `strategies/INDEX.md` before
-planning. Insights flow from the decision log through the calibration loop:
-agent plays, founder reviews, confirmed patterns get promoted to `strategies/`.
-See [strategies/README.md](strategies/README.md).
-
-### Factions & Reputation
-Three factions: Agency, Elders (Mina), Nursery. Reputation gained via quest
-rewards (2/4/6 per quest). Tracked as leaderboard scores.
-See [systems/factions.md](systems/factions.md).
-
-## Cooldowns
-
-Base cooldown: **180 seconds** after most actions. Modified by
-`STND_COOLDOWN_SHIFT` bonus (skills can reduce it). Always check cooldown
-before planning the next action.
-See [systems/accounts.md](systems/accounts.md).
-
-## Prerequisites
-
-**V1 agents use the [Kamibots API](integration/kamibots/)** for
-world-state reads (projected HP, earnings, node occupancy) and strategy
-execution (harvest loops, collect cycles). This is the primary
-integration for V1 — see [integration/kamibots/](integration/kamibots/).
-
-A local MUD sync that mirrors raw ECS state to PostgreSQL is available
-for Phase 2 when we build our own perception layer. See
-[integration/sync/](integration/sync/) (Phase 2).
-
-## How to Execute Actions
-
-All gameplay = transactions on **Yominet** (Chain ID `428962654539583`, flat `0.0025 gwei` gas).
-RPC: `https://jsonrpc-yominet-1.anvil.asia-southeast.initia.xyz`
-
-**Wallets**: two keys per player.
-- **Owner** — registers account, trades, mints, approves ERC-20s. Holds ETH + tokens.
-- **Operator** — all gameplay (harvest, move, equip, quests). Delegated from owner via `system.account.set.operator`.
-
-**Calling a system**: hash the system ID string → resolve address from World → call `executeTyped(...)`.
-```
-address = World.systems().getEntitiesWithValue(keccak256(systemId))
-```
-Some systems use non-standard entry points (e.g., `reveal()`, `deposit()`, `batchTransfer()`)
-instead of `executeTyped()`. Check [integration/system-ids.md](integration/system-ids.md)
-for the full list and signatures.
-
-**Entity IDs**: most are deterministic hashes — `keccak256(prefix, index)`. Accounts use
-`uint256(ownerAddress)`. See [integration/entity-ids.md](integration/entity-ids.md).
-
-Setup: [integration/bootstrap.md](integration/bootstrap.md) |
-SDK patterns: [integration/sdk-setup.md](integration/sdk-setup.md) |
-All system IDs: [integration/system-ids.md](integration/system-ids.md)
-
-## Per-Tick Decision Checklist
-
-On each agent decision cycle, evaluate in priority order:
-
-1. **Death check**: if any Kami has HP = 0 and state = `DEAD`, decide whether
-   to revive (costs 33 Onyx) or leave dead
-2. **Harvest danger**: for each harvesting Kami, estimate current HP from
-   strain. If HP < 30% of max, collect or stop immediately
-3. **Cooldown gate**: if Kami is on cooldown, skip to next Kami or wait
-4. **Collect vs stop**: if accrued bounty is substantial and HP is safe,
-   collect (keeps harvesting). If HP is getting low or need to act, stop
-5. **Scavenge claims**: if any node's scavenge bar has claimable tiers,
-   claim them (then reveal droptable commits next tick)
-6. **Droptable reveals**: if pending commit-reveal transactions exist,
-   execute reveals
-7. **Level up**: if any resting Kami has XP >= level cost, level up and
-   spend skill point
-8. **Quest progress**: check completable quests → complete → accept next
-9. **Restart harvest**: if a Kami is resting and HP is healthy (>50% max),
-   pick best available node and start harvesting
-10. **Economy**: craft if profitable recipes available, trade if favorable
-    orders exist, buy from NPC shops if needed
-
-> When restarting harvest, node selection priority:
-> affinity match > high-value droptable > low occupancy > low scav cost.
-> See [systems/harvesting.md](systems/harvesting.md) for the full framework.
-
-## Catalogs
-
-| File | Contents |
+| Need… | Read… |
 |---|---|
-| [catalogs/nodes.csv](catalogs/nodes.csv) | All harvest nodes: affinity, drops, level limits, scav cost |
-| [catalogs/items.csv](catalogs/items.csv) | All items: type, tradability, stats |
-| [catalogs/skills.csv](catalogs/skills.csv) | Skill trees: effects, costs, tiers, exclusions |
-| [catalogs/recipes.csv](catalogs/recipes.csv) | Crafting recipes: inputs, outputs, stamina cost |
-| [catalogs/rooms.csv](catalogs/rooms.csv) | Room map: coordinates, exits, gates |
-| [catalogs/shop-listings.csv](catalogs/shop-listings.csv) | NPC shop items and prices |
-| [catalogs/scavenge-droptables.csv](catalogs/scavenge-droptables.csv) | Node scavenge reward tables |
-
-## Systems
-
-| File | What it covers |
-|---|---|
-| [systems/harvesting.md](systems/harvesting.md) | Primary income loop: node selection, bounty, strain, liquidation risk |
-| [systems/health.md](systems/health.md) | HP mechanics, resting recovery, death, revival |
-| [systems/leveling.md](systems/leveling.md) | XP, level-up costs, skill trees, tier gates, build decisions |
-| [systems/scavenging.md](systems/scavenging.md) | Scavenge bar, tier claiming, droptable commit-reveal |
-| [systems/liquidation.md](systems/liquidation.md) | PvP kill mechanics, threat assessment, affinity combat triangle |
-| [systems/crafting.md](systems/crafting.md) | Recipes, item types, using/burning/transferring items |
-| [systems/trading.md](systems/trading.md) | P2P trades, Kami marketplace, fees, tax |
-| [systems/npc-shops.md](systems/npc-shops.md) | NPC buy/sell, GDA pricing, newbie vendor, auctions |
-| [systems/equipment.md](systems/equipment.md) | Equip/unequip, slot system, stat bonuses |
-| [systems/rooms.md](systems/rooms.md) | World map, movement, stamina cost, gates |
-| [systems/quests.md](systems/quests.md) | Quest types, objectives, rewards, community goals |
-| [systems/gacha.md](systems/gacha.md) | Minting Kamis, rerolling, sacrifice, pity system |
-| [systems/day-night.md](systems/day-night.md) | 36-hour phase cycle, phase-gated actions |
-| [systems/factions.md](systems/factions.md) | Faction reputation, quest-based rep gains |
-| [systems/accounts.md](systems/accounts.md) | Stats, stamina, cooldowns, owner/operator wallets |
-| [systems/state-reading.md](systems/state-reading.md) | On-chain queries, HP/stamina projection, perception loop |
-| [systems/memory.md](systems/memory.md) | Agent memory schema, plan hierarchy, session lifecycle |
-| [strategies/README.md](strategies/README.md) | Calibrated decision heuristics from gameplay |
-| [strategies/INDEX.md](strategies/INDEX.md) | Strategy index by topic (harvesting, builds, economy, coordination) |
+| Set up the server + a client | [`SETUP.md`](SETUP.md) |
+| MCP tool reference (per-tool) | [`executor/README.md`](executor/README.md) |
+| Per-system mechanics | `systems/<system>.md` |
+| Reference data (nodes, items, quests…) | `catalogs/` |
+| Per-system call signatures + ABIs | `integration/api/<system>.md` |
+| Chain ID, RPC, gas, currencies | [`integration/chain.md`](integration/chain.md) |
+| World address, system resolution | [`integration/addresses.md`](integration/addresses.md) |
+| All system IDs + wallet requirements | [`integration/system-ids.md`](integration/system-ids.md) |
+| Entity ID derivation | [`integration/entity-ids.md`](integration/entity-ids.md) |
+| First-time bootstrap (register, fund, mint) | [`integration/bootstrap.md`](integration/bootstrap.md) |
+| ethers.js / web3.py setup | [`integration/sdk-setup.md`](integration/sdk-setup.md) |
+| Common errors | [`integration/errors.md`](integration/errors.md) |
+| MUD ECS architecture overview | [`integration/architecture.md`](integration/architecture.md) |
+| Game-data tables (nodes, rooms, items) | [`integration/game-data.md`](integration/game-data.md) |
+| Kamibots API reference | [`integration/kamibots/`](integration/kamibots/) |
+| Versioning policy + changelog | [`CHANGELOG.md`](CHANGELOG.md) |

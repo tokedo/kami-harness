@@ -1,7 +1,6 @@
-# Quests & Goals — Agent Decision Guide
+# Quests & Goals
 
-Quest prioritization, objective tracking, reward evaluation, and community
-goals.
+Quest lifecycle, objective types, rewards, and community goals.
 
 ## Quest Types
 
@@ -12,7 +11,8 @@ goals.
 | SIDE | 3001–3024+ | Various | ~24+ | Side quests |
 
 Most main quests are **sequential** — each requires completion of the previous
-one. Faction quests unlock through specific main quest requirements.
+one. Faction quests unlock through specific main quest requirements. Main
+quests unlock game content, rooms, and features.
 
 ## Quest Lifecycle
 
@@ -92,8 +92,7 @@ behavior may vary).
 ### Snapshot Mechanics
 
 For INCREASE objectives, progress = `currentValue - snapshotValue`.
-Activities done **before** accepting the quest don't count. Always accept
-quests **before** doing their objectives.
+Activities done **before** accepting the quest don't count.
 
 ## Rewards
 
@@ -110,7 +109,6 @@ Rewards are distributed automatically on completion.
 Some quests are repeatable with a cooldown:
 - After completion, wait for cooldown duration to elapse
 - Then re-accept (overwrites previous instance, re-snapshots objectives)
-- Good for farming reputation and item rewards
 
 ## Completability Check
 
@@ -124,34 +122,6 @@ try {
   // Objectives not yet met
 }
 ```
-
-## Decision Rules
-
-### Quest Prioritization
-
-1. **Main quests** — unlock game content, rooms, features. Highest priority
-2. **Faction quests** — build reputation, unlock faction rewards
-3. **Side quests** — good rewards but optional
-
-### When to Accept
-
-- Accept quests **before** doing the tracked activity (snapshot-based)
-- If a quest requires "harvest X Musu" → accept first, then harvest
-- If a quest requires "be in room Y" → accept it when convenient, complete
-  when you naturally visit that room
-
-### Quest-Aware Planning
-
-Before starting any activity, check if there's a quest that would track it:
-- About to harvest → any harvest-time or scavenge quests available?
-- About to move rooms → any room-visit quests?
-- About to craft → any craft-item quests?
-- About to buy from NPC → any listing-buy quests?
-
-### Completable Quests
-
-Check completable quests every tick using `staticCall`. Complete immediately
-to collect rewards and accept the next quest in chain.
 
 ## Community Goals
 
@@ -180,11 +150,7 @@ Contributors qualify for tiers based on contribution amount. Higher tiers
 include all lower tier rewards. Some rewards are **proportional** to
 contribution amount.
 
-### Decision: When to Contribute
-
-- If you have excess resources and the goal reward is valuable
-- Consider the proportional reward ratio — more contribution = more reward
-- Goals are one-time events; contribute before the target is reached
+Goals are one-time events.
 
 ## Entity IDs
 

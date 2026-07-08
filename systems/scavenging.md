@@ -1,4 +1,4 @@
-# Scavenging — Agent Decision Guide
+# Scavenging
 
 Secondary loot system tied to harvest nodes. Harvest output fills a scavenge
 bar; when full, claim for droptable rolls.
@@ -58,31 +58,16 @@ Droptable rewards create a **commit** that must be separately **revealed**:
 The reveal must happen within **256 blocks** (~50 minutes). If missed, an
 admin `forceReveal` can rescue stuck commits.
 
-## Decision Rules
+## Scavenge Value by Node Cost
 
-### When to Claim
+Higher-cost nodes have rarer drops.
 
-- Claim as soon as tiers are available — no benefit to waiting
-- If multiple nodes have claimable tiers, batch the claims
-- After claiming, remember to reveal droptable commits next tick
-
-### Node Selection for Scavenge Value
-
-Higher-cost nodes have rarer drops. When choosing a harvest node, consider:
-
-- **100-cost nodes**: frequent claims, common drops — good for quest progress
-  (quests may track `SCAV_CLAIM_NODE` or `DROPTABLE_ITEM_TOTAL`)
-- **500-cost nodes**: infrequent claims, rare drops — better long-term value
-  if you're harvesting there anyway for affinity match
+- **100-cost nodes**: frequent claims, common drops (quests may track
+  `SCAV_CLAIM_NODE` or `DROPTABLE_ITEM_TOTAL`)
+- **500-cost nodes**: infrequent claims, rare drops
 
 Scavenge points = harvest output, so affinity-matched harvesting on a high-cost
 node still fills the bar — it just takes longer per tier.
-
-### When to Reveal
-
-- Reveal pending commits as soon as possible (next decision tick)
-- Group multiple commit IDs into a single reveal call
-- Don't let commits expire (256-block window)
 
 ## Tracking Progress
 

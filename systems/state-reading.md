@@ -1,8 +1,7 @@
-# State Reading — Agent Perception Guide
+# State Reading
 
 How to query game state and project values between on-chain syncs.
-This is the agent's "nervous system" — every decision in the
-[Per-Tick Checklist](../README.md) requires answering a question listed here.
+Covers state queries and local projection formulas.
 
 ## Overview
 
@@ -46,7 +45,7 @@ RPC calls return the same last-synced snapshots.
 
 ### Direct RPC data sources
 
-Three data sources for direct reads, in order of preference:
+Three data sources for direct reads:
 
 | Source | Cost | Freshness | Use for |
 |---|---|---|---|
@@ -73,10 +72,10 @@ const kami = await getter.getKami(kamiId);
 // kami.state: "RESTING" (1), "HARVESTING" (2), "DEAD" (3), "721_EXTERNAL" (4)
 ```
 
-Decision map:
+Actions available by state:
 - `RESTING` → can harvest, equip, level, quest, move
 - `HARVESTING` → can collect, stop, feed (use item), get liquidated
-- `DEAD` → must revive (33 ONYX via `system.kami.onyx.revive`) or ignore
+- `DEAD` → revive available (33 ONYX via `system.kami.onyx.revive`)
 - `721_EXTERNAL` → unstaked NFT, not in game
 
 ### Stats (synced values)
@@ -121,9 +120,7 @@ for (const eqId of equipIds) {
 }
 ```
 
-## Projected HP (Critical)
-
-**This is the most important computation for survival decisions.**
+## Projected HP
 
 GetterSystem returns the last-synced HP (`sync` field). Between syncs, HP
 changes continuously — draining while harvesting, recovering while resting.
@@ -156,12 +153,6 @@ Simplified strain-per-Musu ratio: `~6.5 / (Harmony + 20)`.
 | 10 | 0.217 | ~231 |
 | 20 | 0.163 | ~308 |
 | 30 | 0.13 | ~385 |
-
-**Action thresholds** (% of max HP):
-- \> 50%: safe, continue harvesting
-- 30–50%: collect now to bank bounty
-- 15–30%: **stop immediately**
-- < 15%: emergency — liquidation/death imminent
 
 ### If RESTING: project HP upward
 
@@ -265,7 +256,7 @@ during a harvest session.
 
 ### Estimated bounty accrual
 
-Project using Fertility + Intensity formulas (see [Projected HP](#projected-hp-critical)
+Project using Fertility + Intensity formulas (see [Projected HP](#projected-hp)
 for the rate computation). Multiply `rate * elapsed * boost / 1e9` for
 projected Musu earned since last collect/start.
 
@@ -292,7 +283,7 @@ const roomIndex = account.room; // uint32
 
 ### Who else is on my node?
 
-This is the hardest query. Options, from best to worst:
+This query has no direct endpoint. Options:
 
 1. **Kamiden stream** — subscribe to `HarvestEnds` and `Kills` events to
    track active harvesters. No direct "list harvesters on node X" endpoint.
@@ -301,10 +292,9 @@ This is the hardest query. Options, from best to worst:
    but parsing requires indexer integration.
 3. **Component scan** — query `component.state` for all Kamis with value
    `"HARVESTING"`, then check their node. Expensive — requires enumerating
-   entities. Not practical for real-time use.
+   entities.
 
-> HEURISTIC: without occupancy data, assume any non-starter node may have
-> active harvesters. Starter nodes (level limit 15) are safer for weak Kamis.
+Starter nodes have a level limit of 15.
 
 ### Day/night phase
 
@@ -425,7 +415,7 @@ See [integration/api/indexer.md](../integration/api/indexer.md) for full method 
 
 ## Setup Pattern
 
-Perception step skeleton — call once per decision tick:
+State-read skeleton — reads an account and its kamis in one pass:
 
 ```javascript
 async function perceive(getter, valueComp, ownsKami, accountId, kamiIds) {
@@ -448,7 +438,7 @@ async function perceive(getter, valueComp, ownsKami, accountId, kamiIds) {
     let projectedHP = hp[3]; // sync value
     if (k.state === "HARVESTING") {
       const strainPerMusu = 6.5 / (harmony + 20);
-      // Rough projection — agent should track actual elapsed + bounty rate
+      // Rough projection; sync value used as placeholder
       projectedHP = hp[3]; // use sync as lower bound estimate
     } else if (k.state === "RESTING") {
       const healRate = (harmony + 20) * 0.6 / 3600;
@@ -475,8 +465,8 @@ async function perceive(getter, valueComp, ownsKami, accountId, kamiIds) {
 }
 ```
 
-The returned object feeds directly into the
-[Per-Tick Decision Checklist](../README.md).
+The returned object bundles the last-synced snapshot with locally projected
+values.
 
 ## Future: Processed State Layer
 

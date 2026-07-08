@@ -2,7 +2,7 @@
 
 Two query methods, depending on needs:
 
-| Method | Best for |
+| Method | Suited to |
 |---|---|
 | **Direct SQL** (PostgreSQL) | Aggregate queries, joins, filtering, ad-hoc exploration |
 | **REST API** (`/api/logs`) | Programmatic access from agent code, table-specific log fetching |

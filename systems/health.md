@@ -1,6 +1,6 @@
-# Health & Death — Agent Decision Guide
+# Health & Death
 
-How HP works, when to heal, when to revive.
+How HP, healing, death, and revival work.
 
 ## HP Mechanics
 
@@ -46,13 +46,6 @@ healRate ≈ (Harmony + 20) * 0.6 / 3600   HP/sec
 
 HP is capped at maxHP.
 
-### When to Wait for Healing
-
-- If HP > 50% of max → safe to start harvesting
-- If HP 30–50% → can harvest short sessions, but risky on contested nodes
-- If HP < 30% → **wait for more healing** before harvest
-- Factor in how long the Kami will harvest and the projected strain
-
 ## Death
 
 A Kami dies when HP reaches 0. Causes:
@@ -64,18 +57,6 @@ A Kami dies when HP reaches 0. Causes:
 
 State = `DEAD`, HP = 0. Cannot:
 - Harvest, level up, equip/unequip, use items, accept quests, move, trade
-
-### Decision: Revive or Leave Dead?
-
-Revive when:
-- The Kami has good stats/skills worth preserving
-- You have 33+ Onyx Shards and can afford the investment
-- You need this Kami for active plans (harvesting, quests)
-
-Leave dead when:
-- The Kami has poor stats and you plan to sacrifice/replace it
-- Onyx Shards are scarce and needed for other purposes
-- You have other Kamis that can cover the workload
 
 ## Revival
 
@@ -93,34 +74,21 @@ Post-revival state:
 - All other stats unchanged
 - Immediately begins passive healing
 
-### Post-Revival Plan
+### Post-Revival Healing Time
 
-After reviving at 33 HP, the Kami needs healing time before harvesting:
+Heal time from the 33 HP revival floor to 50% of a 50 max HP Kami:
 
-| Harmony | Hours to reach 50% of 50 max HP (from 33) | Action |
-|---|---|---|
-| 10 | ~0.9 h | Wait, then short harvest session |
-| 20 | ~0.7 h | Wait, then moderate harvest session |
+| Harmony | Hours to reach 50% of 50 max HP (from 33) |
+|---|---|
+| 10 | ~0.9 h |
+| 20 | ~0.7 h |
 
 If max HP is higher than 50 (from boosts), healing takes proportionally longer.
-
-## HP Action Thresholds
-
-These thresholds apply to **projected** HP (not on-chain sync value):
-
-| Projected HP (% of max) | Action |
-|---|---|
-| > 50% | Safe. Continue harvesting or start a new session |
-| 30–50% | Collect bounty now. Consider stopping if low Harmony |
-| 15–30% | **Stop immediately**. Liquidation danger |
-| < 15% | **Emergency stop**. Death imminent |
-| = 0 | Dead. Decide: revive or leave |
 
 ## Cooldown Interaction
 
 After most actions (collect, stop, level up, equip), a **180-second** base
-cooldown applies. Factor this into heal timing — you can't restart harvesting
-until cooldown expires.
+cooldown applies — you can't restart harvesting until cooldown expires.
 
 See [accounts.md](accounts.md) for cooldown details.
 

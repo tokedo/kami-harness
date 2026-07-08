@@ -1,6 +1,6 @@
-# Rooms & Movement — Agent Decision Guide
+# Rooms & Movement
 
-Pathfinding, room selection, gates, and movement costs.
+Pathfinding, gates, and movement costs.
 
 ## World Structure
 
@@ -88,24 +88,22 @@ Nodes have:
 
 See [catalogs/nodes.csv](../catalogs/nodes.csv) for all nodes.
 
-## Pathfinding Decisions
+## Pathfinding
 
-### Choosing a Destination
+Room-dependent mechanics:
 
-- **For harvesting**: go to the room with the best node for your Kami's affinity
-  and level
-- **For quests**: many quests require being in a specific room (`ROOM` objective)
-- **For trading**: go to room 66 to avoid delivery fees
-- **For NPC shops**: go to the NPC's room (or use global NPCs from anywhere)
+- Many quests require being in a specific room (`ROOM` objective).
+- Room 66 (Marketplace) waives P2P trade delivery fees.
+- NPC transactions require being in the same room as the NPC, unless the NPC's
+  room = 0 (globally accessible).
 
-### Path Planning
+### Path Computation
 
 1. Check current room (from account state)
 2. Look up target room coordinates
 3. Calculate path via adjacency + special exits
 4. Estimate stamina cost: 5 * number of moves
-5. Verify you have enough stamina (or wait for regen)
-6. Check gate conditions along the path
+5. Check gate conditions along the path
 
 ### Stamina Management
 
@@ -117,10 +115,6 @@ moveCost = 5 per room
 
 Time to regen from 0 to full: 100 minutes.
 Moves from full stamina: 20.
-
-If a path requires more stamina than available:
-- Wait for regen (1 stamina per minute)
-- Plan multi-session travel (move as far as you can, wait, continue)
 
 ## Room Data
 

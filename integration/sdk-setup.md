@@ -119,7 +119,7 @@ Kamigotchi uses two wallets per player:
 
 ### New Player Path
 
-After registering, new players need to acquire their first Kami before they can participate in gameplay. The recommended first path is purchasing a Kami on **KamiSwap** marketplace. Gacha is the main alternative path — buy tickets with $MUSU via the auction system. See the [Integration Guide](guide.md#step-5-get-your-first-kami) for the full walkthrough.
+After registering, new players need to acquire their first Kami before they can participate in gameplay. One path to a first Kami is KamiSwap; gacha minting is another — buy tickets with $MUSU via the auction system. See the [Integration Guide](guide.md#step-5-get-your-first-kami) for the full walkthrough.
 
 ### Determining Which Wallet to Use
 

@@ -1,6 +1,6 @@
-# Day/Night Cycle — Agent Decision Guide
+# Day/Night Cycle
 
-Phase-gated action timing. Local computation, no RPC needed.
+Phase-gated timing. Local computation, no RPC needed.
 
 ## Cycle Structure
 
@@ -48,27 +48,13 @@ Some quest objectives check the current phase:
 - Example: "complete during MOONSIDE"
 - Must be in the correct phase when completing the quest
 
-### Quest Strategy
-
-If a quest requires a specific phase:
-1. Check current phase
-2. If wrong phase → calculate time until target phase starts
-3. Schedule quest completion for the right phase
-4. Do other tasks while waiting (harvest, craft, move)
-
 ### Other Mechanics
 
 The phase system is designed to gate NPC availability, scavenging yields,
-or enemy behavior during specific phases. Check individual quest objectives
-for phase requirements.
+or enemy behavior during specific phases. Individual quest objectives specify
+their phase requirements.
 
-## Decision Rules
-
-- **Always know the current phase** — compute at the start of each decision tick
-- **Plan ahead**: if a phase-gated quest needs MOONSIDE and you're in DAYLIGHT,
-  you have 12+ hours. Use that time productively
-- **Phase transitions**: no action needed — phases change automatically.
-  Just be aware of timing for phase-gated objectives
+Phases change automatically over time; no action is required to transition.
 
 ## Cross-References
 

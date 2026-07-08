@@ -140,8 +140,8 @@ Tax rates are enforced server-side — cannot be overridden.
 
 | Strategy | FREE | PRO | GUILD | TEAM | Max Active | Notes |
 |---|---|---|---|---|---|---|
-| `harvestAndRest` | yes | yes | yes | yes | per slot | Recommended starting strategy |
-| `harvestAndFeed` | yes | yes | yes | yes | per slot | Recommended starting strategy |
+| `harvestAndRest` | yes | yes | yes | yes | per slot | Single-kami timed / HP-based rests |
+| `harvestAndFeed` | yes | yes | yes | yes | per slot | Single-kami automatic feeding |
 | `rest_v3` | yes | yes | yes | yes | 5/account | Multi-kami, predator detection |
 | `auto_v2` | no | max 2 | max 3 | unlimited | see tier | Autonomous multi-kami |
 | `bodyguard` | no | no | max 1 | max 1 | 1/account, up to 8 guards | Node protection |
@@ -431,13 +431,12 @@ Response:
 | `GET /api/playwright/kamis/all` | All kamis in game: index, name, state, image (basic only) | no | no | 24h |
 | `GET /api/kami/:kamiId` | On-chain basic: name, HP, room, stats, state | no | no | — |
 
-**Always prefer playwright endpoints.** They return trait-based bonuses
-that affect harvest rates, combat thresholds, recovery speed, cooldowns.
+The playwright endpoints return trait-based bonuses that affect harvest
+rates, combat thresholds, recovery speed, and cooldowns; the on-chain
+basic endpoints do not.
 
 **Slim vs Full**: the slim endpoint omits `traits` (body/hand affinity,
-trait names, per-trait stats). Use full endpoint when you need affinity
-data (e.g., predator threat assessment). Slim is lighter for routine
-stat checks.
+trait names, per-trait stats); the full endpoint includes them.
 
 **All kamis**: the `/playwright/kamis/all` endpoint returns basic
 listing data (index, name, state) for every kami in the game. It does
