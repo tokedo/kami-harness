@@ -40,7 +40,7 @@ MCP client (any KamiBench agent) --MCP--> executor (server.py) --> Kamibots API
 
 ## Tool surface
 
-The server exposes **64 tools**. The authoritative, per-tool reference —
+The server exposes **78 tools**. The authoritative, per-tool reference —
 signatures, parameters, and behavior — is
 [`executor/README.md`](executor/README.md). Grouped overview:
 
@@ -48,12 +48,13 @@ signatures, parameters, and behavior — is
 |---|---|---|
 | **Setup** | `list_accounts`, `register_kamibots`, `store_operator_key` | Account registry, Kamibots API registration, operator-key delegation |
 | **Reads** | `get_tier`, `get_inventory`, `get_kami_state(_slim)`, `get_kamis_progress_batch`, `get_nodes`, `get_prices`, `get_npc_prices`, `get_account_kamis`, `get_all_kamis`, `get_killer_ranking`, `get_leaderboard`, `get_account_trades` | Perception: account, kami, node, market, and ranking state |
-| **Strategy execution (Kamibots)** | `start_strategy`, `stop_strategy`, `get_all_strategies`, `get_strategy_status`, `get_strategy_logs` | Kamibots-managed harvest/rest/craft loops |
-| **On-chain actions** | `harvest_start/stop/collect`, `move_to_room`, `travel_to_room`, `listing_buy`, `auction_buy`, `feed_kami`, `revive_kami`, `level_up_kami`, `name_kami`, `equip_item`, `unequip_item`, `upgrade_skill`, `use_account_item`, `burn_items`, `craft_item` | Direct Yominet transactions |
+| **Strategy execution (Kamibots)** | `start_strategy`, `stop_strategy`, `get_all_strategies`, `get_all_strategy_statuses`, `get_strategy_status`, `get_strategy_logs` | Kamibots-managed harvest/rest/craft loops |
+| **On-chain actions** | `harvest_start/stop/collect`, `move_to_room`, `travel_to_room`, `listing_buy`, `auction_buy`, `feed_kami`, `revive_kami`, `level_up_kami`, `name_kami`, `equip_item`, `unequip_item`, `upgrade_skill`, `use_account_item`, `burn_items`, `craft_item`, `sacrifice_kami(_batch)`, `sacrifice_reveal` | Direct Yominet transactions |
 | **Quests** | `get_active_quests`, `quest_state`, `get_expected_objective`, `accept_quest`, `complete_quest`, `check_quest_completable`, `drop_quest`, `get_quest_status` | Quest enumeration, state reads, accept/complete/drop |
 | **Scavenge & droptable** | `get_scavenge_points`, `scavenge_claim`, `droptable_reveal`, `scavenge_claim_and_reveal` | Scavenge points, commit-reveal droptables |
-| **Trading** | `create_trade`, `cancel_trade`, `take_trade`, `complete_trade`, `complete_all_trades`, `list_open_sell_offers` | P2P orderbook trades and discovery |
-| **Batch wrappers** | `level_and_allocate_batch`, `level_to`, `allocate_skills`, `use_item_batch`, `stop_harvest_batch`, `get_kamis_progress_batch` | Multi-kami operations serialized in one call |
+| **Trading** | `create_trade`, `cancel_trade`, `take_trade`, `complete_trade`, `complete_all_trades`, `list_open_sell_offers`, `get_item_orderbook`, `transfer_kami`, `transfer_items` | P2P orderbook trades, discovery, account-to-account transfers |
+| **Kami marketplace (KamiSwap)** | `list_kami`, `get_kami_market_listings`, `buy_kami`, `cancel_kami_listing` | ETH-denominated kami listings: browse, buy, list, cancel |
+| **Batch wrappers** | `level_and_allocate_batch`, `feed_level_allocate_batch`, `level_to`, `allocate_skills`, `use_item_batch`, `stop_harvest_batch`, `equip_all_batch`, `unequip_all_batch`, `speed_craft_batch`, `get_kamis_progress_batch` | Multi-kami operations serialized in one call |
 
 > **Concurrency:** batch wrappers serialize their on-chain writes
 > internally. Two separate write-tx calls issued in parallel against the
@@ -203,6 +204,8 @@ running the MCP server, and connecting a client. Full instructions are in
    }
    ```
 5. Smoke-test: `cd executor && python3 -m pytest tests/ -v`.
+6. One-time: seed the trade order-book cache with
+   `python3 executor/kwob_bootstrap.py` (see SETUP.md).
 
 The connected client bootstraps an account by calling
 `register_kamibots(account=...)` then `store_operator_key(account=...)`.
@@ -218,7 +221,8 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`1.0.0`** — the environment-interface baseline.
+Current: **`1.1.0`** — adds marketplace, transfer, sacrifice, order-book,
+and batch tools on top of the 1.0.0 environment-interface baseline.
 
 ## No agent policy
 

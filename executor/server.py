@@ -20,7 +20,9 @@ import json
 import os
 import struct
 import time
+from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
 import httpx
 import yaml
@@ -350,6 +352,7 @@ def _send_tx_owner(
     abi: list,
     args: list,
     gas_limit: int | None = None,
+    value_wei: int = 0,
 ) -> dict:
     """Build, sign, send a transaction with the account's owner key."""
     acct = _get_account(account)
@@ -368,6 +371,8 @@ def _send_tx_owner(
         "nonce": w3.eth.get_transaction_count(acct.owner_addr),
         **_GAS_PRICE,
     }
+    if value_wei:
+        tx_params["value"] = value_wei
     if gas_limit:
         tx_params["gas"] = gas_limit
 
@@ -595,6 +600,14 @@ def _proto_field_bytes(fields: dict, num: int) -> bytes:
         if isinstance(raw, bytes):
             return raw
     return b""
+
+
+def _proto_field_varint(fields: dict, num: int) -> int:
+    if num in fields:
+        kind, raw = fields[num][0]
+        if kind == "varint":
+            return int(raw)
+    return 0
 
 
 def _kamiden_grpc_call(method: str, body: bytes = b"") -> bytes:
@@ -1178,6 +1191,7 @@ async def get_kamis_progress_batch(
         traits = data.get("traits", {}) or {}
         body = traits.get("body", {}) or {}
         hand = traits.get("hand", {}) or {}
+        harvest = data.get("harvest", {}) or {}
         return {
             "index": kid,
             "name": data.get("name"),
@@ -1187,6 +1201,10 @@ async def get_kamis_progress_batch(
             "unspent_points": skills.get("points"),
             "hp_base": health.get("base"),
             "hp_total": health.get("total"),
+            "hp_sync": health.get("sync"),
+            "hp_rate": health.get("rate"),
+            "harvest_state": harvest.get("state"),
+            "harvest_balance": harvest.get("balance"),
             "harmony_base": harmony.get("base"),
             "violence_base": violence.get("base"),
             "power_base": power.get("base"),
@@ -1214,6 +1232,20 @@ async def get_all_strategies(account: str = "main") -> dict:
         account: Account label.
     """
     return await _api_get("/api/agent/strategies", account)
+
+
+@mcp.tool()
+async def get_all_strategy_statuses(account: str = "main") -> dict:
+    """Live container status for every Kamibots strategy on this account.
+
+    Queries the Kamibots container-status endpoint, which reports the
+    actual running containers — including ones absent from the
+    get_all_strategies database listing.
+
+    Args:
+        account: Account label.
+    """
+    return await _api_get("/api/strategies/status/all", account)
 
 
 @mcp.tool()
@@ -2172,6 +2204,121 @@ async def level_and_allocate_batch(
 
 
 @mcp.tool()
+async def feed_level_allocate_batch(
+    targets: list[dict], account: str = "main"
+) -> dict:
+    """Per kami: FEED consumable items, then LEVEL to a target, then ALLOCATE skills.
+
+    Runs the three phases as one server-side loop per kami, in FEED →
+    LEVEL → ALLOCATE order (feeding lands XP before the level transactions
+    consume it). Every use/level/skill upgrade is its own transaction (no
+    on-chain batching), sent sequentially with nonce-retry. Kamis must be
+    RESTING.
+
+    Each target dict:
+        {"kami_id": int,
+         "feed_item_id": int   (optional; consumable to use on the kami),
+         "feed_count": int     (optional; how many feed_item_id to use),
+         "target_level": int   (optional),
+         "skill_plan": [{"skill_index": int, "points": int}, ...] (optional)}
+
+    Failures are captured per kami: an error is recorded in that kami's
+    result row and its remaining phases are skipped (a failed feed does not
+    level into missing XP); the loop continues with the next kami. The
+    level phase re-reads the live level and stops early if a level
+    transaction reverts. The server-side loop keeps running even if the
+    MCP client call times out; completed work is still applied on-chain.
+
+    Args:
+        targets: List of per-kami target dicts (see above).
+        account: Account label.
+
+    Returns:
+        {count, ok, results: [{kami_id, fed?, leveled?, allocated?, error?}]}
+    """
+    results = []
+    for t in targets:
+        kid = t.get("kami_id")
+        if kid is None:
+            results.append({"kami_id": None, "error": "target missing kami_id"})
+            continue
+        row: dict = {"kami_id": kid}
+        entity_id = _kami_entity_id(kid)
+
+        # Feed phase — deposit XP first.
+        feed_item = t.get("feed_item_id")
+        feed_count = t.get("feed_count") or 0
+        if feed_item and feed_count:
+            fed = 0
+            try:
+                for _ in range(feed_count):
+                    r = _send_tx_retry(
+                        account, "system.kami.use.item", _ABI_FEED,
+                        [entity_id, feed_item],
+                    )
+                    if r.get("status") != "success":
+                        row["error"] = f"feed reverted after {fed}/{feed_count}"
+                        break
+                    fed += 1
+                row["fed"] = {"done": fed, "planned": feed_count}
+            except Exception as e:
+                row["fed"] = {"done": fed, "planned": feed_count}
+                row["error"] = f"feed: {e}"
+            if "error" in row:
+                results.append(row)
+                continue
+
+        # Level-up phase.
+        target_level = t.get("target_level")
+        if target_level is not None:
+            try:
+                state = await _api_get(f"/api/playwright/kami/{kid}/", account)
+                current = state["progress"]["level"]
+                levels_needed = max(0, target_level - current)
+                done = 0
+                for _ in range(levels_needed):
+                    r = _send_tx_retry(
+                        account, "system.kami.level", _ABI_LEVEL, [entity_id],
+                    )
+                    if r["status"] != "success":
+                        break
+                    done += 1
+                row["leveled"] = {
+                    "from": current, "to": current + done, "target": target_level
+                }
+                if current + done < target_level:
+                    row["error"] = f"level stopped at {current + done}"
+                    results.append(row)
+                    continue
+            except Exception as e:
+                row["error"] = f"level: {e}"
+                results.append(row)
+                continue
+
+        # Skill allocation phase.
+        skill_plan = t.get("skill_plan")
+        if skill_plan:
+            try:
+                total_planned = sum(s["points"] for s in skill_plan)
+                allocated = 0
+                for skill in skill_plan:
+                    for _ in range(skill["points"]):
+                        _send_tx_retry(
+                            account, "system.skill.upgrade", _ABI_SKILL,
+                            [entity_id, skill["skill_index"]],
+                        )
+                        allocated += 1
+                row["allocated"] = {"done": allocated, "planned": total_planned}
+            except Exception as e:
+                row["error"] = f"skill: {e}"
+
+        results.append(row)
+
+    ok = sum(1 for r in results if "error" not in r)
+    return {"count": len(results), "ok": ok, "results": results}
+
+
+@mcp.tool()
 def use_item_batch(
     kami_id: int, item_id: int, count: int, account: str = "main"
 ) -> dict:
@@ -2270,7 +2417,229 @@ def unequip_item(kami_id: int, slot_type: str, account: str = "main") -> dict:
     )
 
 
+@mcp.tool()
+def equip_all_batch(
+    equips: list[dict],
+    account: str = "main",
+    delay_seconds: float = 2.0,
+) -> dict:
+    """Equip an inventory item to many kamis (server-side loop, dry-run gated).
+
+    Each entry is {"kami_id": int, "item_index": int}. Per entry: an
+    eth_call dry-run of system.kami.equip from the operator — if it would
+    revert (Kami_Pet_Slot already full, item not in inventory, kami not
+    RESTING) the entry is SKIPPED with the revert reason and no transaction
+    is sent; otherwise the equip is submitted with nonce-retry. The pet
+    slot must be empty first (unequip_all_batch clears occupied slots).
+    Kamis must be RESTING.
+
+    One item per kami (Kami_Pet_Slot is the only equipment slot). Duplicate
+    kami_ids are de-duplicated; a delay_seconds pause is inserted between
+    cycles. The server-side loop keeps running even if the MCP client call
+    times out.
+
+    Args:
+        equips: List of {"kami_id": int, "item_index": int} dicts.
+        account: Account label.
+        delay_seconds: Pause between cycles (default 2.0; 0 disables).
+
+    Returns:
+        {account, requested, equipped, skipped, errors,
+         results: [{kami_id, item_index, status, tx_hash?/reason?}]}.
+        Items are equipped from the account inventory into the
+        Kami_Pet_Slot.
+    """
+    src = _get_account(account)
+    if not equips:
+        raise ValueError(
+            'equips is empty; pass a list of {"kami_id", "item_index"} dicts'
+        )
+
+    contract = w3.eth.contract(
+        address=_resolve_system("system.kami.equip"), abi=_ABI_EQUIP
+    )
+    results: list[dict] = []
+    equipped = 0
+    skipped = 0
+    errors = 0
+    seen: set[int] = set()
+    processed = 0
+    for raw in equips:
+        try:
+            ki = int(raw["kami_id"])
+            item_index = int(raw["item_index"])
+        except (KeyError, TypeError, ValueError) as e:
+            raise ValueError(
+                f"bad equips entry {str(raw)[:80]}: {e}. Each entry needs "
+                f'integer "kami_id" and "item_index".'
+            )
+        if ki in seen:
+            continue
+        seen.add(ki)
+        if processed > 0 and delay_seconds and delay_seconds > 0:
+            time.sleep(delay_seconds)
+        processed += 1
+        eid = _kami_entity_id(ki)
+        # Dry-run gate: skip if equip would revert (slot full, item missing,
+        # not RESTING). No speculative tx.
+        try:
+            contract.functions.executeTyped(eid, item_index).call(
+                {"from": src.operator_addr}
+            )
+        except Exception as e:
+            results.append(
+                {
+                    "kami_id": ki,
+                    "item_index": item_index,
+                    "status": "skipped",
+                    "reason": str(e)[:120],
+                }
+            )
+            skipped += 1
+            continue
+        try:
+            r = _send_tx_retry(
+                account,
+                "system.kami.equip",
+                _ABI_EQUIP,
+                [eid, item_index],
+                gas_limit=3_000_000,
+            )
+        except Exception as e:
+            results.append(
+                {
+                    "kami_id": ki,
+                    "item_index": item_index,
+                    "status": "error",
+                    "reason": str(e)[:120],
+                }
+            )
+            errors += 1
+            continue
+        results.append(
+            {
+                "kami_id": ki,
+                "item_index": item_index,
+                "status": r.get("status"),
+                "tx_hash": r.get("tx_hash"),
+            }
+        )
+        if r.get("status") == "success":
+            equipped += 1
+        else:
+            errors += 1
+
+    return {
+        "account": account,
+        "requested": len(seen),
+        "equipped": equipped,
+        "skipped": skipped,
+        "errors": errors,
+        "results": results,
+    }
+
+
+@mcp.tool()
+def unequip_all_batch(
+    kami_ids: list[int],
+    slot_type: str = "Kami_Pet_Slot",
+    account: str = "main",
+    delay_seconds: float = 2.0,
+) -> dict:
+    """Unequip a slot from many kamis (server-side loop, dry-run gated).
+
+    Per kami: an eth_call dry-run of system.kami.unequip(kamiID, slot_type)
+    — if the slot is EMPTY the kami is SKIPPED and no transaction is sent;
+    otherwise the unequip is submitted with nonce-retry. The freed item
+    returns to the account inventory. Kamis must be RESTING. Duplicate
+    kami_ids are de-duplicated; a delay_seconds pause is inserted between
+    cycles. The server-side loop keeps running even if the MCP client call
+    times out.
+
+    Kami_Pet_Slot is currently the only equipment slot in the game, so the
+    default slot_type unequips all equipment.
+
+    Args:
+        kami_ids: Kami token indices to unequip.
+        slot_type: Equipment slot name (default "Kami_Pet_Slot").
+        account: Account label.
+        delay_seconds: Pause between cycles (default 2.0; 0 disables).
+
+    Returns:
+        {account, slot_type, requested, unequipped, skipped_empty, errors,
+         results: [{kami_id, status, tx_hash?/reason?}]}
+    """
+    src = _get_account(account)
+    if not kami_ids:
+        raise ValueError("kami_ids is empty; pass kami token indices")
+
+    contract = w3.eth.contract(
+        address=_resolve_system("system.kami.unequip"), abi=_ABI_UNEQUIP
+    )
+    results: list[dict] = []
+    unequipped = 0
+    skipped_empty = 0
+    errors = 0
+    seen: set[int] = set()
+    processed = 0
+    for raw in kami_ids:
+        ki = int(raw)
+        if ki in seen:
+            continue
+        seen.add(ki)
+        if processed > 0 and delay_seconds and delay_seconds > 0:
+            time.sleep(delay_seconds)
+        processed += 1
+        eid = _kami_entity_id(ki)
+        # Dry-run gate: skip empty slots (no speculative tx).
+        try:
+            contract.functions.executeTyped(eid, slot_type).call(
+                {"from": src.operator_addr}
+            )
+        except Exception as e:
+            msg = str(e)
+            status = "skipped_empty" if "slot empty" in msg else "skipped"
+            results.append({"kami_id": ki, "status": status, "reason": msg[:100]})
+            skipped_empty += 1
+            continue
+        try:
+            r = _send_tx_retry(
+                account,
+                "system.kami.unequip",
+                _ABI_UNEQUIP,
+                [eid, slot_type],
+                gas_limit=3_000_000,  # unequip uses ~1.02M; 1M was too low → reverts
+            )
+        except Exception as e:
+            results.append({"kami_id": ki, "status": "error", "reason": str(e)[:120]})
+            errors += 1
+            continue
+        results.append(
+            {"kami_id": ki, "status": r.get("status"), "tx_hash": r.get("tx_hash")}
+        )
+        if r.get("status") == "success":
+            unequipped += 1
+        else:
+            errors += 1
+
+    return {
+        "account": account,
+        "slot_type": slot_type,
+        "requested": len(seen),
+        "unequipped": unequipped,
+        "skipped_empty": skipped_empty,
+        "errors": errors,
+        "results": results,
+    }
+
+
 # ---- On-chain: marketplace ----
+
+
+def _eth_to_wei(eth: str) -> int:
+    """Convert a decimal ETH string to wei exactly (no float rounding)."""
+    return int(Decimal(str(eth)) * 10**18)
+
 
 _ABI_LIST_KAMI = json.loads(
     '[{"type":"function","name":"executeTyped",'
@@ -2296,7 +2665,7 @@ def list_kami(
         expiry: Expiration unix timestamp. 0 = no expiration.
         account: Account label.
     """
-    price_wei = int(float(price_eth) * 10**18)
+    price_wei = _eth_to_wei(price_eth)
     if price_wei <= 0:
         raise ValueError("Price must be > 0")
     return _send_tx(
@@ -2305,6 +2674,287 @@ def list_kami(
         _ABI_LIST_KAMI,
         [kami_id, price_wei, expiry],
     )
+
+
+@mcp.tool()
+def get_kami_market_listings(
+    size: int = 200,
+    include_expired: bool = False,
+    max_price_eth: str = "",
+    sort: Literal["price", "timestamp", "kami"] = "price",
+) -> dict:
+    """List active KamiSwap listings (kamis offered for sale in ETH).
+
+    Reads from the Kamiden gRPC indexer (public, no auth). Returns each
+    listing's kami_index, price (ETH and wei), seller account entity ID,
+    on-chain order ID, expiry, and creation timestamp. Already-purchased
+    listings are always excluded.
+
+    Args:
+        size: Max listings to request from the indexer (server caps).
+        include_expired: If False, drops entries whose expiry has passed.
+        max_price_eth: Decimal ETH string (e.g. "0.05"); drops listings
+            priced above it. Empty string = no price cap.
+        sort: "price" (cheapest first), "timestamp" (newest first), or
+            "kami" (by kami index).
+
+    Returns:
+        {count, listings: [{kami_index, price_eth, price_wei, order_id_hex,
+         seller_account_id, expiry, created_at}]}
+    """
+    req = b""
+    if size and size > 0:
+        req += _proto_encode_varint_field(2, size)
+    payload = _kamiden_grpc_call(
+        "kamiden.KamidenService/GetKamiMarketListings", req
+    )
+    listings: list[dict] = []
+    if payload:
+        outer = _proto_decode_fields(payload)
+        now = int(time.time())
+        cap_wei = _eth_to_wei(max_price_eth) if max_price_eth else None
+        for _, raw in outer.get(1, []):
+            if not isinstance(raw, bytes):
+                continue
+            f = _proto_decode_fields(raw)
+            order_id = _proto_field_str(f, 1)
+            seller = _proto_field_str(f, 2)
+            kami_index = _proto_field_varint(f, 3)
+            price_str = _proto_field_str(f, 4)
+            expiry_str = _proto_field_str(f, 5)
+            ts = _proto_field_varint(f, 6)
+            buyer = _proto_field_str(f, 7)
+
+            # Already-purchased entries have BuyerAccountID populated.
+            if buyer and buyer != "0":
+                continue
+            try:
+                expiry_int = int(expiry_str) if expiry_str else 0
+            except ValueError:
+                expiry_int = 0
+            if not include_expired and expiry_int and expiry_int < now:
+                continue
+            try:
+                price_wei = int(price_str) if price_str else 0
+            except ValueError:
+                price_wei = 0
+            if cap_wei is not None and price_wei > cap_wei:
+                continue
+
+            order_id_hex = (
+                hex(int(order_id)) if order_id and order_id != "0" else "0x0"
+            )
+            listings.append(
+                {
+                    "kami_index": kami_index,
+                    "price_eth": price_wei / 10**18,
+                    "price_wei": price_wei,
+                    "order_id_hex": order_id_hex,
+                    "seller_account_id": seller,
+                    "expiry": expiry_int,
+                    "created_at": ts,
+                }
+            )
+
+    if sort == "price":
+        listings.sort(key=lambda x: x["price_wei"])
+    elif sort == "timestamp":
+        listings.sort(key=lambda x: x["created_at"], reverse=True)
+    elif sort == "kami":
+        listings.sort(key=lambda x: x["kami_index"])
+
+    return {"count": len(listings), "listings": listings}
+
+
+_ABI_KAMI_BUY = json.loads(
+    '[{"type":"function","name":"executeTyped",'
+    '"inputs":[{"name":"listingIDs","type":"uint256[]"}],'
+    '"outputs":[{"type":"bytes"}],"stateMutability":"payable"}]'
+)
+
+
+@mcp.tool()
+def buy_kami(
+    kami_ids: list[int],
+    max_total_eth: str,
+    account: str = "main",
+) -> dict:
+    """Buy one or more listed kamis on KamiSwap with ETH. Owner wallet.
+
+    Resolves each kami's active listing via the Kamiden indexer, sums the
+    live listing prices, and sends a single batch purchase transaction
+    carrying exactly that total as its value. The batch is all-or-nothing:
+    if any listing fails (expired, already sold), the whole transaction
+    reverts. Bought kamis join this account's roster and enter a 1-hour
+    purchase cooldown.
+
+    Args:
+        kami_ids: Kami token indices to buy (e.g. [1116, 428]). A single
+            kami is a 1-element list.
+        max_total_eth: Decimal ETH string (e.g. "0.012"). The call aborts
+            BEFORE sending if the live sum of listing prices exceeds this,
+            so a listing repriced between browsing and buying cannot raise
+            the amount spent.
+        account: Account label; pays with this account's owner wallet.
+
+    Returns the tx result (tx_hash, status, gas_used) plus per-kami
+    purchase details and the ETH total.
+    """
+    ids = list(dict.fromkeys(kami_ids))
+    if not ids:
+        raise ValueError("kami_ids must not be empty")
+    cap_wei = _eth_to_wei(max_total_eth)
+    if cap_wei <= 0:
+        raise ValueError("max_total_eth must be > 0")
+
+    market = get_kami_market_listings(size=500, include_expired=False)
+    by_kami: dict[int, dict] = {}
+    for lst in market["listings"]:
+        if lst["order_id_hex"] == "0x0":
+            continue
+        cur = by_kami.get(lst["kami_index"])
+        if cur is None or lst["created_at"] > cur["created_at"]:
+            by_kami[lst["kami_index"]] = lst
+
+    missing = [k for k in ids if k not in by_kami]
+    if missing:
+        raise ValueError(
+            f"No active KamiSwap listing for kami(s): {missing}. "
+            "Check get_kami_market_listings() — the listing may have sold, "
+            "expired, or never existed."
+        )
+
+    picked = [by_kami[k] for k in ids]
+    self_eid = str(_account_entity_id(account))
+    own = [l["kami_index"] for l in picked if l["seller_account_id"] == self_eid]
+    if own:
+        raise ValueError(
+            f"Account '{account}' is the seller of kami(s) {own} — "
+            "the contract rejects buying your own listing."
+        )
+
+    total_wei = sum(l["price_wei"] for l in picked)
+    if total_wei > cap_wei:
+        detail = ", ".join(
+            f"#{l['kami_index']}={l['price_eth']}" for l in picked
+        )
+        raise ValueError(
+            f"Live total {total_wei / 10**18} ETH exceeds max_total_eth "
+            f"{max_total_eth} ({detail}). No transaction sent."
+        )
+
+    listing_ids = [int(l["order_id_hex"], 16) for l in picked]
+    result = _send_tx_owner(
+        account,
+        "system.kamimarket.buy",
+        _ABI_KAMI_BUY,
+        [listing_ids],
+        gas_limit=1_500_000 + 600_000 * len(listing_ids),
+        value_wei=total_wei,
+    )
+    result.update(
+        {
+            "kamis_bought": [
+                {
+                    "kami_index": l["kami_index"],
+                    "price_eth": l["price_eth"],
+                    "listing_id": l["order_id_hex"],
+                    "seller_account_id": l["seller_account_id"],
+                }
+                for l in picked
+            ],
+            "total_eth": total_wei / 10**18,
+            "note": "Bought kamis are in a 1-hour purchase cooldown.",
+        }
+    )
+    return result
+
+
+_ABI_KAMI_CANCEL = json.loads(
+    '[{"type":"function","name":"executeTyped",'
+    '"inputs":[{"name":"orderID","type":"uint256"}],'
+    '"outputs":[{"type":"bytes"}],"stateMutability":"nonpayable"}]'
+)
+
+
+@mcp.tool()
+def cancel_kami_listing(kami_ids: list[int], account: str = "main") -> dict:
+    """Cancel this account's KamiSwap listing(s). Operator wallet.
+
+    Returns each kami from LISTED back to RESTING. The cancel system takes
+    one order ID per transaction, so multiple kami_ids run as a server-side
+    loop (one tx each, continue-on-error; per-kami status is reported in
+    the result). Order IDs are resolved via the Kamiden indexer; only
+    listings made by this account are matched. Expired listings can be
+    cancelled too — cancelling is what frees a kami stuck in LISTED after
+    its listing expires.
+
+    Args:
+        kami_ids: Kami token indices whose listings to cancel.
+        account: Account label (must be the seller).
+
+    Returns:
+        {account, cancelled, failed, results: [{kami_index, listing_id,
+         price_eth, status, tx_hash?, error?}]}
+    """
+    ids = list(dict.fromkeys(kami_ids))
+    if not ids:
+        raise ValueError("kami_ids must not be empty")
+
+    market = get_kami_market_listings(size=500, include_expired=True)
+    self_eid = str(_account_entity_id(account))
+    by_kami: dict[int, dict] = {}
+    for lst in market["listings"]:
+        if lst["order_id_hex"] == "0x0":
+            continue
+        if lst["seller_account_id"] != self_eid:
+            continue
+        cur = by_kami.get(lst["kami_index"])
+        if cur is None or lst["created_at"] > cur["created_at"]:
+            by_kami[lst["kami_index"]] = lst
+
+    missing = [k for k in ids if k not in by_kami]
+    if missing:
+        raise ValueError(
+            f"No listing by account '{account}' for kami(s): {missing}. "
+            "Either not listed, already sold/cancelled, or listed by a "
+            "different account."
+        )
+
+    results = []
+    for k in ids:
+        lst = by_kami[k]
+        entry = {
+            "kami_index": k,
+            "listing_id": lst["order_id_hex"],
+            "price_eth": lst["price_eth"],
+        }
+        try:
+            tx = _send_tx(
+                account,
+                "system.kamimarket.cancel",
+                _ABI_KAMI_CANCEL,
+                [int(lst["order_id_hex"], 16)],
+                gas_limit=1_000_000,
+            )
+            entry.update(
+                {
+                    "status": tx["status"],
+                    "tx_hash": tx["tx_hash"],
+                    "gas_used": tx["gas_used"],
+                }
+            )
+        except Exception as e:
+            entry.update({"status": "error", "error": str(e)})
+        results.append(entry)
+
+    ok = sum(1 for r in results if r["status"] == "success")
+    return {
+        "account": account,
+        "cancelled": ok,
+        "failed": len(results) - ok,
+        "results": results,
+    }
 
 
 # ---- On-chain: trading ----
@@ -2375,7 +3025,8 @@ def list_open_sell_offers(
     Each returned `trade_id` is the argument `take_trade()` expects.
 
     Discovery is bounded by the seed account's trade history: counterparties
-    absent from that history are not surfaced.
+    absent from that history are not surfaced. get_item_orderbook reads the
+    complete per-item book directly from chain state.
 
     Args:
         seed_account: Account label whose trade history seeds the search.
@@ -2468,94 +3119,144 @@ def list_open_sell_offers(
         "counterparties_searched": len(expanded),
         "offers_found": len(offers),
         "offers": offers[:max_offers],
+        "note": (
+            "Discovery here is bounded by trade-history counterparties. "
+            "get_item_orderbook(item_index=...) returns the complete "
+            "per-item order book."
+        ),
     }
+
+
+# Batched component reads: these components expose array overloads —
+# getRaw(uint256[]) and safeGet(uint256[]) — so N entities resolve in one
+# eth_call instead of N.
+_ABI_COMP_GETRAW = json.loads(
+    '[{"type":"function","name":"getRaw",'
+    '"inputs":[{"name":"entities","type":"uint256[]"}],'
+    '"outputs":[{"type":"bytes[]"}],"stateMutability":"view"}]'
+)
+_ABI_COMP_SAFEGET_STR = json.loads(
+    '[{"type":"function","name":"safeGet",'
+    '"inputs":[{"name":"entities","type":"uint256[]"}],'
+    '"outputs":[{"type":"string[]"}],"stateMutability":"view"}]'
+)
+_ABI_COMP_SAFEGET_U32ARR = json.loads(
+    '[{"type":"function","name":"safeGet",'
+    '"inputs":[{"name":"entities","type":"uint256[]"}],'
+    '"outputs":[{"type":"uint32[][]"}],"stateMutability":"view"}]'
+)
+_ABI_COMP_SAFEGET_U256ARR = json.loads(
+    '[{"type":"function","name":"safeGet",'
+    '"inputs":[{"name":"entities","type":"uint256[]"}],'
+    '"outputs":[{"type":"uint256[][]"}],"stateMutability":"view"}]'
+)
+_ABI_COMP_SAFEGET_U256 = json.loads(
+    '[{"type":"function","name":"safeGet",'
+    '"inputs":[{"name":"entities","type":"uint256[]"}],'
+    '"outputs":[{"type":"uint256[]"}],"stateMutability":"view"}]'
+)
+
+_MUSU_INDEX = 1
 
 
 @mcp.tool()
 def get_account_trades(account: str = "main") -> dict:
-    """Show open and recently executed trades for this account.
+    """Show this account's open trades (maker side) with exact status.
 
-    Returns item names, quantities, MUSU amounts, unit prices, and status
-    for every active trade listing. Uses the Kamiden indexer for rich data
-    and on-chain dry-runs to detect EXECUTED trades ready for completion.
+    Reads trade entities directly from chain state via the indexed
+    IDOwnsTrade reverse mapping, so the list is ground truth: PENDING
+    trades are cancellable (cancel_trade), EXECUTED trades have been
+    taken and are ready to finalize (complete_trade). Side is from the
+    maker's perspective: SELL = items offered for MUSU, BUY = MUSU
+    offered for items.
 
     Args:
         account: Account label.
+
+    Returns:
+        {account, pending, executed, total_open, trades: [{trade_id_hex,
+         status, action, summary, item_name, item_index, item_amount,
+         musu_amount, unit_price, side}], pending_summary?,
+         executed_trades?}
     """
-    acct = _get_account(account)
-    account_entity_id = str(int(acct.owner_addr, 16))
+    acc_eid = _account_entity_id(account)
+    owns = w3.eth.contract(
+        address=_resolve_component("component.id.trade.owns"),
+        abi=_SYSTEMS_COMPONENT_ABI,
+    )
+    trade_ids = sorted(owns.functions.getEntitiesWithValue(acc_eid).call())
 
-    # --- Fetch open offers from Kamiden indexer (no auth required) ---
-    req = _proto_encode_string_field(
-        1, account_entity_id
-    ) + _proto_encode_varint_field(2, 500)
+    result: dict = {
+        "account": account,
+        "pending": 0,
+        "executed": 0,
+        "total_open": len(trade_ids),
+    }
+    if not trade_ids:
+        result["trades"] = []
+        return result
 
-    try:
-        payload = _kamiden_grpc_call(
-            "kamiden.KamidenService/GetOpenOffers", req
+    state_c = w3.eth.contract(
+        address=_resolve_component("component.state"),
+        abi=_ABI_COMP_SAFEGET_STR,
+    )
+    keys_c = w3.eth.contract(
+        address=_resolve_component("component.keys"),
+        abi=_ABI_COMP_SAFEGET_U32ARR,
+    )
+    vals_c = w3.eth.contract(
+        address=_resolve_component("component.values"),
+        abi=_ABI_COMP_SAFEGET_U256ARR,
+    )
+    buy_anchors = [
+        int.from_bytes(
+            Web3.solidity_keccak(["string", "uint256"], ["trade.buy", t]), "big"
         )
-        open_trades = _parse_kamiden_trades(payload) if payload else []
-    except Exception as e:
-        open_trades = []
-        indexer_error = str(e)
-    else:
-        indexer_error = None
-
-    # --- Check which open trades are actually EXECUTED (taker accepted) ---
-    # Dry-run complete() on-chain for each trade to detect EXECUTED status.
-    executed_ids: set[str] = set()
-    if acct.owner_key and open_trades:
-        try:
-            complete_sys = w3.eth.contract(
-                address=_resolve_system("system.trade.complete"),
-                abi=_ABI_TRADE_COMPLETE,
-            )
-            for t in open_trades:
-                try:
-                    te = int(t["trade_id_hex"], 16)
-                    complete_sys.functions.executeTyped(te).call(
-                        {"from": acct.owner_addr}
-                    )
-                    executed_ids.add(t["trade_id_hex"])
-                except Exception:
-                    pass
-        except Exception:
-            pass  # Can't resolve system — skip status check
-
-    # Also check trade history for EXECUTED-but-not-completed trades
-    executed_trades = []
-    try:
-        hist_payload = _kamiden_grpc_call(
-            "kamiden.KamidenService/GetTradeHistory", req
+        for t in trade_ids
+    ]
+    sell_anchors = [
+        int.from_bytes(
+            Web3.solidity_keccak(["string", "uint256"], ["trade.sell", t]), "big"
         )
-        if hist_payload:
-            history = _parse_kamiden_trades(hist_payload)
-            for t in history:
-                if t["status"] == "EXECUTED":
-                    executed_trades.append(t)
-                    executed_ids.add(t["trade_id_hex"])
-    except Exception:
-        pass
+        for t in trade_ids
+    ]
+    states = state_c.functions.safeGet(trade_ids).call()
+    bkeys = keys_c.functions.safeGet(buy_anchors).call()
+    bvals = vals_c.functions.safeGet(buy_anchors).call()
+    skeys = keys_c.functions.safeGet(sell_anchors).call()
+    svals = vals_c.functions.safeGet(sell_anchors).call()
 
-    # --- Update statuses and build result ---
-    pending = []
-    executed = []
-    for t in open_trades:
-        if t["trade_id_hex"] in executed_ids:
-            t["status"] = "EXECUTED"
-            t["action"] = "complete_trade"
-            executed.append(t)
+    pending: list[dict] = []
+    executed: list[dict] = []
+    for i, tid in enumerate(trade_ids):
+        bk, bv, sk, sv = bkeys[i], bvals[i], skeys[i], svals[i]
+        if len(bk) != 1 or len(sk) != 1:
+            continue
+        if bk[0] == _MUSU_INDEX:
+            # maker sells items, wants MUSU
+            side, item_index = "SELL", sk[0]
+            qty, musu = sv[0], bv[0]
         else:
-            t["status"] = "PENDING"
-            t["action"] = "cancel_trade"
-            pending.append(t)
-
-    # Add any EXECUTED trades found only in history
-    open_ids = {t["trade_id_hex"] for t in open_trades}
-    for t in executed_trades:
-        if t["trade_id_hex"] not in open_ids:
-            t["action"] = "complete_trade"
-            executed.append(t)
+            # maker offers MUSU, wants items
+            side, item_index = "BUY", bk[0]
+            qty, musu = bv[0], sv[0]
+        item_name = _get_item_name(item_index)
+        verb = "Selling" if side == "SELL" else "Buying"
+        entry = {
+            "trade_id_hex": hex(tid),
+            "status": states[i],
+            "action": (
+                "complete_trade" if states[i] == "EXECUTED" else "cancel_trade"
+            ),
+            "summary": f"{verb} {qty:,}x {item_name} for {musu:,} MUSU",
+            "item_name": item_name,
+            "item_index": item_index,
+            "item_amount": qty,
+            "musu_amount": musu,
+            "unit_price": round(musu / qty) if qty else 0,
+            "side": side,
+        }
+        (executed if states[i] == "EXECUTED" else pending).append(entry)
 
     # --- Summarize by price tier for readability ---
     price_summary: dict[str, dict] = {}
@@ -2575,21 +3276,12 @@ def get_account_trades(account: str = "main") -> dict:
         price_summary[key]["total_musu"] += t["musu_amount"]
         price_summary[key]["count"] += 1
 
-    result: dict = {
-        "account": account,
-        "pending": len(pending),
-        "executed": len(executed),
-        "total_open": len(pending) + len(executed),
-    }
-
-    if indexer_error:
-        result["indexer_error"] = indexer_error
-
+    result["pending"] = len(pending)
+    result["executed"] = len(executed)
     if price_summary:
         result["pending_summary"] = sorted(
             price_summary.values(), key=lambda x: x["unit_price"]
         )
-
     if executed:
         result["executed_trades"] = [
             {
@@ -2599,23 +3291,585 @@ def get_account_trades(account: str = "main") -> dict:
             }
             for t in executed
         ]
+    result["trades"] = pending + executed
+    return result
 
-    result["trades"] = [
-        {
-            "trade_id_hex": t["trade_id_hex"],
-            "status": t["status"],
-            "action": t.get("action"),
-            "summary": t["summary"],
-            "item_name": t["item_name"],
-            "item_index": t["item_index"],
-            "item_amount": t["item_amount"],
-            "musu_amount": t["musu_amount"],
-            "unit_price": t["unit_price"],
-            "side": t["side"],
-        }
-        for t in pending + executed
+
+# ---- On-chain: world order book (KWOB) ----
+
+_TOPIC_COMPONENT_VALUE_SET = (
+    "0x" + Web3.keccak(text="ComponentValueSet(uint256,address,uint256,bytes)").hex()
+)
+_TOPIC_OWNS_TRADE_ID = "0x" + Web3.keccak(text="component.id.trade.owns").hex()
+_LOG_SCAN_MAX_RANGE = 999_999  # Yominet RPC caps eth_getLogs at 1M blocks
+
+# The public RPC is a pruned node (~1M blocks of history), so a log scan
+# alone misses trades created before the prune horizon. kwob_bootstrap.py
+# seeds this cache file with every live trade from the Kamigaze state
+# snapshot; the log scan keeps it current from there.
+_KWOB_CACHE_FILE = Path(__file__).parent / ".cache" / "kwob_trades.json"
+
+# All known trade entity IDs (bootstrap file ∪ log scan). Grows
+# monotonically; liveness is re-checked on-chain on every call.
+_trade_scan_cache: dict = {
+    "next_block": 0,
+    "ids": set(),
+    "loaded": False,
+}
+
+
+def _scan_trade_entity_ids() -> set[int]:
+    """Every known trade entity ID (bootstrap cache + incremental log scan).
+
+    Raises RuntimeError when full coverage cannot be guaranteed — a missing
+    bootstrap cache or a scan gap older than the RPC prune window — rather
+    than silently returning a partial set.
+    """
+    cache = _trade_scan_cache
+    if not cache["loaded"]:
+        if not _KWOB_CACHE_FILE.exists():
+            raise RuntimeError(
+                f"Trade-ID bootstrap cache missing ({_KWOB_CACHE_FILE}). "
+                "The public RPC prunes logs (~1M blocks), so a log scan "
+                "alone cannot see older trades. Run "
+                "`python3 executor/kwob_bootstrap.py` once to seed the "
+                "cache from the Kamigaze state snapshot, then retry."
+            )
+        data = json.loads(_KWOB_CACHE_FILE.read_text())
+        cache["ids"] |= {int(x, 16) for x in data["trade_ids"]}
+        # small overlap so nothing between snapshot and scan is missed
+        cache["next_block"] = max(0, int(data["block"]) - 1_000)
+        cache["loaded"] = True
+
+    latest = w3.eth.block_number
+    if cache["next_block"] < latest - _LOG_SCAN_MAX_RANGE:
+        raise RuntimeError(
+            f"Trade-ID cache is stale: last scan ended at block "
+            f"{cache['next_block']}, chain is at {latest}, and the RPC "
+            f"prunes logs older than ~{_LOG_SCAN_MAX_RANGE} blocks, so the "
+            "gap cannot be recovered from logs. Re-run "
+            "`python3 executor/kwob_bootstrap.py` to re-seed from the "
+            "Kamigaze state snapshot, then retry."
+        )
+    frm = cache["next_block"]
+    while frm <= latest:
+        to = min(frm + _LOG_SCAN_MAX_RANGE, latest)
+        logs = w3.eth.get_logs(
+            {
+                "address": WORLD_ADDRESS,
+                "fromBlock": frm,
+                "toBlock": to,
+                "topics": [_TOPIC_COMPONENT_VALUE_SET, _TOPIC_OWNS_TRADE_ID],
+            }
+        )
+        for lg in logs:
+            cache["ids"].add(int.from_bytes(lg["topics"][3], "big"))
+        frm = to + 1
+    cache["next_block"] = latest + 1
+
+    # Persist the union so coverage survives server restarts even past the
+    # prune window.
+    try:
+        _KWOB_CACHE_FILE.write_text(
+            json.dumps(
+                {
+                    "block": latest,
+                    "trade_ids": sorted(hex(i) for i in cache["ids"]),
+                }
+            )
+        )
+    except OSError:
+        pass
+    return cache["ids"]
+
+
+@mcp.tool()
+def get_item_orderbook(
+    item_index: int, side: Literal["buy", "sell", "both"] = "both"
+) -> dict:
+    """Order book for one item — every open trade, all makers. Read-only.
+
+    Replicates the in-game World Order Book view by reading trade entities
+    directly from chain state (event-log discovery plus batched component
+    reads). Complete: unlike list_open_sell_offers, it sees every open
+    trade regardless of maker. The first call in a server session scans
+    chain history (~15-30s); later calls are incremental. Requires the
+    one-time trade-ID bootstrap (executor/kwob_bootstrap.py, see SETUP.md);
+    without it the call raises instead of returning partial data.
+
+    Returned from the taker's perspective:
+      asks — makers SELLING this item for MUSU, cheapest first. Taking one
+             (take_trade) pays MUSU and receives the items.
+      bids — makers BUYING this item with MUSU, highest price first.
+             Taking one gives the items and receives MUSU (minus trade tax).
+
+    Orders made by any roster account carry an "own" tag with the account
+    label; the contract rejects taking your own trade.
+
+    Args:
+        item_index: Item index (e.g. 1004). MUSU (index 1) is not allowed —
+            it is the quote currency.
+        side: "buy" (asks only), "sell" (bids only), or "both".
+
+    Returns:
+        {item_index, item_name, open_trades_all_items, skipped,
+         asks?/best_ask?, bids?/best_bid?} where each order is
+        {trade_id, qty, musu_total, unit_price, maker_account_id, own?}.
+    """
+    if side not in ("buy", "sell", "both"):
+        raise ValueError("side must be 'buy', 'sell', or 'both'")
+    if item_index == _MUSU_INDEX:
+        raise ValueError("Order book is per-item; MUSU is the quote currency")
+
+    all_ids = sorted(_scan_trade_entity_ids())
+
+    owns_c = w3.eth.contract(
+        address=_resolve_component("component.id.trade.owns"),
+        abi=_ABI_COMP_GETRAW,
+    )
+    state_c = w3.eth.contract(
+        address=_resolve_component("component.state"),
+        abi=_ABI_COMP_SAFEGET_STR,
+    )
+    keys_c = w3.eth.contract(
+        address=_resolve_component("component.keys"),
+        abi=_ABI_COMP_SAFEGET_U32ARR,
+    )
+    vals_c = w3.eth.contract(
+        address=_resolve_component("component.values"),
+        abi=_ABI_COMP_SAFEGET_U256ARR,
+    )
+    tgt_c = w3.eth.contract(
+        address=_resolve_component("component.id.target"),
+        abi=_ABI_COMP_SAFEGET_U256,
+    )
+
+    # Liveness: complete/cancel remove IDOwnsTrade, so raw != empty == open.
+    live_ids: list[int] = []
+    makers: list[int] = []
+    for i in range(0, len(all_ids), 1500):
+        chunk = all_ids[i : i + 1500]
+        for tid, raw in zip(chunk, owns_c.functions.getRaw(chunk).call()):
+            if raw and len(raw) == 32:
+                live_ids.append(tid)
+                makers.append(int.from_bytes(raw, "big"))
+
+    buy_anchors = [
+        int.from_bytes(
+            Web3.solidity_keccak(["string", "uint256"], ["trade.buy", t]), "big"
+        )
+        for t in live_ids
+    ]
+    sell_anchors = [
+        int.from_bytes(
+            Web3.solidity_keccak(["string", "uint256"], ["trade.sell", t]), "big"
+        )
+        for t in live_ids
     ]
 
+    states: list[str] = []
+    bkeys: list[list[int]] = []
+    bvals: list[list[int]] = []
+    skeys: list[list[int]] = []
+    svals: list[list[int]] = []
+    targets: list[int] = []
+    for i in range(0, len(live_ids), 1000):
+        sl = slice(i, i + 1000)
+        states += state_c.functions.safeGet(live_ids[sl]).call()
+        bkeys += keys_c.functions.safeGet(buy_anchors[sl]).call()
+        bvals += vals_c.functions.safeGet(buy_anchors[sl]).call()
+        skeys += keys_c.functions.safeGet(sell_anchors[sl]).call()
+        svals += vals_c.functions.safeGet(sell_anchors[sl]).call()
+        targets += tgt_c.functions.safeGet(live_ids[sl]).call()
+
+    own_by_eid = {
+        int(a.owner_addr, 16): lbl
+        for lbl, a in _accounts.items()
+        if a.owner_addr
+    }
+
+    asks: list[dict] = []
+    bids: list[dict] = []
+    skipped = {"executed": 0, "targeted": 0, "other_item": 0}
+    for i, tid in enumerate(live_ids):
+        if states[i] != "PENDING":
+            skipped["executed"] += 1
+            continue
+        if targets[i] != 0:
+            skipped["targeted"] += 1
+            continue
+        bk, bv, sk, sv = bkeys[i], bvals[i], skeys[i], svals[i]
+        if len(bk) != 1 or len(sk) != 1:
+            continue
+        if sk[0] == item_index and bk[0] == _MUSU_INDEX:
+            book, qty, musu = asks, sv[0], bv[0]
+        elif bk[0] == item_index and sk[0] == _MUSU_INDEX:
+            book, qty, musu = bids, bv[0], sv[0]
+        else:
+            skipped["other_item"] += 1
+            continue
+        entry = {
+            "trade_id": hex(tid),
+            "qty": qty,
+            "musu_total": musu,
+            "unit_price": round(musu / qty, 2) if qty else 0,
+            "maker_account_id": str(makers[i]),
+        }
+        own = own_by_eid.get(makers[i])
+        if own:
+            entry["own"] = own
+        book.append(entry)
+
+    asks.sort(key=lambda x: x["unit_price"])
+    bids.sort(key=lambda x: -x["unit_price"])
+
+    result: dict = {
+        "item_index": item_index,
+        "item_name": _get_item_name(item_index),
+        "open_trades_all_items": len(live_ids),
+        "skipped": skipped,
+    }
+    if side in ("buy", "both"):
+        result["asks"] = asks
+        result["best_ask"] = asks[0]["unit_price"] if asks else None
+    if side in ("sell", "both"):
+        result["bids"] = bids
+        result["best_bid"] = bids[0]["unit_price"] if bids else None
+    return result
+
+
+# ---- On-chain: in-world transfers between accounts ----
+
+# Only the array signature is declared so executeTyped resolves unambiguously
+# even though the contract overloads it with a single-kami form. A 1-element
+# array exercises the same code path, so the array form covers 1..9 kamis.
+_ABI_SEND = json.loads(
+    '[{"type":"function","name":"executeTyped",'
+    '"inputs":[{"name":"kamiIndices","type":"uint32[]"},'
+    '{"name":"toAddress","type":"address"}],'
+    '"outputs":[{"type":"bytes"}],"stateMutability":"nonpayable"}]'
+)
+
+# States from which an in-world send is allowed. The send system auto-cancels
+# any active marketplace listing, so LISTED is fine; HARVESTING / DEAD revert.
+_SENDABLE_STATES = {"RESTING", "LISTED"}
+
+# system.kami.send hard cap (one tx moves at most this many kamis).
+_KAMI_SEND_BATCH_CAP = 9
+
+
+@mcp.tool()
+def transfer_kami(
+    kami_ids: list[int],
+    to_account: str = "",
+    to_address: str = "",
+    account: str = "main",
+) -> dict:
+    """Transfer in-world kami(s) to another account via system.kami.send.
+
+    A purely in-game operator-to-operator transfer: the kamis stay staked
+    and playable; no NFT transfer or marketplace sale is involved. The
+    recipient is addressed by OPERATOR wallet — either resolved from a
+    roster account label (to_account) or given directly as a 0x address
+    (to_address); exactly one of the two must be set.
+
+    Constraints (from system.kami.send):
+      - 1..9 kamis per transaction, no duplicates.
+      - Each kami must be owned by the source account and RESTING or
+        LISTED (an active listing is auto-cancelled by the send);
+        HARVESTING or DEAD reverts.
+      - Send-to-self reverts.
+
+    Each kami's state and ownership are pre-checked on-chain, then the
+    whole batch is dry-run via eth_call. Nothing is submitted unless the
+    dry-run succeeds, so a doomed transfer spends no transaction.
+
+    Args:
+        kami_ids: Kami token indices to send (e.g. [10021]). 1..9 entries.
+        to_account: Destination roster account label.
+        to_address: Destination operator address (0x...); alternative to
+            to_account.
+        account: Source account label.
+
+    Returns the tx result (tx_hash, status, gas_used) plus destination
+    and per-kami pre-check details.
+    """
+    src = _get_account(account)
+    if bool(to_account) == bool(to_address):
+        raise ValueError(
+            "Set exactly one of to_account (roster label) or to_address "
+            "(destination operator address)."
+        )
+    if to_account:
+        dest_operator = _get_account(to_account).operator_addr
+    else:
+        if not Web3.is_address(to_address):
+            raise ValueError(
+                f"to_address is not a valid address: {to_address!r}"
+            )
+        dest_operator = Web3.to_checksum_address(to_address)
+        if int(dest_operator, 16) == 0:
+            raise ValueError("to_address must not be the zero address")
+    if dest_operator.lower() == src.operator_addr.lower():
+        raise ValueError(
+            f"cannot transfer from '{account}' to itself (send-to-self reverts)"
+        )
+
+    # --- Validate batch shape (1..9, no duplicates) ---
+    if not kami_ids:
+        raise ValueError("kami_ids is empty; pass 1..9 kami token indices")
+    indices: list[int] = []
+    seen: set[int] = set()
+    for k in kami_ids:
+        ki = int(k)
+        if ki in seen:
+            raise ValueError(f"duplicate kami index {ki} in kami_ids")
+        seen.add(ki)
+        indices.append(ki)
+    if len(indices) > _KAMI_SEND_BATCH_CAP:
+        raise ValueError(
+            f"too many kamis ({len(indices)}); system.kami.send caps at "
+            f"{_KAMI_SEND_BATCH_CAP} per tx. Split into multiple calls."
+        )
+
+    # --- Per-kami on-chain pre-check: ownership + state (clear diagnostics) ---
+    try:
+        src_account_id = _account_entity_id(account)  # uint256(owner_addr)
+    except Exception:
+        src_account_id = None  # ownership check best-effort; dry-run is authoritative
+
+    state_comp = w3.eth.contract(
+        address=_resolve_component("component.state"), abi=_STRING_VALUE_ABI
+    )
+    owns_comp = w3.eth.contract(
+        address=_resolve_component("component.id.kami.owns"), abi=_ID_COMPONENT_ABI
+    )
+
+    per_kami: list[dict] = []
+    blocked: list[str] = []
+    for k in indices:
+        eid = _kami_entity_id(k)
+        info: dict = {"kami_id": k}
+        try:
+            st = state_comp.functions.safeGet(eid).call()
+        except Exception as e:
+            st = None
+            info["state_read_error"] = str(e)[:120]
+        info["state"] = st
+        if st is not None and st not in _SENDABLE_STATES:
+            blocked.append(
+                f"kami {k} is {st} (must be RESTING or LISTED — "
+                f"stop harvest/revive first)"
+            )
+        if src_account_id is not None:
+            try:
+                owner_id = owns_comp.functions.safeGet(eid).call()
+                owned = owner_id == src_account_id
+                info["owned_by_source"] = owned
+                if not owned:
+                    blocked.append(
+                        f"kami {k} is not owned by source account '{account}'"
+                    )
+            except Exception as e:
+                info["owner_read_error"] = str(e)[:120]
+        per_kami.append(info)
+
+    if blocked:
+        raise ValueError(
+            "transfer blocked by pre-checks; no tx submitted: "
+            + "; ".join(blocked)
+        )
+
+    # --- Authoritative dry-run via eth_call before submitting any tx ---
+    send_contract = w3.eth.contract(
+        address=_resolve_system("system.kami.send"), abi=_ABI_SEND
+    )
+    try:
+        send_contract.functions.executeTyped(indices, dest_operator).call(
+            {"from": src.operator_addr}
+        )
+    except Exception as e:
+        raise ValueError(f"dry-run reverted; no tx submitted: {e}")
+
+    # Gas scales with batch size. The eth_call dry-run runs with a generous
+    # gas cap, so a fixed limit that is too low would revert a tx the
+    # dry-run passed (a single high-HP kami send measures ~1.05M gas).
+    # Yominet gas is flat-priced and only gas_used is paid, so provision
+    # generously.
+    gas_limit = 1_000_000 + 1_000_000 * len(indices)
+    result = _send_tx(
+        account,
+        "system.kami.send",
+        _ABI_SEND,
+        [indices, dest_operator],
+        gas_limit=gas_limit,
+    )
+    result.update(
+        {
+            "source": account,
+            "destination": to_account or dest_operator,
+            "destination_operator": dest_operator,
+            "kami_ids": indices,
+            "count": len(indices),
+            "per_kami": per_kami,
+        }
+    )
+    return result
+
+
+_ABI_ITEM_TRANSFER = json.loads(
+    '[{"type":"function","name":"executeTyped",'
+    '"inputs":[{"name":"indices","type":"uint32[]"},'
+    '{"name":"amts","type":"uint256[]"},'
+    '{"name":"targetID","type":"uint256"}],'
+    '"outputs":[{"type":"bytes"}],"stateMutability":"nonpayable"}]'
+)
+
+# system.item.transfer caps at 8 distinct item types per tx; fee is 15 MUSU
+# per item TYPE (not per amount), deducted from the source inventory.
+_ITEM_TRANSFER_BATCH_CAP = 8
+_ITEM_TRANSFER_FEE_MUSU = 15
+
+
+@mcp.tool()
+def transfer_items(
+    item_indices: list[int],
+    amounts: list[int],
+    to_account: str = "",
+    to_address: str = "",
+    account: str = "main",
+) -> dict:
+    """Transfer in-world items to another account via system.item.transfer.
+
+    Moves items from the source account's inventory to the destination
+    account's inventory. Signed by the source OWNER wallet. The recipient
+    is addressed by account entity ID — the uint256 of their OWNER wallet
+    address — either resolved from a roster account label (to_account) or
+    given directly as a 0x owner address (to_address); exactly one of the
+    two must be set. The destination must be a registered in-game account.
+
+    Constraints (from system.item.transfer):
+      - 1..8 DISTINCT item types per transaction; item_indices and amounts
+        are parallel arrays, all amounts > 0.
+      - Fee: 15 MUSU per item TYPE regardless of amount, deducted from the
+        source inventory (e.g. transferring 3 item types costs 45 MUSU).
+
+    The whole transfer is dry-run via eth_call before submitting; nothing
+    is sent unless the dry-run succeeds, so a doomed transfer (insufficient
+    balance, unregistered destination) spends no transaction.
+
+    Args:
+        item_indices: Item indices to send (e.g. [30004, 30026]). 1..8
+            distinct entries.
+        amounts: Quantities, parallel to item_indices (e.g. [1, 7]). All > 0.
+        to_account: Destination roster account label.
+        to_address: Destination owner address (0x...); alternative to
+            to_account.
+        account: Source account label.
+
+    Returns the tx result (tx_hash, status, gas_used) plus destination,
+    item, and fee details.
+    """
+    src = _get_account(account)
+    if not src.owner_key:
+        raise ValueError(
+            f"source account '{account}' has no owner key; "
+            f"system.item.transfer requires the owner wallet. "
+            f"Set {account.upper()}_OWNER_KEY in .env."
+        )
+    if bool(to_account) == bool(to_address):
+        raise ValueError(
+            "Set exactly one of to_account (roster label) or to_address "
+            "(destination owner address)."
+        )
+    if to_account:
+        dst = _get_account(to_account)
+        if not dst.owner_addr:
+            raise ValueError(
+                f"destination account '{to_account}' has no owner address; "
+                f"the item-transfer target is the owner wallet's entity ID."
+            )
+        dest_owner = dst.owner_addr
+    else:
+        if not Web3.is_address(to_address):
+            raise ValueError(
+                f"to_address is not a valid address: {to_address!r}"
+            )
+        dest_owner = Web3.to_checksum_address(to_address)
+        if int(dest_owner, 16) == 0:
+            raise ValueError("to_address must not be the zero address")
+    if src.owner_addr and dest_owner.lower() == src.owner_addr.lower():
+        raise ValueError(
+            f"cannot transfer from '{account}' to itself"
+        )
+
+    # --- Validate batch shape (parallel arrays, 1..8 distinct types, amts>0) ---
+    if not item_indices:
+        raise ValueError("item_indices is empty; pass 1..8 item indices")
+    if len(item_indices) != len(amounts):
+        raise ValueError(
+            f"item_indices ({len(item_indices)}) and amounts "
+            f"({len(amounts)}) must be the same length"
+        )
+    indices: list[int] = []
+    amts: list[int] = []
+    seen: set[int] = set()
+    for idx, amt in zip(item_indices, amounts):
+        ii = int(idx)
+        aa = int(amt)
+        if ii in seen:
+            raise ValueError(f"duplicate item index {ii} in item_indices")
+        if aa <= 0:
+            raise ValueError(f"amount for item {ii} must be > 0 (got {aa})")
+        seen.add(ii)
+        indices.append(ii)
+        amts.append(aa)
+    if len(indices) > _ITEM_TRANSFER_BATCH_CAP:
+        raise ValueError(
+            f"too many item types ({len(indices)}); system.item.transfer "
+            f"caps at {_ITEM_TRANSFER_BATCH_CAP} distinct items per tx. "
+            f"Split into multiple calls."
+        )
+
+    # --- targetID = receiving account's entity ID (uint256 of owner address) ---
+    target_id = int(dest_owner, 16)
+
+    # --- Authoritative dry-run via eth_call before submitting any tx ---
+    xfer_contract = w3.eth.contract(
+        address=_resolve_system("system.item.transfer"), abi=_ABI_ITEM_TRANSFER
+    )
+    try:
+        xfer_contract.functions.executeTyped(indices, amts, target_id).call(
+            {"from": src.owner_addr}
+        )
+    except Exception as e:
+        raise ValueError(
+            f"dry-run reverted; no tx submitted: {e}. Common causes: "
+            f"insufficient item balance, insufficient MUSU for the "
+            f"{_ITEM_TRANSFER_FEE_MUSU} MUSU/type fee, or an unregistered "
+            f"destination account."
+        )
+
+    # --- Submit (owner wallet; gas scales with number of item types) ---
+    gas_limit = 500_000 + 300_000 * len(indices)
+    result = _send_tx_owner(
+        account,
+        "system.item.transfer",
+        _ABI_ITEM_TRANSFER,
+        [indices, amts, target_id],
+        gas_limit=gas_limit,
+    )
+    result.update(
+        {
+            "source": account,
+            "destination": to_account or dest_owner,
+            "destination_owner": dest_owner,
+            "item_indices": indices,
+            "amounts": amts,
+            "item_types": len(indices),
+            "fee_musu": _ITEM_TRANSFER_FEE_MUSU * len(indices),
+        }
+    )
     return result
 
 
@@ -3239,6 +4493,97 @@ def craft_item(
     )
 
 
+@mcp.tool()
+def speed_craft_batch(
+    recipe_index: int,
+    count: int,
+    stamina_item_id: int = 21205,
+    account: str = "main",
+    delay_seconds: float = 0.0,
+) -> dict:
+    """Craft a stamina-gated recipe N times, restoring stamina between crafts.
+
+    Account stamina caps at 100 and regenerates ~1/min, so a recipe costing
+    more than 50 stamina cannot be crafted back-to-back naturally, and a
+    single craft_item(amount=N) for N>1 needs N×cost ≤ 100 or it reverts.
+    This tool interleaves, per cycle:
+        1. use ONE stamina_item_id (account stamina restore) — its own tx
+        2. craft ONE unit of recipe_index                     — its own tx
+    There is no on-chain batching; transactions go out sequentially with
+    nonce-retry. Consumes `count` stamina items plus `count`× the recipe
+    inputs from the account inventory.
+
+    Stop-on-error: if a stamina-use or craft transaction errors or reverts,
+    the loop halts and returns partial progress. The server-side loop keeps
+    running even if the MCP client call times out.
+
+    Args:
+        recipe_index: Recipe to craft (see catalogs/recipes.csv).
+        count: Number of crafts (one stamina item consumed per craft).
+        stamina_item_id: Account stamina-restore item index (default 21205,
+            +80 stamina; see catalogs/items.csv for alternatives).
+        account: Account label.
+        delay_seconds: Pause between cycles (default 0).
+
+    Returns:
+        {account, recipe_index, stamina_item_id, requested, crafted,
+         stamina_used, last_error, success}
+    """
+    _get_account(account)
+    if count <= 0:
+        raise ValueError("count must be > 0")
+
+    crafted = 0
+    stamina_used = 0
+    last_error = None
+    for i in range(count):
+        if i > 0 and delay_seconds and delay_seconds > 0:
+            time.sleep(delay_seconds)
+        # 1) Refill stamina (clamped to the 100 cap).
+        try:
+            _send_tx_retry(
+                account,
+                "system.account.use.item",
+                _ABI_ACCOUNT_USE,
+                [stamina_item_id, 1],
+            )
+            stamina_used += 1
+        except Exception as e:
+            last_error = f"stamina-use failed at cycle {i + 1}/{count}: {str(e)[:160]}"
+            break
+        # 2) Craft one unit.
+        try:
+            r = _send_tx_retry(
+                account,
+                "system.craft",
+                _ABI_CRAFT,
+                [recipe_index, 1],
+                gas_limit=1_500_000,
+            )
+        except Exception as e:
+            last_error = f"craft failed at cycle {i + 1}/{count}: {str(e)[:160]}"
+            break
+        if r.get("status") == "success":
+            crafted += 1
+        else:
+            last_error = (
+                f"craft reverted at cycle {i + 1}/{count} "
+                f"(tx {r.get('tx_hash')}, status {r.get('status')})"
+            )
+            break
+
+    return {
+        "account": account,
+        "recipe_index": recipe_index,
+        "stamina_item_id": stamina_item_id,
+        "requested": count,
+        "crafted": crafted,
+        "stamina_used": stamina_used,
+        "last_error": last_error,
+        "success": last_error is None and crafted == count,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Scavenge & Droptable
 # ---------------------------------------------------------------------------
@@ -3509,6 +4854,260 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
         "reveal": reveal_result,
         "commit_ids": commit_ids,
     }
+
+
+# ---------------------------------------------------------------------------
+# Kami sacrifice (Temple of the Wheel)
+#
+# Permanently burns a Kami in exchange for an equipment item ("microkami").
+# Two operator-wallet txs: sacrifice.commit (executeTyped(uint32 kamiIndex))
+# then sacrifice.reveal (executeTypedBatch(uint256[] commitIDs)) in a LATER
+# block — but the reveal fires automatically on-chain, so the manual reveal
+# is a recovery path only. The commit entity ID is recovered from the
+# StoreSetRecord log whose value is the ASCII marker "KAMI_SACRIFICE_COMMIT"
+# (the entity id lives in topic[3]).
+# ---------------------------------------------------------------------------
+
+_ABI_SACRIFICE_COMMIT = json.loads(
+    '[{"type":"function","name":"executeTyped",'
+    '"inputs":[{"name":"kamiIndex","type":"uint32"}],'
+    '"outputs":[{"type":"uint256"}],"stateMutability":"nonpayable"}]'
+)
+_ABI_SACRIFICE_REVEAL = json.loads(
+    '[{"type":"function","name":"executeTypedBatch",'
+    '"inputs":[{"name":"commitIDs","type":"uint256[]"}],'
+    '"outputs":[],"stateMutability":"nonpayable"}]'
+)
+
+# MUD StoreSetRecord event topic0 (component writes carry entity id in topic[3])
+_STORE_SET_RECORD_EVENT = (
+    "6ac31c38682e0128240cf68316d7ae751020d8f74c614e2a30278afcec8a6073"
+)
+_SAC_COMMIT_MARKER = b"KAMI_SACRIFICE_COMMIT"
+
+
+def _extract_sacrifice_commit_ids(receipt) -> list[int]:
+    """Extract sacrifice commit entity IDs from a sacrifice.commit receipt.
+
+    The commit entity's type component is written to the ASCII string
+    "KAMI_SACRIFICE_COMMIT"; that StoreSetRecord log carries the commit
+    entity ID in topic[3]. Returns the distinct commit IDs found (usually 1).
+    """
+    commit_ids: list[int] = []
+    for log in receipt.logs:
+        if not log.topics or log.topics[0].hex() != _STORE_SET_RECORD_EVENT:
+            continue
+        if _SAC_COMMIT_MARKER not in bytes(log.data):
+            continue
+        if len(log.topics) >= 4:
+            cid = int.from_bytes(bytes(log.topics[3]), "big")
+            if cid not in commit_ids:
+                commit_ids.append(cid)
+    return commit_ids
+
+
+@mcp.tool()
+def sacrifice_kami(kami_id: int, account: str = "main") -> dict:
+    """PERMANENTLY sacrifice a kami at the Temple of the Wheel (room 19).
+
+    Burns the kami forever in exchange for an equipment item ("microkami").
+    IRREVERSIBLE — the kami is destroyed. This single call is the whole
+    action: it commits the sacrifice, and the item reveal fires
+    automatically on-chain a few blocks later; the equipment lands in the
+    account inventory. Operator wallet.
+
+    Preconditions (enforced on-chain; verified here by an eth_call dry-run
+    before any transaction is sent, so a doomed sacrifice spends nothing):
+      - The account's operator must be located in room 19 (Temple of the
+        Wheel).
+      - The kami must be owned by `account` and RESTING.
+
+    Args:
+        kami_id: Kami token index to sacrifice (e.g. 16403).
+        account: Account label.
+
+    Returns the tx result (tx_hash, status, gas_used) plus the kami's
+    pre-send state and the commit entity IDs extracted from the receipt
+    (input for sacrifice_reveal if the auto-reveal ever fails).
+    """
+    src = _get_account(account)
+    ki = int(kami_id)
+
+    # Best-effort state read for diagnostics (the dry-run is authoritative).
+    state = None
+    try:
+        state_comp = w3.eth.contract(
+            address=_resolve_component("component.state"), abi=_STRING_VALUE_ABI
+        )
+        state = state_comp.functions.safeGet(_kami_entity_id(ki)).call()
+    except Exception:
+        pass
+
+    # Authoritative dry-run via eth_call before submitting any tx.
+    commit_contract = w3.eth.contract(
+        address=_resolve_system("system.kami.sacrifice.commit"),
+        abi=_ABI_SACRIFICE_COMMIT,
+    )
+    try:
+        commit_contract.functions.executeTyped(ki).call({"from": src.operator_addr})
+    except Exception as e:
+        raise ValueError(
+            f"dry-run reverted; no tx submitted: {e}. Kami {ki} state: "
+            f"{state}. Sacrifice requires the operator in room 19 (Temple "
+            f"of the Wheel), the kami owned by '{account}', and RESTING "
+            f"(stop any harvest first)."
+        )
+
+    result = _send_tx(
+        account,
+        "system.kami.sacrifice.commit",
+        _ABI_SACRIFICE_COMMIT,
+        [ki],
+        gas_limit=2_000_000,
+        return_receipt=True,
+    )
+    receipt = result.pop("_receipt", None)
+    if receipt and result.get("status") == "success":
+        result["commit_ids"] = _extract_sacrifice_commit_ids(receipt)
+    result.update(
+        {
+            "kami_id": ki,
+            "kami_state": state,
+            "account": account,
+            "note": (
+                "Kami sacrificed (burned). The equipment item reveals "
+                "automatically on-chain shortly after; it lands in the "
+                "account inventory."
+            ),
+        }
+    )
+    return result
+
+
+@mcp.tool()
+def sacrifice_kami_batch(
+    kami_ids: list[int], account: str = "main", delay_seconds: float = 3.0
+) -> dict:
+    """PERMANENTLY sacrifice many kamis at the Temple of the Wheel (room 19).
+
+    IRREVERSIBLE — each sacrificed kami is destroyed. Server-side
+    sequential loop of single-kami sacrifice commits (there is no on-chain
+    batch commit). Per kami: an eth_call dry-run gates the commit — a
+    doomed one is skipped with its revert reason and no transaction —
+    then the commit is submitted with nonce-retry. Each kami's equipment
+    reveal fires automatically on-chain; the items land in the account
+    inventory. Duplicate kami_ids are de-duplicated.
+
+    A delay_seconds pause is inserted between cycles. The server-side loop
+    keeps running even if the MCP client call times out.
+
+    Preconditions per kami (enforced on-chain, checked by the dry-run):
+    operator in room 19, kami owned by `account`, kami RESTING.
+
+    Args:
+        kami_ids: Kami token indices to sacrifice.
+        account: Account label.
+        delay_seconds: Pause between cycles (default 3.0; 0 disables).
+
+    Returns:
+        {account, requested, submitted, skipped,
+         results: [{kami_id, status, tx_hash?/reason?, block?}]}
+    """
+    src = _get_account(account)
+    if not kami_ids:
+        raise ValueError("kami_ids is empty; pass kami token indices")
+
+    commit_contract = w3.eth.contract(
+        address=_resolve_system("system.kami.sacrifice.commit"),
+        abi=_ABI_SACRIFICE_COMMIT,
+    )
+    results: list[dict] = []
+    submitted = 0
+    skipped = 0
+    seen: set[int] = set()
+    processed = 0
+    for raw in kami_ids:
+        ki = int(raw)
+        if ki in seen:
+            continue
+        seen.add(ki)
+        # Pause between cycles (not before the first) to ease chain load.
+        if processed > 0 and delay_seconds and delay_seconds > 0:
+            time.sleep(delay_seconds)
+        processed += 1
+        # Per-kami dry-run gate (room/ownership/state) — no speculative tx.
+        try:
+            commit_contract.functions.executeTyped(ki).call({"from": src.operator_addr})
+        except Exception as e:
+            results.append({"kami_id": ki, "status": "skipped", "reason": str(e)[:140]})
+            skipped += 1
+            continue
+        try:
+            r = _send_tx_retry(
+                account,
+                "system.kami.sacrifice.commit",
+                _ABI_SACRIFICE_COMMIT,
+                [ki],
+                gas_limit=2_000_000,
+            )
+        except Exception as e:
+            results.append({"kami_id": ki, "status": "error", "reason": str(e)[:140]})
+            skipped += 1
+            continue
+        results.append(
+            {"kami_id": ki, "status": r.get("status"), "tx_hash": r.get("tx_hash"), "block": r.get("block")}
+        )
+        if r.get("status") == "success":
+            submitted += 1
+        else:
+            skipped += 1
+
+    return {
+        "account": account,
+        "requested": len(seen),
+        "submitted": submitted,
+        "skipped": skipped,
+        "note": (
+            "Sacrifices committed; each equipment reveal fires "
+            "automatically on-chain and lands in the account inventory."
+        ),
+        "results": results,
+    }
+
+
+@mcp.tool()
+def sacrifice_reveal(commit_ids: list[int], account: str = "main") -> dict:
+    """Manually reveal sacrifice commit(s) — recovery path only.
+
+    The sacrifice reveal fires automatically on-chain after sacrifice_kami;
+    this tool exists to recover a commit whose auto-reveal failed to fire.
+    Takes the commit_ids returned by sacrifice_kami. The reveal must run in
+    a later block than the commit. Operator wallet.
+
+    Args:
+        commit_ids: Commit entity IDs from sacrifice_kami.
+        account: Account label.
+
+    Returns the batch tx result (tx_hash, status, gas_used) plus the
+    commit IDs revealed.
+    """
+    if not commit_ids:
+        raise ValueError(
+            "commit_ids is empty; pass the ids returned by sacrifice_kami"
+        )
+    ids = [int(c) for c in commit_ids]
+    # On-chain reveal fn is executeTypedBatch(uint256[]); _send_tx hardcodes
+    # executeTyped, so use the fn-name-aware batch helper instead.
+    result = _send_batch_tx(
+        account,
+        "system.kami.sacrifice.reveal",
+        _ABI_SACRIFICE_REVEAL,
+        "executeTypedBatch",
+        [ids],
+        gas_per_item=2_000_000,
+    )
+    result.update({"commit_ids": ids, "account": account})
+    return result
 
 
 # ---------------------------------------------------------------------------

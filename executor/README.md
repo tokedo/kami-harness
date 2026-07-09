@@ -104,6 +104,7 @@ Example config (Claude Code's `.mcp.json` shown):
 | `get_kami_state_slim(kami_id, account)` | Lightweight kami data |
 | `get_kamis_progress_batch(kami_ids, account)` | Compact level/XP/skills for many kamis |
 | `get_all_strategies(account)` | List active strategies |
+| `get_all_strategy_statuses(account)` | Live container status for every strategy (includes containers absent from the DB listing) |
 | `get_strategy_status(kami_id, account)` | Single strategy status |
 | `get_strategy_logs(container_id, tail, account)` | Strategy container logs |
 | `get_prices()` | Marketplace item prices (global) |
@@ -113,6 +114,7 @@ Example config (Claude Code's `.mcp.json` shown):
 | `get_leaderboard(type, account)` | Leaderboards: 'harvest' or 'kill' (20m cache) |
 | `get_all_kamis(account)` | All kamis in game: index, name, state (24h cache) |
 | `get_account_kamis(account, address)` | Kamis by address |
+| `get_guild_members(account)` | Guild and team member account names (GUILD/TEAM tiers) |
 
 ### Kamibots API (strategy execution)
 
@@ -142,6 +144,9 @@ Example config (Claude Code's `.mcp.json` shown):
 | `use_account_item(item_id, account, amount)` | Use consumable on account (stamina restores, etc.) |
 | `burn_items(item_indices, amounts, account)` | Burn/destroy items from inventory |
 | `craft_item(recipe_index, amount, account)` | Craft items from a recipe (see catalogs/recipes.csv) |
+| `sacrifice_kami(kami_id, account)` | PERMANENTLY burn a kami for an equipment item (room 19; dry-run gated; reveal fires automatically) |
+| `sacrifice_kami_batch(kami_ids, account, delay_seconds)` | Sequential multi-kami sacrifice commits, per-kami dry-run gates |
+| `sacrifice_reveal(commit_ids, account)` | Manual reveal — recovery path for a failed auto-reveal |
 
 ### Quest management
 
@@ -164,18 +169,31 @@ Example config (Claude Code's `.mcp.json` shown):
 | `scavenge_claim(node_index, account)` | Claim scavenge rewards (returns commit_ids) |
 | `droptable_reveal(commit_ids, account)` | Reveal droptable commits to receive items |
 | `scavenge_claim_and_reveal(node_index, account)` | Combined claim + wait + reveal |
+| `get_scavenge_droptable(node_index)` | Droptable contents for a node's scavenge rewards |
 
 ### Trading
 
 | Tool | Description |
 |---|---|
-| `get_account_trades(account)` | Open + recently executed trades (uses Kamiden indexer) |
+| `get_account_trades(account)` | Open trades (maker side) with ground-truth PENDING/EXECUTED status, read from chain state |
 | `create_trade(...)` | Create a sell or buy listing |
 | `cancel_trade(trade_id, account)` | Cancel an open listing |
 | `take_trade(trade_id, account)` | Take (execute) a pending trade as the taker (owner wallet) |
 | `complete_trade(trade_id, account)` | Complete a trade where you're the maker |
 | `complete_all_trades(account)` | Complete every executed trade for this account |
-| `list_open_sell_offers(seed_account, max_offers)` | Discover open sell offers from other players (Kamiden BFS expand) |
+| `list_open_sell_offers(seed_account, max_offers)` | Discover open sell offers from other players (Kamiden BFS expand; bounded by trade-history counterparties) |
+| `get_item_orderbook(item_index, side)` | Complete per-item order book (asks + bids, all makers) from chain state; needs the one-time `kwob_bootstrap.py` seed (SETUP.md §9) |
+| `transfer_kami(kami_ids, to_account/to_address, account)` | In-world kami transfer via `system.kami.send` (operator wallet, 1..9 kamis, dry-run gated) |
+| `transfer_items(item_indices, amounts, to_account/to_address, account)` | Inventory transfer via `system.item.transfer` (owner wallet, 1..8 types, 15 MUSU/type fee, dry-run gated) |
+
+### Kami marketplace (KamiSwap)
+
+| Tool | Description |
+|---|---|
+| `list_kami(kami_id, price_eth, expiry, account)` | List a kami for sale in ETH (kami enters LISTED state) |
+| `get_kami_market_listings(size, include_expired, max_price_eth, sort)` | Active listings from the Kamiden indexer: price, seller, order ID |
+| `buy_kami(kami_ids, max_total_eth, account)` | Batch purchase with a live-price safety cap (owner wallet, all-or-nothing tx) |
+| `cancel_kami_listing(kami_ids, account)` | Cancel own listings; returns kamis from LISTED to RESTING |
 
 ### Batch / composite tools
 
@@ -186,12 +204,16 @@ so a single call never issues concurrent write-txs on the same wallet.
 
 | Tool | Description |
 |---|---|
-| `get_kamis_progress_batch(kami_ids, account)` | Compact stats/skills/traits for N kamis in one call |
+| `get_kamis_progress_batch(kami_ids, account)` | Compact stats/skills/traits for N kamis in one call (incl. HP sync/rate and harvest state/balance) |
 | `stop_harvest_batch(kami_ids, account)` | Batch `harvest.stop` via `executeBatchedAllowFailure` |
 | `level_and_allocate_batch(targets, account)` | Batch level-up + skill allocation across many kamis |
+| `feed_level_allocate_batch(targets, account)` | Per kami: feed consumables → level to target → allocate skills, with per-kami error isolation |
 | `level_to(kami_id, target_level, account)` | Level up repeatedly to target |
 | `allocate_skills(kami_id, skill_plan, account)` | Allocate multiple skill points |
 | `use_item_batch(kami_id, item_id, count, account)` | Use same item N times |
+| `equip_all_batch(equips, account, delay_seconds)` | Equip items to many kamis; per-entry dry-run gate skips doomed equips |
+| `unequip_all_batch(kami_ids, slot_type, account, delay_seconds)` | Unequip a slot from many kamis; dry-run gate skips empty slots |
+| `speed_craft_batch(recipe_index, count, stamina_item_id, account, delay_seconds)` | Interleave stamina restores with single crafts for stamina-gated recipes (stop-on-error) |
 
 ## Adding new tools
 

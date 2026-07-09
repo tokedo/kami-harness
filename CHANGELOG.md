@@ -22,6 +22,56 @@ marks the tool contract.
 - **PATCH** — non-semantic changes: documentation fixes, wording, catalog
   data refreshes, internal refactors that do not change the tool contract.
 
+## [1.1.0] — Marketplace, transfers, sacrifice, order book
+
+Additive (MINOR) release: 14 new tools and backward-compatible patches to
+4 existing tools. **78 tools** total (was 64). Existing agents keep
+working unchanged.
+
+### Added
+- **KamiSwap marketplace** — `get_kami_market_listings` (active listings
+  from the Kamiden indexer), `buy_kami` (price-capped batch purchase,
+  owner wallet, value-bearing tx), `cancel_kami_listing` (frees kamis
+  stuck in LISTED).
+- **World order book** — `get_item_orderbook`: complete per-item
+  asks/bids read directly from chain state. Requires a one-time trade-ID
+  bootstrap (`executor/kwob_bootstrap.py`; see SETUP.md). When the
+  bootstrap cache is missing or stale the tool raises an actionable error
+  instead of returning an incomplete book.
+- **Account-to-account transfers** — `transfer_kami` (`system.kami.send`,
+  operator wallet, 1..9 kamis) and `transfer_items`
+  (`system.item.transfer`, owner wallet, 1..8 item types, 15 MUSU/type
+  fee). Recipient by roster label or raw address; both pre-check state
+  on-chain and dry-run via eth_call before submitting.
+- **Sacrifice** — `sacrifice_kami` and `sacrifice_kami_batch` (dry-run
+  gated commits at the Temple of the Wheel, room 19; reveal fires
+  automatically on-chain), `sacrifice_reveal` (manual recovery for a
+  failed auto-reveal).
+- **Batch wrappers** — `feed_level_allocate_batch` (feed → level →
+  allocate per kami, per-kami error isolation), `equip_all_batch` /
+  `unequip_all_batch` (dry-run gated equipment loops), `speed_craft_batch`
+  (stamina-restore/craft interleave for stamina-gated recipes).
+- **Kamibots** — `get_all_strategy_statuses` (live container status,
+  including containers absent from the DB listing).
+- `_send_tx_owner` supports value-bearing (payable) transactions.
+
+### Changed (backward-compatible)
+- `get_account_trades` reads trade entities directly from chain state
+  (IDOwnsTrade reverse mapping + batched component reads) instead of the
+  Kamiden indexer with per-trade dry-run status probes. Same return
+  shape; PENDING/EXECUTED status is now ground truth.
+- `list_kami` converts the ETH price with exact decimal arithmetic;
+  float rounding could previously misprice a listing at wei precision.
+- `get_kamis_progress_batch` adds `hp_sync`, `hp_rate`, `harvest_state`,
+  and `harvest_balance` fields per kami.
+- `list_open_sell_offers` states its discovery bound and cross-references
+  `get_item_orderbook` for the complete per-item book.
+
+### Tests
+- Offline test suite covering every new and changed tool (happy + error
+  paths). Chain, indexer, and Kamibots API access are faked; the suite
+  runs without keys or network.
+
 ## [1.0.0] — Environment-interface baseline
 
 First release of `kami-harness` as a pure environment interface for
@@ -60,4 +110,5 @@ private experiment repo — they are not part of this environment interface.
   quests, scavenge, and trading. Unchanged in count and behavior from the
   `v0-pilot` state — only descriptions were rewritten.
 
+[1.1.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.1.0
 [1.0.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.0.0

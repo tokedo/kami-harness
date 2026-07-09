@@ -119,7 +119,35 @@ The suite runs against committed catalog and quest-state fixtures — expect
 all tests to pass without a live account. Import errors here mean the
 Python environment from step 3 isn't set up correctly.
 
-## 9. Bootstrap an account (from a connected client)
+## 9. Seed the trade order-book cache (one-time)
+
+`get_item_orderbook` discovers trade entities from World event logs, but
+the public Yominet RPC is a pruned node (~1M blocks of history): trades
+created before the prune horizon are invisible to a log scan. Seed the
+trade-ID cache once from the Kamigaze state snapshot:
+
+```bash
+cd executor
+python3 kwob_bootstrap.py   # writes executor/.cache/kwob_trades.json
+cd ..
+```
+
+Staleness behavior after the one-time bootstrap:
+
+- Every `get_item_orderbook` call scans new logs incrementally and
+  rewrites the cache file, so any call within the prune window (~1M
+  blocks) keeps coverage complete indefinitely — no re-runs needed in
+  normal operation.
+- If the server goes longer than the prune window without an order-book
+  call, or the cache file is lost, the missing range can no longer be
+  recovered from logs. `get_item_orderbook` then raises an error naming
+  `executor/kwob_bootstrap.py` instead of silently returning an
+  incomplete book — re-run the bootstrap to recover.
+- The cache file is generated state and is gitignored. For autonomous
+  deployments, treat the bootstrap as a provisioning step: run it once
+  per host as part of deployment.
+
+## 10. Bootstrap an account (from a connected client)
 
 With the server connected, initialize an account by calling:
 
@@ -166,7 +194,7 @@ out-of-gas on node-change waves).
 - [`README.md`](README.md) — the environment interface specification:
   tool surface, world-knowledge docs, and world model.
 - [`executor/README.md`](executor/README.md) — the full MCP tool
-  reference (64 tools).
+  reference (78 tools).
 - [`integration/system-ids.md`](integration/system-ids.md) and
   [`integration/entity-ids.md`](integration/entity-ids.md) — if you want
   to extend the interface with new tools.

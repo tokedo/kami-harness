@@ -2,5 +2,8 @@ __pycache__/
 .DS_Store
 .mcp.json
 
+# Generated trade-ID cache (seeded by executor/kwob_bootstrap.py)
+executor/.cache/
+
 # Local server config (keys live outside the repo; see SETUP.md)
 .claude/settings.json
