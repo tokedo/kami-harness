@@ -15,9 +15,10 @@ from conftest import KEY_A, KEY_B
 
 import server
 
-# Third well-known local-dev throwaway key (standard anvil/hardhat test
-# key; never funded on any real network, not a secret).
+# Third and fourth well-known local-dev throwaway keys (standard
+# anvil/hardhat test keys; never funded on any real network, not secrets).
 KEY_C = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a"
+KEY_D = "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6"
 
 ETH = 10**18
 FEE = server._PLAIN_TRANSFER_FEE_WEI
@@ -27,10 +28,17 @@ FEE = server._PLAIN_TRANSFER_FEE_WEI
 def gas_env(monkeypatch):
     """Fabricated accounts with distinct owner/operator addresses, a
     balance ledger, and a _send_eth stub that moves value in the ledger
-    (so post-transaction balance reads reflect the transfer)."""
+    (so post-transaction balance reads reflect the transfer). The
+    mainnet read is stubbed with its own ledger; addresses absent from
+    it read "unavailable" (mirroring _owner_mainnet_eth's degradation,
+    which TestOwnerMainnetHelper covers unstubbed)."""
     solo = server._Account("solo", KEY_A, KEY_B)
     noown = server._Account("noown", KEY_C, None)
-    monkeypatch.setattr(server, "_accounts", {"solo": solo, "noown": noown})
+    ownonly = server._Account("ownonly", None, KEY_D)
+    monkeypatch.setattr(
+        server, "_accounts",
+        {"solo": solo, "noown": noown, "ownonly": ownonly},
+    )
 
     balances: dict[str, int] = {}
     fake_w3 = SimpleNamespace(
@@ -39,6 +47,15 @@ def gas_env(monkeypatch):
         to_wei=Web3.to_wei,
     )
     monkeypatch.setattr(server, "w3", fake_w3)
+
+    mainnet: dict[str, int] = {}
+
+    def fake_owner_mainnet_eth(addr):
+        if addr in mainnet:
+            return str(Web3.from_wei(mainnet[addr], "ether"))
+        return "unavailable"
+
+    monkeypatch.setattr(server, "_owner_mainnet_eth", fake_owner_mainnet_eth)
 
     sends: list[dict] = []
 
@@ -58,7 +75,8 @@ def gas_env(monkeypatch):
 
     monkeypatch.setattr(server, "_send_eth", fake_send_eth)
     return SimpleNamespace(
-        solo=solo, noown=noown, balances=balances, sends=sends
+        solo=solo, noown=noown, ownonly=ownonly,
+        balances=balances, mainnet=mainnet, sends=sends,
     )
 
 
@@ -69,7 +87,7 @@ class TestGetGasBalance:
         gas_env.balances[gas_env.noown.operator_addr] = ETH // 4
 
         r = server.get_gas_balance()
-        assert set(r["balances"]) == {"solo", "noown"}
+        assert set(r["balances"]) == {"solo", "noown", "ownonly"}
         solo = r["balances"]["solo"]
         assert solo["operator_address"] == gas_env.solo.operator_addr
         assert solo["operator_eth"] == "0.5"
@@ -81,7 +99,30 @@ class TestGetGasBalance:
         noown = r["balances"]["noown"]
         assert "owner_address" not in noown
         assert "owner_eth" not in noown
+        assert "owner_mainnet_eth" not in noown
         assert noown["operator_eth"] == "0"
+
+    def test_owner_only_account_shape(self, gas_env):
+        gas_env.balances[gas_env.ownonly.owner_addr] = ETH // 2
+        gas_env.mainnet[gas_env.ownonly.owner_addr] = 4 * ETH
+        r = server.get_gas_balance()
+        assert r["balances"]["ownonly"] == {
+            "owner_address": gas_env.ownonly.owner_addr,
+            "owner_eth": "0.5",
+            "owner_mainnet_eth": "4",
+        }
+
+    def test_owner_mainnet_eth_reported(self, gas_env):
+        gas_env.mainnet[gas_env.solo.owner_addr] = 3 * ETH
+        r = server.get_gas_balance(account="solo")
+        assert r["balances"]["solo"]["owner_mainnet_eth"] == "3"
+
+    def test_owner_mainnet_unavailable_keeps_yominet_fields(self, gas_env):
+        gas_env.balances[gas_env.solo.owner_addr] = ETH
+        r = server.get_gas_balance(account="solo")
+        solo = r["balances"]["solo"]
+        assert solo["owner_mainnet_eth"] == "unavailable"
+        assert solo["owner_eth"] == "1"  # Yominet read unaffected
 
     def test_single_account(self, gas_env):
         gas_env.balances[gas_env.solo.operator_addr] = ETH
@@ -191,3 +232,33 @@ class TestWithdrawOperator:
     def test_recipient_not_expressible(self, gas_env):
         params = set(inspect.signature(server.withdraw_operator).parameters)
         assert params == {"amount_eth", "account"}
+
+
+class TestOwnerMainnetHelper:
+    """_owner_mainnet_eth unstubbed (the gas_env fixture stubs it)."""
+
+    def test_happy_path(self, monkeypatch):
+        fake = SimpleNamespace(
+            eth=SimpleNamespace(get_balance=lambda addr: 5 * ETH // 2)
+        )
+        monkeypatch.setattr(server, "_w3_mainnet_balance", lambda: fake)
+        assert server._owner_mainnet_eth("0xOwner") == "2.5"
+
+    def test_rpc_error_reads_unavailable(self, monkeypatch):
+        def boom(addr):
+            raise TimeoutError("mainnet RPC timeout")
+
+        fake = SimpleNamespace(eth=SimpleNamespace(get_balance=boom))
+        monkeypatch.setattr(server, "_w3_mainnet_balance", lambda: fake)
+        assert server._owner_mainnet_eth("0xOwner") == "unavailable"
+
+    def test_unreachable_endpoint_reads_unavailable(self, monkeypatch):
+        # Point the fully unmocked helper at a loopback black hole: it
+        # degrades to "unavailable" instead of raising or hanging
+        # (short per-request timeout).
+        monkeypatch.setattr(
+            server, "MAINNET_RPC_URL", "http://127.0.0.1:9/offline-test"
+        )
+        monkeypatch.setattr(server, "_w3_mainnet_balance_cached", None)
+        addr = Web3().eth.account.from_key(KEY_A).address
+        assert server._owner_mainnet_eth(addr) == "unavailable"

@@ -1,8 +1,9 @@
-"""Tool-contract surface checks for the v1.3.0 interface.
+"""Tool-contract surface checks for the v1.3.x interface.
 
 Verifies the advertised tool count, the v1.3.0 additions/removal, and
 that the new tools' parameter schemas stay in the portable subset
-(SPEC §5.1: no anyOf/oneOf/allOf/$ref).
+(SPEC §5.1: no anyOf/oneOf/allOf/$ref). v1.3.1 is a PATCH: the tool
+count and every input schema are unchanged.
 """
 
 import json
@@ -23,7 +24,7 @@ def _tools():
 
 
 def test_schema_version():
-    assert SCHEMA_VERSION == "1.3.0"
+    assert SCHEMA_VERSION == "1.3.1"
 
 
 def test_tool_surface_v130():

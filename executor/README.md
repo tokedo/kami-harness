@@ -16,7 +16,7 @@ together private keys in `.env` and public addresses in `roster.yaml`:
 | File | Contains | Visible to LLM |
 |---|---|---|
 | `~/.blocklife-keys/.env` | `{LABEL}_OPERATOR_KEY`, `{LABEL}_OWNER_KEY` | No (outside repo, hook-blocked) |
-| `accounts/roster.yaml` | Label, owner address, operator address | Yes (committed) |
+| `accounts/roster.yaml` | Label, owner address, operator address | Yes (in-repo; gitignored per-deployment state) |
 
 Keys live **outside the project directory** at `~/.blocklife-keys/.env`.
 Some MCP clients auto-index files in the working directory on startup —

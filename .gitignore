@@ -7,3 +7,8 @@ executor/.cache/
 
 # Local server config (keys live outside the repo; see SETUP.md)
 .claude/settings.json
+
+# Per-deployment account roster (public addresses + operational notes;
+# created from accounts/roster.yaml.template, updated by
+# create_operator_wallet) — kami-lab audit F1
+accounts/roster.yaml

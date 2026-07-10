@@ -22,6 +22,72 @@ marks the tool contract.
 - **PATCH** — non-semantic changes: documentation fixes, wording, catalog
   data refreshes, internal refactors that do not change the tool contract.
 
+## [1.3.1] — Owner-only accounts + mainnet balance in the gas view
+
+Ships as PATCH: a behavior fix plus one additive return field. No tool
+was added or removed (**84 tools**, unchanged), no input schema
+changed, and no existing return field changed shape or meaning —
+agents built against 1.3.0 are unaffected. The behavior fix makes a
+previously broken state (owner key without operator key) load instead
+of being skipped; agents could not have relied on the old skip, since
+it produced an empty registry and made every tool unusable.
+
+### Fixed
+- **Owner-only accounts are first-class.** A label with
+  `{LABEL}_OWNER_KEY` but no `{LABEL}_OPERATOR_KEY` — the starting
+  state of a fresh deployment, where the owner wallet holds the
+  capital and the operator does not exist yet — previously hit a
+  warning-skip in account loading: zero accounts loaded,
+  `list_accounts` returned `{"accounts": {}}`, `get_gas_balance`
+  returned `{"balances": {}}`, and `fund_operator` reported "Account
+  'main' not found. Available: (none)". The agent's actual starting
+  state was represented nowhere in the agent-visible environment. Such
+  labels now load as registry accounts with the operator absent:
+  `list_accounts` shows them (`operator_address: null`) and
+  `get_gas_balance` includes them (owner fields present, operator
+  fields absent).
+- **Clean no-operator errors on every operator path.** Operator
+  signing and operator reading on an owner-only account raise
+  `account '<label>' has no operator wallet; create_operator_wallet
+  generates one` — enforced at the account-registry level, so no path
+  can crash with an AttributeError/NoneType instead. Paths that wrap
+  eth_call dry-runs (register_account, sacrifice, the batch equip
+  loops, quest-completability reads) resolve the operator address
+  before their try blocks, so the error surfaces as itself rather than
+  as a wrapped "would revert" / per-item "skipped" reason.
+- **`create_operator_wallet` upgrades the owner-only registry entry in
+  place** — no duplicate-label conflict with the new load path, and
+  credentials held only in the live registry survive the upgrade.
+
+### Added (return field, no schema change)
+- **`get_gas_balance` reports `owner_mainnet_eth`** — the owner
+  wallet's Ethereum-mainnet ETH balance, read via the configured
+  `MAINNET_RPC_URL`, for every account with an owner key. Without it
+  the gas view of a fresh deployment read as an artificial
+  0-everywhere state while the entire starting capital sat on mainnet.
+  Graceful degradation: if the mainnet RPC errors or times out the
+  field reads `"unavailable"`; it never raises and never blocks the
+  Yominet fields beyond a short (5s) timeout. The `get_gas_balance`
+  docstring changed to document the field — a recorded-surface delta
+  that downstream fixture re-records will pick up.
+
+### Config
+- `accounts/roster.yaml` is now gitignored (kami-lab audit F1): it is
+  per-deployment state (public addresses plus operational notes), not
+  part of the interface. Created from `accounts/roster.yaml.template`.
+
+### Tests
+- Offline regression for the exact broken reproduction (owner-only
+  env loads, no skip warning, non-empty `list_accounts` /
+  `get_gas_balance`); clean no-operator errors across representative
+  operator paths (`fund_operator`, `withdraw_operator`,
+  `register_account`, `transfer_kami`, `sacrifice_kami`(+batch),
+  `equip_all_batch`, `check_quest_completable`) asserting the error is
+  not wrapped or converted to per-item skips; `create_operator_wallet`
+  upgrading an owner-only entry in place; `owner_mainnet_eth` happy
+  path, RPC-error path, and unmocked unreachable-endpoint path. The
+  suite runs green without keys or network.
+
 ## [1.3.0] — Self-onboarding + mainnet bridging
 
 4 tools added, 1 removed. **84 tools** total (was 81). Ships as MINOR:
@@ -215,6 +281,7 @@ private experiment repo — they are not part of this environment interface.
   quests, scavenge, and trading. Unchanged in count and behavior from the
   `v0-pilot` state — only descriptions were rewritten.
 
+[1.3.1]: https://github.com/tokedo/kami-harness/releases/tag/v1.3.1
 [1.3.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.3.0
 [1.2.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.2.0
 [1.1.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.1.0

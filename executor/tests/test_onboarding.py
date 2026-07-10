@@ -114,6 +114,27 @@ class TestCreateOperatorWallet:
         assert r["roster"] == "already_present"
         assert onboard_env.roster.read_text() == before
 
+    def test_upgrades_owner_only_registry_entry_in_place(
+        self, onboard_env, monkeypatch
+    ):
+        # _load_accounts registers owner-only labels since v1.3.1, so
+        # the label is already live when the operator is created — the
+        # entry must upgrade in place, not conflict or duplicate.
+        monkeypatch.setenv(f"{_UP}_OWNER_KEY", KEY_A)
+        owner_only = server._Account(_LABEL, None, KEY_A)
+        owner_only.api_key = "kb-live-credential"  # in-memory only
+        server._accounts[_LABEL] = owner_only
+
+        r = server.create_operator_wallet(_LABEL)
+
+        assert list(server._accounts) == [_LABEL]  # upgraded, no duplicate
+        acct = server._accounts[_LABEL]
+        assert acct.has_operator
+        assert acct.operator_addr == r["operator_address"]
+        assert acct.owner_addr == owner_only.owner_addr
+        assert acct.api_key == "kb-live-credential"  # survives the upgrade
+        assert r["roster"] == "created"
+
     def test_rejects_existing_operator_and_names_address(
         self, onboard_env, monkeypatch
     ):

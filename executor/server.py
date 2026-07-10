@@ -160,30 +160,66 @@ _UINT32_VALUE_ABI = json.loads(
 
 class _Account:
     __slots__ = (
-        "label", "operator_key", "owner_key", "operator_addr", "owner_addr",
+        "label", "_operator_key", "owner_key", "_operator_addr", "owner_addr",
         "api_key", "privy_id",
     )
 
     def __init__(
-        self, label: str, operator_key: str, owner_key: str | None,
+        self, label: str, operator_key: str | None, owner_key: str | None,
         api_key: str | None = None, privy_id: str | None = None,
     ):
         self.label = label
-        self.operator_key = operator_key
+        self._operator_key = operator_key
         self.owner_key = owner_key
-        self.operator_addr = w3.eth.account.from_key(operator_key).address
+        self._operator_addr = (
+            w3.eth.account.from_key(operator_key).address
+            if operator_key else None
+        )
         self.owner_addr = (
             w3.eth.account.from_key(owner_key).address if owner_key else None
         )
         self.api_key = api_key
         self.privy_id = privy_id
 
+    # An account loaded from {LABEL}_OWNER_KEY alone has no operator
+    # wallet yet. Every operator-signing/-reading path goes through
+    # these properties, so such a path can only fail with this error —
+    # never an AttributeError/None crash. Presence checks use
+    # has_operator (or the _-prefixed slots) instead.
+    @property
+    def operator_key(self) -> str:
+        if self._operator_key is None:
+            raise ValueError(
+                f"account '{self.label}' has no operator wallet; "
+                f"create_operator_wallet generates one"
+            )
+        return self._operator_key
+
+    @property
+    def operator_addr(self) -> str:
+        if self._operator_addr is None:
+            raise ValueError(
+                f"account '{self.label}' has no operator wallet; "
+                f"create_operator_wallet generates one"
+            )
+        return self._operator_addr
+
+    @property
+    def has_operator(self) -> bool:
+        return self._operator_key is not None
+
 
 _accounts: dict[str, _Account] = {}
 
 
 def _load_accounts() -> None:
-    """Scan .env for *_OPERATOR_KEY pairs, build account registry."""
+    """Scan .env for *_OWNER_KEY / *_OPERATOR_KEY entries, build registry.
+
+    An owner key alone is a loadable account: the entry has no operator
+    wallet, operator paths raise until create_operator_wallet generates
+    one. This is the starting state of a fresh deployment (owner wallet
+    funded, operator not yet created).
+    """
     labels: set[str] = set()
     for key in os.environ:
         if key.endswith("_OPERATOR_KEY"):
@@ -195,12 +231,6 @@ def _load_accounts() -> None:
         up = label.upper()
         op_key = os.environ.get(f"{up}_OPERATOR_KEY")
         own_key = os.environ.get(f"{up}_OWNER_KEY")
-        if not op_key:
-            print(
-                f"WARNING: {up}_OPERATOR_KEY missing, "
-                f"skipping account '{label}'"
-            )
-            continue
         api_key = os.environ.get(f"{up}_KAMIBOTS_API_KEY")
         privy_id = os.environ.get(f"{up}_PRIVY_ID")
         _accounts[label] = _Account(label, op_key, own_key, api_key, privy_id)
@@ -232,11 +262,16 @@ def _load_accounts() -> None:
 
     if _accounts:
         registered = [l for l, a in _accounts.items() if a.api_key]
-        print(f"Loaded {len(_accounts)} account(s): {', '.join(_accounts.keys())}")
+        names = [
+            l if a.has_operator else f"{l} (owner-only)"
+            for l, a in _accounts.items()
+        ]
+        print(f"Loaded {len(_accounts)} account(s): {', '.join(names)}")
         if registered:
             print(f"  Kamibots registered: {', '.join(registered)}")
     else:
-        print("WARNING: No accounts loaded. Fill .env with *_OPERATOR_KEY entries.")
+        print("WARNING: No accounts loaded. Fill .env with *_OWNER_KEY / "
+              "*_OPERATOR_KEY entries.")
 
 
 _load_accounts()
@@ -1047,11 +1082,14 @@ def list_accounts() -> dict:
     """List all configured accounts with labels and public addresses.
 
     No private data is exposed. Shows whether Kamibots API is registered.
+    operator_address is null for an account whose operator wallet does
+    not exist yet (owner key only; create_operator_wallet generates the
+    operator keypair).
     """
     accts = {}
     for label, acct in _accounts.items():
         accts[label] = {
-            "operator_address": acct.operator_addr,
+            "operator_address": acct._operator_addr,
             "owner_address": acct.owner_addr,
             "kamibots_registered": acct.api_key is not None,
         }
@@ -1073,7 +1111,7 @@ _ABI_ACCOUNT_REGISTER = json.loads(
 
 _ROSTER_HEADER = """\
 # Account roster — public addresses only. Labels must match .env key prefixes.
-# This file is committed to git and visible to the LLM.
+# Per-deployment state: in the repo tree and visible to the LLM, but gitignored.
 # Private keys are in ~/.blocklife-keys/.env (outside repo, never visible to LLM).
 
 accounts:
@@ -1135,7 +1173,8 @@ def create_operator_wallet(account: str) -> dict:
     exists — operator rotation via system.account.set.operator is not
     implemented. The keypair is generated inside the server process,
     the private key is written to the keys file next to the owner key,
-    the account is loaded into the live registry, and its public
+    the account's registry entry is upgraded in place (an owner-only
+    entry gains its operator wallet), and its public
     addresses are recorded in accounts/roster.yaml. Only public
     addresses are returned; key material never leaves the server
     process. Registration of the on-chain account that binds this
@@ -1174,10 +1213,16 @@ def create_operator_wallet(account: str) -> dict:
     op_key = "0x" + new.key.hex().removeprefix("0x")
     set_key(str(_KEYS_PATH), f"{up}_OPERATOR_KEY", op_key)
     os.environ[f"{up}_OPERATOR_KEY"] = op_key
+    # Upgrade in place: _load_accounts registers owner-only labels, so
+    # the label may already be live. Credentials assigned only in memory
+    # (legacy migration) must survive the rebuild.
+    existing = _accounts.get(label)
     _accounts[label] = _Account(
         label, op_key, owner_key,
-        os.environ.get(f"{up}_KAMIBOTS_API_KEY"),
-        os.environ.get(f"{up}_PRIVY_ID"),
+        (existing.api_key if existing else None)
+        or os.environ.get(f"{up}_KAMIBOTS_API_KEY"),
+        (existing.privy_id if existing else None)
+        or os.environ.get(f"{up}_PRIVY_ID"),
     )
     roster = _roster_add_account(
         label, _accounts[label].owner_addr, new.address
@@ -1223,6 +1268,9 @@ def register_account(name: str, account: str = "main") -> dict:
             f"Account '{account}' has no owner key. "
             f"Set {account.upper()}_OWNER_KEY in .env."
         )
+    # Resolved before the dry-run try below so a missing operator wallet
+    # raises its own error, not a wrapped "would revert".
+    operator_addr = acct.operator_addr
     name_bytes = len(name.encode())
     if not 1 <= name_bytes <= 15:
         raise ValueError(
@@ -1234,7 +1282,7 @@ def register_account(name: str, account: str = "main") -> dict:
     addr = _resolve_system("system.account.register")
     contract = w3.eth.contract(address=addr, abi=_ABI_ACCOUNT_REGISTER)
     try:
-        contract.functions.executeTyped(acct.operator_addr, name).call(
+        contract.functions.executeTyped(operator_addr, name).call(
             {"from": acct.owner_addr}
         )
     except Exception as e:
@@ -1252,12 +1300,12 @@ def register_account(name: str, account: str = "main") -> dict:
         account,
         "system.account.register",
         _ABI_ACCOUNT_REGISTER,
-        [acct.operator_addr, name],
+        [operator_addr, name],
         gas_limit=2_000_000,  # observed 883k on tx 0x85139659…
     )
     result.update({
         "name": name,
-        "operator_address": acct.operator_addr,
+        "operator_address": operator_addr,
         "owner_address": acct.owner_addr,
         "account_entity_id": hex(int(acct.owner_addr, 16)),
         "starting_room": 1,
@@ -1334,7 +1382,11 @@ def get_gas_balance(account: str = "") -> dict:
     transaction: the operator for gameplay txs, the owner for
     trades/mints/funding. A plain ETH transfer burns ~113k gas
     (Initia MiniEVM), not the standard 21k — ~0.0000003 ETH at the
-    flat 0.0025 gwei gas price.
+    flat 0.0025 gwei gas price. For accounts with an owner key the
+    owner's Ethereum-mainnet balance is also reported
+    (owner_mainnet_eth), read via the configured MAINNET_RPC_URL —
+    mainnet ETH is what bridge_eth_from_mainnet converts into Yominet
+    gas ETH.
 
     Args:
         account: Account label. Empty string (default) returns every
@@ -1342,22 +1394,27 @@ def get_gas_balance(account: str = "") -> dict:
 
     Returns:
         {balances: {label: {operator_address, operator_eth,
-        owner_address, owner_eth}}} — owner fields present only when
-        the account has an owner key configured.
+        owner_address, owner_eth, owner_mainnet_eth}}} — operator
+        fields present only when the account has an operator wallet,
+        owner fields only when it has an owner key configured.
+        owner_mainnet_eth reads "unavailable" when the mainnet RPC
+        errors or times out; it never blocks the Yominet fields beyond
+        a short timeout.
     """
     labels = [account] if account else list(_accounts)
     out = {}
     for label in labels:
         acct = _get_account(label)
-        entry = {
-            "operator_address": acct.operator_addr,
-            "operator_eth": str(w3.from_wei(
-                w3.eth.get_balance(acct.operator_addr), "ether")),
-        }
+        entry = {}
+        if acct.has_operator:
+            entry["operator_address"] = acct.operator_addr
+            entry["operator_eth"] = str(w3.from_wei(
+                w3.eth.get_balance(acct.operator_addr), "ether"))
         if acct.owner_addr:
             entry["owner_address"] = acct.owner_addr
             entry["owner_eth"] = str(w3.from_wei(
                 w3.eth.get_balance(acct.owner_addr), "ether"))
+            entry["owner_mainnet_eth"] = _owner_mainnet_eth(acct.owner_addr)
         out[label] = entry
     return {"balances": out}
 
@@ -1383,6 +1440,9 @@ def fund_operator(amount_eth: str, account: str = "main") -> dict:
         owner_eth balances.
     """
     acct = _get_account(account)
+    # Resolved first: a missing operator wallet raises its own error
+    # before any owner-balance arithmetic can.
+    dest = acct.operator_addr
     if not acct.owner_key:
         raise ValueError(
             f"Account '{account}' has no owner key. "
@@ -1397,7 +1457,7 @@ def fund_operator(amount_eth: str, account: str = "main") -> dict:
             f"{w3.from_wei(_PLAIN_TRANSFER_FEE_WEI, 'ether')} ETH gas "
             f"provision ({_PLAIN_TRANSFER_GAS} gas at the flat price)."
         )
-    result = _send_eth(acct.owner_key, acct.owner_addr, acct.operator_addr, value)
+    result = _send_eth(acct.owner_key, acct.owner_addr, dest, value)
     result.update({
         "account": account,
         "direction": "owner->operator",
@@ -1506,6 +1566,40 @@ def _w3_mainnet() -> Web3:
     if _w3_mainnet_cached is None:
         _w3_mainnet_cached = Web3(Web3.HTTPProvider(MAINNET_RPC_URL))
     return _w3_mainnet_cached
+
+
+# Separate connection for the get_gas_balance mainnet read: a short
+# per-request timeout AND no exception retries — HTTPProvider's default
+# retry configuration (5 attempts, backoff) turns one dead endpoint
+# into ~27s observed; with it disabled the mainnet read bounds the
+# delay it can add to the gas view at ~one timeout. (The bridge tools
+# above keep the defaults — their reads precede signing and may not
+# degrade.)
+_MAINNET_BALANCE_TIMEOUT_S = 5
+_w3_mainnet_balance_cached: Web3 | None = None
+
+
+def _w3_mainnet_balance() -> Web3:
+    global _w3_mainnet_balance_cached
+    if _w3_mainnet_balance_cached is None:
+        _w3_mainnet_balance_cached = Web3(Web3.HTTPProvider(
+            MAINNET_RPC_URL,
+            request_kwargs={"timeout": _MAINNET_BALANCE_TIMEOUT_S},
+            exception_retry_configuration=None,
+        ))
+    return _w3_mainnet_balance_cached
+
+
+def _owner_mainnet_eth(owner_addr: str) -> str:
+    """Owner's Ethereum-mainnet ETH balance as a decimal string.
+
+    Never raises: any RPC error or timeout reads "unavailable", so the
+    mainnet endpoint cannot fail or stall a get_gas_balance call."""
+    try:
+        return str(Web3.from_wei(
+            _w3_mainnet_balance().eth.get_balance(owner_addr), "ether"))
+    except Exception:
+        return "unavailable"
 
 
 _BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
@@ -3096,6 +3190,9 @@ def equip_all_batch(
         Kami_Pet_Slot.
     """
     src = _get_account(account)
+    # Resolved before the per-item dry-run loop: a missing operator
+    # wallet raises its own error instead of N "skipped" entries.
+    op_addr = src.operator_addr
     if not equips:
         raise ValueError(
             'equips is empty; pass a list of {"kami_id", "item_index"} dicts'
@@ -3130,7 +3227,7 @@ def equip_all_batch(
         # not RESTING). No speculative tx.
         try:
             contract.functions.executeTyped(eid, item_index).call(
-                {"from": src.operator_addr}
+                {"from": op_addr}
             )
         except Exception as e:
             results.append(
@@ -3216,6 +3313,9 @@ def unequip_all_batch(
          results: [{kami_id, status, tx_hash?/reason?}]}
     """
     src = _get_account(account)
+    # Resolved before the per-item dry-run loop: a missing operator
+    # wallet raises its own error instead of N "skipped" entries.
+    op_addr = src.operator_addr
     if not kami_ids:
         raise ValueError("kami_ids is empty; pass kami token indices")
 
@@ -3240,7 +3340,7 @@ def unequip_all_batch(
         # Dry-run gate: skip empty slots (no speculative tx).
         try:
             contract.functions.executeTyped(eid, slot_type).call(
-                {"from": src.operator_addr}
+                {"from": op_addr}
             )
         except Exception as e:
             msg = str(e)
@@ -4893,9 +4993,12 @@ def check_quest_completable(quest_index: int, account: str = "main") -> dict:
     contract = w3.eth.contract(address=addr, abi=_ABI_QUEST_COMPLETE)
 
     acct = _get_account(account)
+    # Resolved before the try: a missing operator wallet raises its own
+    # error rather than reading as completable=False.
+    op_addr = acct.operator_addr
     try:
         contract.functions.executeTyped(q_id).call(
-            {"from": acct.operator_addr}
+            {"from": op_addr}
         )
         return {"quest_index": quest_index, "completable": True}
     except Exception as e:
@@ -4948,9 +5051,12 @@ def quest_state(quest_index: int, account: str = "main") -> dict:
         addr = _resolve_system("system.quest.complete")
         contract = w3.eth.contract(address=addr, abi=_ABI_QUEST_COMPLETE)
         acct = _get_account(account)
+        # Resolved before the try: a missing operator wallet raises its
+        # own error rather than reading as a quest revert.
+        op_addr = acct.operator_addr
         try:
             contract.functions.executeTyped(q_id).call(
-                {"from": acct.operator_addr}
+                {"from": op_addr}
             )
             completable_now = True
         except Exception as e:
@@ -5577,6 +5683,9 @@ def sacrifice_kami(kami_id: int, account: str = "main") -> dict:
     (input for sacrifice_reveal if the auto-reveal ever fails).
     """
     src = _get_account(account)
+    # Resolved before the dry-run try below: a missing operator wallet
+    # raises its own error, not a wrapped "dry-run reverted".
+    op_addr = src.operator_addr
     ki = int(kami_id)
 
     # Best-effort state read for diagnostics (the dry-run is authoritative).
@@ -5595,7 +5704,7 @@ def sacrifice_kami(kami_id: int, account: str = "main") -> dict:
         abi=_ABI_SACRIFICE_COMMIT,
     )
     try:
-        commit_contract.functions.executeTyped(ki).call({"from": src.operator_addr})
+        commit_contract.functions.executeTyped(ki).call({"from": op_addr})
     except Exception as e:
         raise ValueError(
             f"dry-run reverted; no tx submitted: {e}. Kami {ki} state: "
@@ -5660,6 +5769,9 @@ def sacrifice_kami_batch(
          results: [{kami_id, status, tx_hash?/reason?, block?}]}
     """
     src = _get_account(account)
+    # Resolved before the per-item dry-run loop: a missing operator
+    # wallet raises its own error instead of N "skipped" entries.
+    op_addr = src.operator_addr
     if not kami_ids:
         raise ValueError("kami_ids is empty; pass kami token indices")
 
@@ -5683,7 +5795,7 @@ def sacrifice_kami_batch(
         processed += 1
         # Per-kami dry-run gate (room/ownership/state) — no speculative tx.
         try:
-            commit_contract.functions.executeTyped(ki).call({"from": src.operator_addr})
+            commit_contract.functions.executeTyped(ki).call({"from": op_addr})
         except Exception as e:
             results.append({"kami_id": ki, "status": "skipped", "reason": str(e)[:140]})
             skipped += 1

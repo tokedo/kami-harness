@@ -1,5 +1,5 @@
 # Account roster — public addresses only. Labels must match .env key prefixes.
-# This file is committed to git and visible to the LLM.
+# Per-deployment state: in the repo tree and visible to the LLM, but gitignored.
 # Private keys are in ~/.blocklife-keys/.env (outside repo, never visible to LLM).
 
 accounts:
