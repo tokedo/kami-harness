@@ -22,6 +22,31 @@ marks the tool contract.
 - **PATCH** — non-semantic changes: documentation fixes, wording, catalog
   data refreshes, internal refactors that do not change the tool contract.
 
+## [1.2.0] — Wallet / gas management
+
+Additive (MINOR) release: 3 new tools. **81 tools** total (was 78).
+Existing agents keep working unchanged. No new egress hosts: all three
+tools use the existing Yominet RPC endpoint.
+
+### Added
+- **Wallet / gas management** — `get_gas_balance` (operator + owner ETH
+  balances for one account, or all configured accounts when `account`
+  is empty), `fund_operator` (plain ETH transfer owner → operator,
+  owner-signed, with an owner-balance pre-check covering amount + gas),
+  and `withdraw_operator` (operator → owner, operator-signed;
+  `amount_eth="all"`, the default, sends the operator balance minus a
+  gas reserve). Destinations are pinned to the same account's registry
+  addresses — an arbitrary recipient is not expressible in the tool
+  parameters. Plain transfers provision 250k gas: a plain ETH transfer
+  on Yominet burns ~113k gas (Initia MiniEVM), not the standard 21k.
+  Insufficient-balance errors name the balance, the requested amount,
+  and the gas provision.
+
+### Tests
+- Offline coverage for all three tools (happy + error paths). Balance
+  reads and transaction sending are faked; the tests run without keys
+  or network.
+
 ## [1.1.0] — Marketplace, transfers, sacrifice, order book
 
 Additive (MINOR) release: 14 new tools and backward-compatible patches to
@@ -110,5 +135,6 @@ private experiment repo — they are not part of this environment interface.
   quests, scavenge, and trading. Unchanged in count and behavior from the
   `v0-pilot` state — only descriptions were rewritten.
 
+[1.2.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.2.0
 [1.1.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.1.0
 [1.0.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.0.0

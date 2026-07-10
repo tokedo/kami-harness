@@ -40,13 +40,14 @@ MCP client (any KamiBench agent) --MCP--> executor (server.py) --> Kamibots API
 
 ## Tool surface
 
-The server exposes **78 tools**. The authoritative, per-tool reference —
+The server exposes **81 tools**. The authoritative, per-tool reference —
 signatures, parameters, and behavior — is
 [`executor/README.md`](executor/README.md). Grouped overview:
 
 | Group | Tools (examples) | What it covers |
 |---|---|---|
 | **Setup** | `list_accounts`, `register_kamibots`, `store_operator_key` | Account registry, Kamibots API registration, operator-key delegation |
+| **Wallet / gas** | `get_gas_balance`, `fund_operator`, `withdraw_operator` | Operator/owner ETH balances; owner↔operator gas transfers, destinations pinned to the account's registry addresses |
 | **Reads** | `get_tier`, `get_inventory`, `get_kami_state(_slim)`, `get_kamis_progress_batch`, `get_nodes`, `get_prices`, `get_npc_prices`, `get_account_kamis`, `get_all_kamis`, `get_killer_ranking`, `get_leaderboard`, `get_account_trades` | Perception: account, kami, node, market, and ranking state |
 | **Strategy execution (Kamibots)** | `start_strategy`, `stop_strategy`, `get_all_strategies`, `get_all_strategy_statuses`, `get_strategy_status`, `get_strategy_logs` | Kamibots-managed harvest/rest/craft loops |
 | **On-chain actions** | `harvest_start/stop/collect`, `move_to_room`, `travel_to_room`, `listing_buy`, `auction_buy`, `feed_kami`, `revive_kami`, `level_up_kami`, `name_kami`, `equip_item`, `unequip_item`, `upgrade_skill`, `use_account_item`, `burn_items`, `craft_item`, `sacrifice_kami(_batch)`, `sacrifice_reveal` | Direct Yominet transactions |

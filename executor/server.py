@@ -390,6 +390,34 @@ def _send_tx_owner(
     }
 
 
+# A plain ETH value transfer burns ~113k gas on Yominet (Initia MiniEVM),
+# not the standard 21k — observed 113,251 on tx 0x4dd23420... Provision 2x.
+_PLAIN_TRANSFER_GAS = 250_000
+_PLAIN_TRANSFER_FEE_WEI = _PLAIN_TRANSFER_GAS * _GAS_PRICE["maxFeePerGas"]
+
+
+def _send_eth(from_key: str, from_addr: str, to_addr: str, value_wei: int) -> dict:
+    """Sign and send a plain ETH value transfer (empty calldata)."""
+    tx = {
+        "from": from_addr,
+        "to": to_addr,
+        "value": value_wei,
+        "gas": _PLAIN_TRANSFER_GAS,
+        "chainId": CHAIN_ID,
+        "nonce": w3.eth.get_transaction_count(from_addr),
+        **_GAS_PRICE,
+    }
+    signed = w3.eth.account.sign_transaction(tx, private_key=from_key)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+    return {
+        "tx_hash": "0x" + receipt.transactionHash.hex(),
+        "status": "success" if receipt.status == 1 else "reverted",
+        "block": receipt.blockNumber,
+        "gas_used": receipt.gasUsed,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Component resolution (for on-chain reads)
 # ---------------------------------------------------------------------------
@@ -1113,6 +1141,155 @@ async def store_operator_key(account: str = "main") -> dict:
         "stored": True,
         "message": "Operator key stored securely",
     }
+
+
+# ---- Wallet / gas management ----
+
+
+@mcp.tool()
+def get_gas_balance(account: str = "") -> dict:
+    """ETH balances of the operator and owner wallets, per account.
+
+    Gas on Yominet is paid in ETH by whichever wallet signs a
+    transaction: the operator for gameplay txs, the owner for
+    trades/mints/funding. A plain ETH transfer burns ~113k gas
+    (Initia MiniEVM), not the standard 21k — ~0.0000003 ETH at the
+    flat 0.0025 gwei gas price.
+
+    Args:
+        account: Account label. Empty string (default) returns every
+            configured account.
+
+    Returns:
+        {balances: {label: {operator_address, operator_eth,
+        owner_address, owner_eth}}} — owner fields present only when
+        the account has an owner key configured.
+    """
+    labels = [account] if account else list(_accounts)
+    out = {}
+    for label in labels:
+        acct = _get_account(label)
+        entry = {
+            "operator_address": acct.operator_addr,
+            "operator_eth": str(w3.from_wei(
+                w3.eth.get_balance(acct.operator_addr), "ether")),
+        }
+        if acct.owner_addr:
+            entry["owner_address"] = acct.owner_addr
+            entry["owner_eth"] = str(w3.from_wei(
+                w3.eth.get_balance(acct.owner_addr), "ether"))
+        out[label] = entry
+    return {"balances": out}
+
+
+@mcp.tool()
+def fund_operator(amount_eth: str, account: str = "main") -> dict:
+    """Send ETH from the owner wallet to the same account's operator wallet.
+
+    Plain value transfer signed by the owner key. The recipient is
+    pinned to this account's operator address from the registry; an
+    arbitrary recipient is not expressible. Fails before sending if the
+    owner balance does not cover the amount plus the gas provision
+    (250k gas at the flat price; a plain transfer burns ~113k on
+    Yominet's Initia MiniEVM).
+
+    Args:
+        amount_eth: Amount as a decimal string in ETH (e.g. "0.01").
+        account: Account label (must have an owner key in .env).
+
+    Returns:
+        Transaction result (tx_hash, status, block, gas_used) plus
+        direction, amount_eth, and post-transaction operator_eth and
+        owner_eth balances.
+    """
+    acct = _get_account(account)
+    if not acct.owner_key:
+        raise ValueError(
+            f"Account '{account}' has no owner key. "
+            f"Set {account.upper()}_OWNER_KEY in .env."
+        )
+    value = w3.to_wei(Decimal(amount_eth), "ether")
+    balance = w3.eth.get_balance(acct.owner_addr)
+    if balance < value + _PLAIN_TRANSFER_FEE_WEI:
+        raise ValueError(
+            f"Owner balance {w3.from_wei(balance, 'ether')} ETH cannot "
+            f"cover {amount_eth} ETH + the "
+            f"{w3.from_wei(_PLAIN_TRANSFER_FEE_WEI, 'ether')} ETH gas "
+            f"provision ({_PLAIN_TRANSFER_GAS} gas at the flat price)."
+        )
+    result = _send_eth(acct.owner_key, acct.owner_addr, acct.operator_addr, value)
+    result.update({
+        "account": account,
+        "direction": "owner->operator",
+        "amount_eth": amount_eth,
+        "operator_eth": str(w3.from_wei(
+            w3.eth.get_balance(acct.operator_addr), "ether")),
+        "owner_eth": str(w3.from_wei(
+            w3.eth.get_balance(acct.owner_addr), "ether")),
+    })
+    return result
+
+
+@mcp.tool()
+def withdraw_operator(amount_eth: str = "all", account: str = "main") -> dict:
+    """Send ETH from the operator wallet to the same account's owner wallet.
+
+    Plain value transfer signed by the operator key. The recipient is
+    pinned to this account's owner address from the registry; an
+    arbitrary recipient is not expressible. Fails before sending if the
+    operator balance does not cover the amount plus the gas provision
+    (250k gas at the flat price; a plain transfer burns ~113k on
+    Yominet's Initia MiniEVM).
+
+    Args:
+        amount_eth: Decimal string in ETH (e.g. "0.005"), or "all"
+            (default) to send the full operator balance minus the gas
+            reserve.
+        account: Account label (must have an owner key in .env, so the
+            owner address is known).
+
+    Returns:
+        Transaction result (tx_hash, status, block, gas_used) plus
+        direction, the amount_eth actually sent, and post-transaction
+        operator_eth and owner_eth balances.
+    """
+    acct = _get_account(account)
+    if not acct.owner_addr:
+        raise ValueError(
+            f"Account '{account}' has no owner key in .env, so the owner "
+            f"address is unknown — refusing to guess a recipient."
+        )
+    balance = w3.eth.get_balance(acct.operator_addr)
+    if amount_eth == "all":
+        value = balance - _PLAIN_TRANSFER_FEE_WEI
+        if value <= 0:
+            raise ValueError(
+                f"Operator balance {w3.from_wei(balance, 'ether')} ETH is "
+                f"at or below the "
+                f"{w3.from_wei(_PLAIN_TRANSFER_FEE_WEI, 'ether')} ETH gas "
+                f"reserve ({_PLAIN_TRANSFER_GAS} gas at the flat price) — "
+                f"nothing to sweep."
+            )
+    else:
+        value = w3.to_wei(Decimal(amount_eth), "ether")
+        if balance < value + _PLAIN_TRANSFER_FEE_WEI:
+            raise ValueError(
+                f"Operator balance {w3.from_wei(balance, 'ether')} ETH "
+                f"cannot cover {amount_eth} ETH + the "
+                f"{w3.from_wei(_PLAIN_TRANSFER_FEE_WEI, 'ether')} ETH gas "
+                f"provision ({_PLAIN_TRANSFER_GAS} gas at the flat price)."
+            )
+    result = _send_eth(acct.operator_key, acct.operator_addr, acct.owner_addr, value)
+    result.update({
+        "account": account,
+        "direction": "operator->owner",
+        "amount_eth": str(w3.from_wei(value, "ether")),
+        "operator_eth": str(w3.from_wei(
+            w3.eth.get_balance(acct.operator_addr), "ether")),
+        "owner_eth": str(w3.from_wei(
+            w3.eth.get_balance(acct.owner_addr), "ether")),
+    })
+    return result
 
 
 # ---- Kamibots API: state reads ----

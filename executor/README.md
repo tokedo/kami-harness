@@ -94,6 +94,23 @@ Example config (Claude Code's `.mcp.json` shown):
 | `register_kamibots(account)` | Register with Kamibots API (owner wallet signature) |
 | `store_operator_key(account)` | Send operator key to Kamibots (encrypted) |
 
+### Wallet / gas management
+
+| Tool | Description |
+|---|---|
+| `get_gas_balance(account)` | Operator + owner ETH balances; empty `account` (default) returns all configured accounts |
+| `fund_operator(amount_eth, account)` | Plain ETH transfer owner → operator, owner-signed; pre-checks the owner balance covers amount + gas |
+| `withdraw_operator(amount_eth, account)` | Plain ETH transfer operator → owner, operator-signed; `amount_eth="all"` (default) sends the balance minus a gas reserve |
+
+Destinations are pinned: `fund_operator` always pays the same account's
+operator address and `withdraw_operator` the same account's owner
+address, both taken from the registry — an arbitrary recipient is not
+expressible in the tool parameters.
+
+Plain transfers provision 250k gas. A plain ETH value transfer on
+Yominet burns ~113k gas (Initia MiniEVM), not the standard 21k; at the
+flat 0.0025 gwei gas price that is ~0.0000003 ETH per transfer.
+
 ### Kamibots API (state reads)
 
 | Tool | Description |
