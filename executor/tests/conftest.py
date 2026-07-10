@@ -5,6 +5,7 @@ fabricated from well-known local-dev throwaway keys, and all chain / API /
 transaction access is monkeypatched per test.
 """
 
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,11 @@ from types import SimpleNamespace
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# MAINNET_RPC_URL is required config with no default (the server refuses
+# to start without it). Give the test process a loopback placeholder so
+# the module imports keyless; nothing in the offline suite connects to it.
+os.environ.setdefault("MAINNET_RPC_URL", "http://127.0.0.1:9/offline-test")
 
 import server  # noqa: E402
 

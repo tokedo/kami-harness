@@ -21,11 +21,18 @@ Kamigotchi perception and action as tools; any MCP client can drive it.
     trades, approves ERC-20s.
   - **Operator** — signs all gameplay transactions (harvest, move, equip,
     quests). Delegated from owner via `system.account.set.operator`.
+    A new account can start owner-only: the `create_operator_wallet`
+    tool generates the operator keypair inside the server process.
   - The server reads both keys but **never exposes them to the connected
     client**.
 - **Yominet RPC**: the default
   (`https://jsonrpc-yominet-1.anvil.asia-southeast.initia.xyz`) works out
   of the box. Override via the `RPC_URL` env var.
+- **Ethereum mainnet RPC**: required, no default. The bridge tools
+  (`bridge_eth_from_mainnet`, `bridge_status`) quote and sign mainnet
+  transactions through the `MAINNET_RPC_URL` endpoint; it is part of the
+  environment definition and is recorded in run manifests, and the
+  server fails at startup when it is unset.
 - **Kamibots account**: the server uses Kamibots' Playwright API for state
   reads and strategy execution. The first session calls
   `register_kamibots(account=...)`, which signs with the owner key and
@@ -59,7 +66,8 @@ keys external means there is nothing sensitive in the tree to read.
 mkdir -p ~/.blocklife-keys
 cp env.template ~/.blocklife-keys/.env
 chmod 600 ~/.blocklife-keys/.env
-# Edit ~/.blocklife-keys/.env: fill in MAIN_OPERATOR_KEY, MAIN_OWNER_KEY
+# Edit ~/.blocklife-keys/.env: fill in MAIN_OPERATOR_KEY, MAIN_OWNER_KEY,
+# and MAINNET_RPC_URL (required — the server refuses to start without it)
 # Add more accounts as needed: FARM1_OPERATOR_KEY=, FARM1_OWNER_KEY=
 ```
 
@@ -154,13 +162,16 @@ With the server connected, initialize an account by calling:
 ```
 list_accounts()                       # see what's configured
 register_kamibots(account="main")     # owner-signed, provisions API key
-store_operator_key(account="main")    # encrypted at rest on Kamibots
 get_tier(account="main")              # confirms API access
 get_account_kamis(account="main")     # discover your kamis
 ```
 
-After that, every other tool is available. See
-[`executor/README.md`](executor/README.md) for the full tool reference.
+After that, every other tool is available. An account that exists only
+as an owner key (no operator, no on-chain registration, funds still on
+Ethereum mainnet) is brought to a playable state through the tool
+surface itself — see the Onboarding and Bridging sections of
+[`executor/README.md`](executor/README.md), which also has the full
+tool reference.
 
 ---
 
@@ -194,7 +205,7 @@ out-of-gas on node-change waves).
 - [`README.md`](README.md) — the environment interface specification:
   tool surface, world-knowledge docs, and world model.
 - [`executor/README.md`](executor/README.md) — the full MCP tool
-  reference (81 tools).
+  reference (84 tools).
 - [`integration/system-ids.md`](integration/system-ids.md) and
   [`integration/entity-ids.md`](integration/entity-ids.md) — if you want
   to extend the interface with new tools.

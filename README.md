@@ -24,6 +24,8 @@ server process and are never exposed to the connected client.
 ```
 MCP client (any KamiBench agent) --MCP--> executor (server.py) --> Kamibots API
                                                                \-> Yominet RPC
+                                                               \-> Ethereum mainnet RPC (bridge tools; MAINNET_RPC_URL)
+                                                               \-> router-api.initia.xyz (bridge quotes/tracking)
 ```
 
 - **Perception** — state-read tools return account, kami, node, market,
@@ -40,14 +42,14 @@ MCP client (any KamiBench agent) --MCP--> executor (server.py) --> Kamibots API
 
 ## Tool surface
 
-The server exposes **81 tools**. The authoritative, per-tool reference —
+The server exposes **84 tools**. The authoritative, per-tool reference —
 signatures, parameters, and behavior — is
 [`executor/README.md`](executor/README.md). Grouped overview:
 
 | Group | Tools (examples) | What it covers |
 |---|---|---|
-| **Setup** | `list_accounts`, `register_kamibots`, `store_operator_key` | Account registry, Kamibots API registration, operator-key delegation |
-| **Wallet / gas** | `get_gas_balance`, `fund_operator`, `withdraw_operator` | Operator/owner ETH balances; owner↔operator gas transfers, destinations pinned to the account's registry addresses |
+| **Setup & onboarding** | `list_accounts`, `create_operator_wallet`, `register_account`, `register_kamibots` | Account registry, in-process operator keypair creation, on-chain account registration, Kamibots API registration |
+| **Wallet / gas / bridging** | `get_gas_balance`, `fund_operator`, `withdraw_operator`, `bridge_eth_from_mainnet`, `bridge_status` | Operator/owner ETH balances; owner↔operator gas transfers; Ethereum mainnet → Yominet ETH bridging — all destinations pinned to the account's registry addresses |
 | **Reads** | `get_tier`, `get_inventory`, `get_kami_state(_slim)`, `get_kamis_progress_batch`, `get_nodes`, `get_prices`, `get_npc_prices`, `get_account_kamis`, `get_all_kamis`, `get_killer_ranking`, `get_leaderboard`, `get_account_trades` | Perception: account, kami, node, market, and ranking state |
 | **Strategy execution (Kamibots)** | `start_strategy`, `stop_strategy`, `get_all_strategies`, `get_all_strategy_statuses`, `get_strategy_status`, `get_strategy_logs` | Kamibots-managed harvest/rest/craft loops |
 | **On-chain actions** | `harvest_start/stop/collect`, `move_to_room`, `travel_to_room`, `listing_buy`, `auction_buy`, `feed_kami`, `revive_kami`, `level_up_kami`, `name_kami`, `equip_item`, `unequip_item`, `upgrade_skill`, `use_account_item`, `burn_items`, `craft_item`, `sacrifice_kami(_batch)`, `sacrifice_reveal` | Direct Yominet transactions |
@@ -208,8 +210,11 @@ running the MCP server, and connecting a client. Full instructions are in
 6. One-time: seed the trade order-book cache with
    `python3 executor/kwob_bootstrap.py` (see SETUP.md).
 
-The connected client bootstraps an account by calling
-`register_kamibots(account=...)` then `store_operator_key(account=...)`.
+The connected client provisions Kamibots API access by calling
+`register_kamibots(account=...)`. An account that starts as a bare
+owner wallet reaches a playable state through the tool surface alone —
+see the Onboarding and Bridging sections of
+[`executor/README.md`](executor/README.md).
 
 ## Versioning
 
@@ -222,8 +227,10 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`1.1.0`** — adds marketplace, transfer, sacrifice, order-book,
-and batch tools on top of the 1.0.0 environment-interface baseline.
+Current: **`1.3.0`** — adds self-onboarding (in-process operator
+creation, on-chain account registration) and Ethereum mainnet → Yominet
+bridging; removes `store_operator_key` (the one tool that moved private
+key material off the server process).
 
 ## No agent policy
 

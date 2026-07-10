@@ -22,6 +22,86 @@ marks the tool contract.
 - **PATCH** — non-semantic changes: documentation fixes, wording, catalog
   data refreshes, internal refactors that do not change the tool contract.
 
+## [1.3.0] — Self-onboarding + mainnet bridging
+
+4 tools added, 1 removed. **84 tools** total (was 81). Ships as MINOR:
+the removal (`store_operator_key`) is nominally a breaking change, but
+it existed only to escrow operator keys for Kamibots-managed strategy
+execution — no KamiBench agent contract calls it, and keeping it would
+contradict the interface's key-custody boundary (see Removed).
+
+### Added
+- **Onboarding** — `create_operator_wallet` generates an operator
+  keypair *inside the server process*, persists `{LABEL}_OPERATOR_KEY`
+  next to the owner key, hot-loads the account into the live registry,
+  and records the public addresses in `accounts/roster.yaml` (the
+  roster update is part of the tool, not a manual step). Only public
+  addresses are returned; key material never leaves the server process.
+  Refuses when an operator key already exists (no rotation).
+  `register_account` performs the on-chain registration
+  (`system.account.register` `executeTyped(operator, name)`,
+  owner-signed, 2M gas limit / 883k observed) with 1–15-byte
+  no-whitespace name validation and an eth_call dry-run that maps the
+  common reverts ("exists for Owner" / "exists for Operator" /
+  "name taken") to actionable errors before any gas is spent.
+- **Bridging** — `bridge_eth_from_mainnet` moves Ethereum mainnet ETH
+  to Yominet gas ETH at the same account's owner address (recipient
+  pinned to the registry, as with every ETH-moving tool) via the Initia
+  router API: single-transaction LayerZero OFT routes only
+  (multi-transaction routes and unexpected ERC20 approvals are
+  refused), local bech32 derivation for `init` addresses, a 6-decimal
+  amount cap (the route transits a 6-decimal denom), a balance
+  pre-check naming amount + bridge fee + max gas, and EIP-1559 fee
+  fields. The tool returns immediately after broadcast with status
+  `submitted` and the `tx_hash` — the receipt is not awaited and
+  nothing after the broadcast raises, so a broadcast hash can never be
+  lost to a receipt timeout. `bridge_status` carries all subsequent
+  polling: best-effort tracker registration, router transfer state,
+  and the Yominet arrival balance.
+- The router route request declares `experimental_features:
+  ["layer_zero"]` only. The game widget's flow also sends
+  `allow_unsafe=true` and hyperlane/stargate/eureka feature flags;
+  those were dropped — `allow_unsafe` only admits unsafe *swap* routes
+  (this route has no swap) and the other bridge families must not
+  become route candidates. Verified live 2026-07-10: the reduced
+  request returns the identical single-transaction OFT route.
+
+### Removed
+- **`store_operator_key`** — uploaded the account's operator private
+  key to the Kamibots service (for server-side strategy execution).
+  This was the single place the interface moved private-key material
+  off the server process, contradicting the secrets boundary that
+  every other tool (including the new `create_operator_wallet`)
+  maintains. `register_kamibots` stays unchanged: it provisions a
+  read-API credential only. Its docs (SETUP.md §10, tool tables) and
+  the "next: store_operator_key" hint inside `register_kamibots` are
+  gone with it.
+
+### Config
+- `MAINNET_RPC_URL` is now **required explicit configuration** with no
+  default public-endpoint fallback; the server fails loudly at startup
+  when it is unset. The endpoint is part of the environment definition
+  and is recorded in run manifests.
+
+### Egress
+- Exactly **two new egress hosts**: the configured `MAINNET_RPC_URL`
+  endpoint (mainnet gas estimation, balance reads, broadcast) and
+  `router-api.initia.xyz` (bridge route/msgs quotes, tx tracking and
+  status). No other host is contacted by the new tools; removing
+  `store_operator_key` also removes the only payload that carried
+  private-key material to `api.kamibots.xyz` (the host itself remains,
+  for reads).
+
+### Tests
+- Offline coverage for all four tools, money paths included: faked
+  router quote parsing (`txs`/`msgs` shapes, missing `evm_tx`,
+  ERC20-approval refusal, `txs_required != 1`), fee/balance
+  arithmetic, 6-decimal rejection, bech32 vectors, keygen persistence
+  + no-key-leakage + roster update, name validation, register dry-run
+  revert mapping, the post-broadcast no-raise path, and a keyless
+  subprocess check that startup fails without `MAINNET_RPC_URL`. The
+  suite runs green without keys or network.
+
 ## [1.2.0] — Wallet / gas management
 
 Additive (MINOR) release: 3 new tools. **81 tools** total (was 78).
@@ -135,6 +215,7 @@ private experiment repo — they are not part of this environment interface.
   quests, scavenge, and trading. Unchanged in count and behavior from the
   `v0-pilot` state — only descriptions were rewritten.
 
+[1.3.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.3.0
 [1.2.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.2.0
 [1.1.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.1.0
 [1.0.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.0.0

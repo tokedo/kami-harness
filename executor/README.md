@@ -52,20 +52,16 @@ pip install -r requirements.txt
 
 3. **Start MCP server** (via your MCP client's config)
 
-4. **Register with Kamibots** (agent calls once):
+4. **Register with Kamibots** (called once per account):
    ```
    register_kamibots(account="main")
    ```
    Signs with the owner wallet, saves API key + privy_id to `.env`.
 
-5. **Store operator key** (agent calls per account):
-   ```
-   store_operator_key(account="main")
-   store_operator_key(account="farm1")
-   ```
-   Sends each operator key to Kamibots (encrypted at rest).
+5. **Ready to play** — all other tools now work.
 
-6. **Ready to play** — all other tools now work.
+An account that exists only as an owner key reaches the same state
+through the tool surface itself — see [Onboarding](#onboarding).
 
 ## Running
 
@@ -91,8 +87,40 @@ Example config (Claude Code's `.mcp.json` shown):
 | Tool | Description |
 |---|---|
 | `list_accounts()` | Labels + public addresses, registration status |
-| `register_kamibots(account)` | Register with Kamibots API (owner wallet signature) |
-| `store_operator_key(account)` | Send operator key to Kamibots (encrypted) |
+| `create_operator_wallet(account)` | Generate an operator keypair in the server process; persists the key next to the owner key and records the public addresses in `roster.yaml` |
+| `register_account(name, account)` | On-chain account registration: creates the account entity, sets the name, binds the operator address (owner-signed) |
+| `register_kamibots(account)` | Register with Kamibots API (owner wallet signature; read-API credential) |
+
+### Onboarding
+
+A playable account is: an owner key in the keys file, an operator key
+next to it, an on-chain account entity binding the operator address,
+an operator wallet holding gas ETH, and (for the read API) Kamibots
+credentials. Each of those states is reachable through the tool
+surface; none requires a game client or manual file edits.
+
+- The game client uses a Privy embedded wallet as operator, but
+  on-chain the operator is just an EOA address argument to
+  `system.account.register` — no operator signature is involved in
+  registration.
+- `create_operator_wallet` produces the operator key state: the keypair
+  is generated inside the server process, `{LABEL}_OPERATOR_KEY` is
+  written next to the owner key, the account is hot-loaded into the
+  live registry, and the public addresses are appended to
+  `accounts/roster.yaml`. Only public addresses appear in the response.
+  An account that already has an operator key is refused (rotation via
+  `system.account.set.operator` is not implemented).
+- `register_account` produces the on-chain state: one owner-signed
+  transaction (2M gas limit; 883k observed). Names are 1–15 bytes,
+  unique, whitespace-free. An eth_call dry-run runs first, so "exists
+  for Owner" / "exists for Operator" / "name taken" reverts surface
+  without spending gas. A newly registered account starts in Room 1
+  (Misty Riverside) with 100 stamina.
+- Operator gas comes from `fund_operator`; owner-side gas ETH that is
+  still on Ethereum mainnet crosses via `bridge_eth_from_mainnet`
+  (see [Bridging](#bridging)).
+- Kamibots API credentials come from `register_kamibots` (owner-signed
+  message; the credential grants state reads).
 
 ### Wallet / gas management
 
@@ -101,15 +129,44 @@ Example config (Claude Code's `.mcp.json` shown):
 | `get_gas_balance(account)` | Operator + owner ETH balances; empty `account` (default) returns all configured accounts |
 | `fund_operator(amount_eth, account)` | Plain ETH transfer owner → operator, owner-signed; pre-checks the owner balance covers amount + gas |
 | `withdraw_operator(amount_eth, account)` | Plain ETH transfer operator → owner, operator-signed; `amount_eth="all"` (default) sends the balance minus a gas reserve |
+| `bridge_eth_from_mainnet(amount_eth, account, dry_run)` | Ethereum mainnet ETH → Yominet gas ETH at the same owner address; `dry_run=true` quotes without signing |
+| `bridge_status(tx_hash, account)` | Bridge transfer state + the account's Yominet owner balance |
 
 Destinations are pinned: `fund_operator` always pays the same account's
-operator address and `withdraw_operator` the same account's owner
-address, both taken from the registry — an arbitrary recipient is not
+operator address, `withdraw_operator` the same account's owner address,
+and `bridge_eth_from_mainnet` lands at the same account's owner address
+on Yominet — all taken from the registry; an arbitrary recipient is not
 expressible in the tool parameters.
 
 Plain transfers provision 250k gas. A plain ETH value transfer on
 Yominet burns ~113k gas (Initia MiniEVM), not the standard 21k; at the
 flat 0.0025 gwei gas price that is ~0.0000003 ETH per transfer.
+
+### Bridging
+
+Bridging converts Ethereum mainnet ETH into native Yominet gas ETH at
+the same owner address. The route comes from the Initia router API
+(Skip Go-compatible, the same backend as the game's InterwovenKit
+bridge widget): a single mainnet transaction does a LayerZero OFT send
+to Initia L1 (EID 30326), which auto-forwards over IBC channel-25 to
+Yominet. Arrival is typically ~5 min after mainnet inclusion, up to
+~20 min observed. Amounts transit a 6-decimal denom, so `amount_eth`
+carries at most 6 decimal places.
+
+- Only single-transaction LayerZero OFT routes are accepted: the tool
+  refuses multi-transaction routes and routes requiring ERC20
+  approvals.
+- Before signing, the owner's mainnet balance is checked against
+  amount + bridge fee + max gas; refusals name all four numbers.
+- `bridge_eth_from_mainnet` returns immediately after broadcast with
+  status `submitted` and the `tx_hash`; the mainnet receipt is not
+  awaited, and nothing after the broadcast can raise (so the hash is
+  never lost). `bridge_status` carries all subsequent polling: router
+  transfer state plus the Yominet arrival balance.
+- Network egress for these two tools: the configured `MAINNET_RPC_URL`
+  endpoint (required, no default — the server fails at startup when it
+  is unset) and `router-api.initia.xyz` (route/msgs quotes, tx
+  tracking and status).
 
 ### Kamibots API (state reads)
 

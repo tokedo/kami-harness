@@ -1058,6 +1058,213 @@ def list_accounts() -> dict:
     return {"accounts": accts}
 
 
+# ---- Onboarding: operator creation + on-chain account registration ----
+#
+# The game client uses a Privy embedded wallet as operator, but on-chain
+# the operator is just an EOA address argument to system.account.register
+# — no operator signature is required at registration, so a new account
+# is expressible entirely through this tool surface.
+
+_ABI_ACCOUNT_REGISTER = json.loads(
+    '[{"type":"function","name":"executeTyped",'
+    '"inputs":[{"name":"operator","type":"address"},{"name":"name","type":"string"}],'
+    '"outputs":[{"type":"bytes"}],"stateMutability":"nonpayable"}]'
+)
+
+_ROSTER_HEADER = """\
+# Account roster — public addresses only. Labels must match .env key prefixes.
+# This file is committed to git and visible to the LLM.
+# Private keys are in ~/.blocklife-keys/.env (outside repo, never visible to LLM).
+
+accounts:
+"""
+
+
+def _roster_add_account(
+    label: str, owner_address: str, operator_address: str
+) -> str:
+    """Record an account's public addresses in accounts/roster.yaml.
+
+    Creates the file if missing. The entry is appended textually (a
+    yaml.dump round-trip would drop the file's comments) and the result
+    re-parsed to verify. Never raises: by the time this runs the
+    operator key is already persisted, so a roster problem must not
+    fail the tool call — returns "created", "added", "already_present",
+    or "failed: <reason>".
+    """
+    entry = (
+        f"  {label}:\n"
+        f'    owner_address: "{owner_address}"\n'
+        f'    operator_address: "{operator_address}"\n'
+    )
+    try:
+        if not _ROSTER_PATH.exists():
+            _ROSTER_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _ROSTER_PATH.write_text(_ROSTER_HEADER + entry)
+            return "created"
+        text = _ROSTER_PATH.read_text()
+        roster = yaml.safe_load(text) or {}
+        if label in (roster.get("accounts") or {}):
+            return "already_present"
+        if text and not text.endswith("\n"):
+            text += "\n"
+        if "accounts" not in roster:
+            text += "accounts:\n"
+        text += entry
+        if label not in ((yaml.safe_load(text) or {}).get("accounts") or {}):
+            return (
+                f"failed: appending to {_ROSTER_PATH} did not parse as an "
+                f"'accounts:' mapping entry — add '{label}' "
+                f"({owner_address} / {operator_address}) manually"
+            )
+        _ROSTER_PATH.write_text(text)
+        return "added"
+    except Exception as e:
+        return (
+            f"failed: {e} — add '{label}' ({owner_address} / "
+            f"{operator_address}) to {_ROSTER_PATH} manually"
+        )
+
+
+@mcp.tool()
+def create_operator_wallet(account: str) -> dict:
+    """Generate an operator keypair for an account and persist it.
+
+    Requires {LABEL}_OWNER_KEY to already exist in the keys file
+    (~/.blocklife-keys/.env); refuses if {LABEL}_OPERATOR_KEY already
+    exists — operator rotation via system.account.set.operator is not
+    implemented. The keypair is generated inside the server process,
+    the private key is written to the keys file next to the owner key,
+    the account is loaded into the live registry, and its public
+    addresses are recorded in accounts/roster.yaml. Only public
+    addresses are returned; key material never leaves the server
+    process. Registration of the on-chain account that binds this
+    operator is a separate transaction (register_account).
+
+    Args:
+        account: Account label (alphanumeric/underscore; must have an
+            owner key in the keys file and no operator key yet).
+
+    Returns:
+        {account, operator_address, owner_address, key_saved, roster} —
+        roster is the roster.yaml update outcome ("created", "added",
+        "already_present", or "failed: <reason>").
+    """
+    label = account.lower()
+    if not label.replace("_", "").isalnum():
+        raise ValueError(
+            f"Label '{account}' must be alphanumeric/underscore."
+        )
+    up = label.upper()
+    if os.environ.get(f"{up}_OPERATOR_KEY"):
+        acct = _accounts.get(label)
+        addr = f" ({acct.operator_addr})" if acct else ""
+        raise ValueError(
+            f"Account '{label}' already has an operator key{addr}. "
+            f"Rotation via system.account.set.operator is not implemented."
+        )
+    owner_key = os.environ.get(f"{up}_OWNER_KEY")
+    if not owner_key:
+        raise ValueError(
+            f"No {up}_OWNER_KEY in {_KEYS_PATH} — the owner wallet's key "
+            f"must exist there before an operator can be created for "
+            f"'{label}'."
+        )
+    new = w3.eth.account.create()
+    op_key = "0x" + new.key.hex().removeprefix("0x")
+    set_key(str(_KEYS_PATH), f"{up}_OPERATOR_KEY", op_key)
+    os.environ[f"{up}_OPERATOR_KEY"] = op_key
+    _accounts[label] = _Account(
+        label, op_key, owner_key,
+        os.environ.get(f"{up}_KAMIBOTS_API_KEY"),
+        os.environ.get(f"{up}_PRIVY_ID"),
+    )
+    roster = _roster_add_account(
+        label, _accounts[label].owner_addr, new.address
+    )
+    return {
+        "account": label,
+        "operator_address": new.address,
+        "owner_address": _accounts[label].owner_addr,
+        "key_saved": f"{up}_OPERATOR_KEY -> {_KEYS_PATH}",
+        "roster": roster,
+    }
+
+
+@mcp.tool()
+def register_account(name: str, account: str = "main") -> dict:
+    """Register the in-game account: one owner-signed transaction that
+    creates the account entity, sets the display name, and binds the
+    operator address.
+
+    Registration binds an operator address; operator keypairs are
+    created with create_operator_wallet. The call is dry-run via
+    eth_call before sending, so common reverts ("Account: exists for
+    Owner", "Account: exists for Operator", "Account: name taken")
+    surface without spending gas. Gas limit 2M (883k observed). A newly
+    registered account starts in Room 1 (Misty Riverside) with 100
+    stamina.
+
+    Args:
+        name: Display name, 1-15 bytes, unique across the game. No
+            whitespace (the official client rejects it even though the
+            contract allows it).
+        account: Account label (must have an owner key in the keys
+            file and an operator address in the registry).
+
+    Returns:
+        Transaction result (tx_hash, status, block, gas_used) plus
+        name, operator_address, owner_address, account_entity_id, and
+        starting_room.
+    """
+    acct = _get_account(account)
+    if not acct.owner_key:
+        raise ValueError(
+            f"Account '{account}' has no owner key. "
+            f"Set {account.upper()}_OWNER_KEY in .env."
+        )
+    name_bytes = len(name.encode())
+    if not 1 <= name_bytes <= 15:
+        raise ValueError(
+            f"Name must be 1-15 bytes; '{name}' is {name_bytes} bytes."
+        )
+    if any(c.isspace() for c in name):
+        raise ValueError(f"Name '{name}' contains whitespace — not allowed.")
+
+    addr = _resolve_system("system.account.register")
+    contract = w3.eth.contract(address=addr, abi=_ABI_ACCOUNT_REGISTER)
+    try:
+        contract.functions.executeTyped(acct.operator_addr, name).call(
+            {"from": acct.owner_addr}
+        )
+    except Exception as e:
+        reason = str(e)
+        hint = ""
+        if "exists for Owner" in reason:
+            hint = " This owner wallet is already registered."
+        elif "exists for Operator" in reason:
+            hint = " This operator address is bound to another account."
+        elif "name taken" in reason:
+            hint = f" The name '{name}' is taken — pick another."
+        raise ValueError(f"Registration would revert: {reason}.{hint}")
+
+    result = _send_tx_owner(
+        account,
+        "system.account.register",
+        _ABI_ACCOUNT_REGISTER,
+        [acct.operator_addr, name],
+        gas_limit=2_000_000,  # observed 883k on tx 0x85139659…
+    )
+    result.update({
+        "name": name,
+        "operator_address": acct.operator_addr,
+        "owner_address": acct.owner_addr,
+        "account_entity_id": hex(int(acct.owner_addr, 16)),
+        "starting_room": 1,
+    })
+    return result
+
+
 @mcp.tool()
 async def register_kamibots(account: str = "main") -> dict:
     """Register with Kamibots API using the account's owner wallet.
@@ -1111,35 +1318,8 @@ async def register_kamibots(account: str = "main") -> dict:
         "has_operator_key": data.get("hasOperatorKey"),
         "api_key_saved": bool(api_key),
         "privy_id_saved": bool(privy_id),
-        "message": f"Credentials saved as {up}_KAMIBOTS_API_KEY and {up}_PRIVY_ID. "
-        f"Next: call store_operator_key(account='{account}').",
-    }
-
-
-@mcp.tool()
-async def store_operator_key(account: str = "main") -> dict:
-    """Send the account's operator key to Kamibots for strategy execution.
-
-    The key is encrypted at rest (AES-256-GCM) on Kamibots servers.
-    Requires register_kamibots() to have completed first (needs the API key).
-
-    Args:
-        account: Account label.
-    """
-    acct = _get_account(account)
-    async with httpx.AsyncClient(timeout=30) as c:
-        r = await c.post(
-            f"{KAMIBOTS_BASE}/api/agent/operator-key",
-            headers=_headers(account),
-            json={"operatorKey": acct.operator_key},
-        )
-        r.raise_for_status()
-
-    return {
-        "account": account,
-        "operator_address": acct.operator_addr,
-        "stored": True,
-        "message": "Operator key stored securely",
+        "message": f"Credentials saved as {up}_KAMIBOTS_API_KEY and "
+        f"{up}_PRIVY_ID.",
     }
 
 
@@ -1290,6 +1470,295 @@ def withdraw_operator(amount_eth: str = "all", account: str = "main") -> dict:
             w3.eth.get_balance(acct.owner_addr), "ether")),
     })
     return result
+
+
+# ---- Bridging: Ethereum mainnet -> Yominet ----
+#
+# Route (Initia router API, Skip Go-compatible — same backend the game's
+# InterwovenKit bridge widget uses): one mainnet tx does a LayerZero OFT
+# send to Initia L1 (EID 30326), which auto-forwards over IBC channel-25
+# to Yominet, landing as native gas ETH at the same owner address.
+# Typically ~5 min, up to ~20 min observed.
+
+ROUTER_API = "https://router-api.initia.xyz"
+
+# The mainnet RPC endpoint is part of the environment definition and is
+# recorded in run manifests: required explicit configuration, with no
+# public-endpoint fallback (kami-lab review, M2).
+MAINNET_RPC_URL = os.environ.get("MAINNET_RPC_URL")
+if not MAINNET_RPC_URL:
+    raise RuntimeError(
+        "MAINNET_RPC_URL is not set. The bridge tools "
+        "(bridge_eth_from_mainnet, bridge_status) sign and track Ethereum "
+        "mainnet transactions through this endpoint; it is part of the "
+        "environment definition and is recorded in run manifests, so it "
+        f"must be configured explicitly in {_KEYS_PATH} (or the process "
+        "environment). There is no default public endpoint."
+    )
+MAINNET_CHAIN_ID = 1
+_YOMINET_GAS_DENOM = "evm/E1Ff7038eAAAF027031688E1535a055B2Bac2546"
+
+_w3_mainnet_cached: Web3 | None = None
+
+
+def _w3_mainnet() -> Web3:
+    global _w3_mainnet_cached
+    if _w3_mainnet_cached is None:
+        _w3_mainnet_cached = Web3(Web3.HTTPProvider(MAINNET_RPC_URL))
+    return _w3_mainnet_cached
+
+
+_BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
+
+def _bech32_encode(prefix: str, data: bytes) -> str:
+    """Encode bytes as bech32 (BIP-173). Initia L1 addresses are the
+    20-byte EVM address bech32-encoded with prefix 'init'."""
+    def polymod(values):
+        gen = [0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3]
+        chk = 1
+        for v in values:
+            b = chk >> 25
+            chk = (chk & 0x1FFFFFF) << 5 ^ v
+            for i in range(5):
+                chk ^= gen[i] if ((b >> i) & 1) else 0
+        return chk
+
+    acc, bits, five = 0, 0, []
+    for b in data:
+        acc = (acc << 8) | b
+        bits += 8
+        while bits >= 5:
+            bits -= 5
+            five.append((acc >> bits) & 31)
+    if bits:
+        five.append((acc << (5 - bits)) & 31)
+    hrp_exp = [ord(c) >> 5 for c in prefix] + [0] + [ord(c) & 31 for c in prefix]
+    poly = polymod(hrp_exp + five + [0, 0, 0, 0, 0, 0]) ^ 1
+    chk = [(poly >> 5 * (5 - i)) & 31 for i in range(6)]
+    return prefix + "1" + "".join(_BECH32_CHARSET[d] for d in five + chk)
+
+
+def _init_addr(evm_addr: str) -> str:
+    return _bech32_encode("init", bytes.fromhex(evm_addr.removeprefix("0x")))
+
+
+def _router_post(path: str, body: dict) -> dict:
+    r = httpx.post(f"{ROUTER_API}{path}", json=body, timeout=60)
+    if r.status_code != 200:
+        raise ValueError(f"Router API {path} -> {r.status_code}: {r.text[:300]}")
+    return r.json()
+
+
+def _bridge_quote(owner_addr: str, amount_wei: int) -> dict:
+    """Route + msgs from the Initia router; returns the signable EVM tx."""
+    route_req = {
+        "amount_in": str(amount_wei),
+        "source_asset_denom": "ethereum-native",
+        "source_asset_chain_id": str(MAINNET_CHAIN_ID),
+        "dest_asset_denom": _YOMINET_GAS_DENOM,
+        "dest_asset_chain_id": "yominet-1",
+        "allow_multi_tx": False,
+        "smart_relay": True,
+        # The ETH->ETH route is a LayerZero OFT transfer, so the request
+        # declares layer_zero support and nothing else. The game widget's
+        # flow also sends allow_unsafe=true and hyperlane/stargate/eureka
+        # feature flags: dropped — allow_unsafe only admits unsafe *swap*
+        # routes (this route has no swap; amount_out == amount_in), and
+        # the other bridge families must not become route candidates for
+        # this transfer. Verified live 2026-07-10: the reduced request
+        # returns the identical single-tx OFT route, and /msgs returns
+        # one evm_tx with no ERC20 approvals.
+        "experimental_features": ["layer_zero"],
+    }
+    route = _router_post("/v2/fungible/route", route_req)
+    if route.get("txs_required") != 1:
+        raise ValueError(
+            f"Expected a single-transaction route; router returned "
+            f"txs_required={route.get('txs_required')}."
+        )
+    init_addr = _init_addr(owner_addr)
+    addr_by_chain = {
+        str(MAINNET_CHAIN_ID): owner_addr,
+        "interwoven-1": init_addr,
+        "yominet-1": init_addr,
+    }
+    msgs = _router_post("/v2/fungible/msgs", {
+        **route_req,
+        "amount_out": route["amount_out"],
+        "operations": route["operations"],
+        "address_list": [
+            addr_by_chain[c] for c in route["required_chain_addresses"]
+        ],
+        "slippage_tolerance_percent": "1",
+    })
+    txs = msgs.get("txs") or msgs.get("msgs") or []
+    evm_txs = [t["evm_tx"] for t in txs if "evm_tx" in t]
+    if len(evm_txs) != 1:
+        raise ValueError(
+            f"Expected exactly 1 evm_tx from the router, got {len(evm_txs)}."
+        )
+    evm_tx = evm_txs[0]
+    if evm_tx.get("required_erc20_approvals"):
+        raise ValueError(
+            f"Route unexpectedly requires ERC20 approvals "
+            f"({evm_tx['required_erc20_approvals']}); the ETH-native OFT "
+            f"route needs none — refusing."
+        )
+    return {"route": route, "evm_tx": evm_tx}
+
+
+@mcp.tool()
+def bridge_eth_from_mainnet(
+    amount_eth: str, account: str = "main", dry_run: bool = False
+) -> dict:
+    """Bridge ETH from Ethereum mainnet to Yominet gas ETH.
+
+    One mainnet transaction (LayerZero OFT to Initia L1, auto-forwarded
+    over IBC to Yominet) converts mainnet ETH into native Yominet gas
+    ETH arriving at the SAME account's owner address — the recipient is
+    pinned to the registry address and is not expressible as a
+    parameter. Arrival is typically ~5 min, up to ~20 min observed;
+    bridge_status(tx_hash) reports transfer state. Amounts transit a
+    6-decimal denom. The owner's mainnet balance is checked against
+    amount + bridge fee + max gas before signing. Returns immediately
+    after broadcast with status "submitted" and the tx_hash; the
+    receipt is not awaited. Requires MAINNET_RPC_URL (the server fails
+    at startup when it is unset).
+
+    Args:
+        amount_eth: Amount as a decimal string in ETH (e.g. "0.01").
+            Max 6 decimal places.
+        account: Account label; its owner key signs on mainnet.
+        dry_run: If true, returns the quote (fees, estimated duration,
+            balance check) without signing or broadcasting anything.
+
+    Returns:
+        Quote fields (account, amount_eth, bridge_fee_eth,
+        mainnet_gas_max_eth, mainnet_balance_eth,
+        estimated_duration_seconds, recipient_yominet); a broadcast
+        additionally returns tx_hash and status "submitted", a dry run
+        dry_run=true instead.
+    """
+    acct = _get_account(account)
+    if not acct.owner_key:
+        raise ValueError(
+            f"Account '{account}' has no owner key. "
+            f"Set {account.upper()}_OWNER_KEY in .env."
+        )
+    amount = Decimal(amount_eth)
+    if amount != amount.quantize(Decimal("0.000001")):
+        raise ValueError(
+            f"amount_eth '{amount_eth}' has more than 6 decimal places; "
+            f"the bridge transits a 6-decimal denom."
+        )
+    amount_wei = w3.to_wei(amount, "ether")
+
+    q = _bridge_quote(acct.owner_addr, amount_wei)
+    evm_tx = q["evm_tx"]
+    value = int(evm_tx["value"])
+    data = evm_tx["data"]
+    if not data.startswith("0x"):
+        data = "0x" + data
+
+    w3m = _w3_mainnet()
+    tx = {
+        "from": acct.owner_addr,
+        "to": Web3.to_checksum_address(evm_tx["to"]),
+        "value": value,
+        "data": data,
+        "chainId": MAINNET_CHAIN_ID,
+    }
+    gas_est = w3m.eth.estimate_gas(tx)
+    tx["gas"] = int(gas_est * 13 // 10)
+    base_fee = w3m.eth.get_block("latest").get("baseFeePerGas", 0)
+    try:
+        tip = max(w3m.eth.max_priority_fee, 100_000_000)  # >= 0.1 gwei
+    except Exception:
+        tip = 1_000_000_000
+    tx["maxFeePerGas"] = 2 * base_fee + tip
+    tx["maxPriorityFeePerGas"] = tip
+
+    balance = w3m.eth.get_balance(acct.owner_addr)
+    max_gas_cost = tx["gas"] * tx["maxFeePerGas"]
+    quote = {
+        "account": account,
+        "amount_eth": amount_eth,
+        "bridge_fee_eth": str(w3.from_wei(value - amount_wei, "ether")),
+        "mainnet_gas_max_eth": str(w3.from_wei(max_gas_cost, "ether")),
+        "mainnet_balance_eth": str(w3.from_wei(balance, "ether")),
+        "estimated_duration_seconds": q["route"].get(
+            "estimated_route_duration_seconds"),
+        "recipient_yominet": acct.owner_addr,
+    }
+    if balance < value + max_gas_cost:
+        raise ValueError(
+            f"Mainnet balance {quote['mainnet_balance_eth']} ETH cannot "
+            f"cover {amount_eth} ETH + bridge fee "
+            f"{quote['bridge_fee_eth']} ETH + max gas "
+            f"{quote['mainnet_gas_max_eth']} ETH."
+        )
+    if dry_run:
+        return {"dry_run": True, **quote}
+
+    tx["nonce"] = w3m.eth.get_transaction_count(acct.owner_addr)
+    signed = w3m.eth.account.sign_transaction(tx, private_key=acct.owner_key)
+    tx_hash = "0x" + w3m.eth.send_raw_transaction(signed.raw_transaction).hex()
+    # The tx is broadcast: from here on nothing may raise, or the hash
+    # would be lost and a same-nonce retry invited (kami-lab review, M1).
+    # The receipt is deliberately not awaited; bridge_status carries all
+    # subsequent polling.
+    try:  # register with the router's tracker (best-effort)
+        _router_post("/v2/tx/track",
+                     {"tx_hash": tx_hash, "chain_id": str(MAINNET_CHAIN_ID)})
+    except Exception:
+        pass
+    return {"tx_hash": tx_hash, "status": "submitted", **quote}
+
+
+@mcp.tool()
+def bridge_status(tx_hash: str, account: str = "main") -> dict:
+    """State of a mainnet->Yominet bridge transfer, plus arrival balance.
+
+    Registers the hash with the router's tracker (best-effort,
+    idempotent), polls the router's status endpoint, and reads the
+    account's current Yominet owner balance. `state` is the router's
+    transfer state; `completed` is true at STATE_COMPLETED_SUCCESS.
+    Arrival is typically ~5 min after mainnet inclusion, up to ~20 min
+    observed.
+
+    Args:
+        tx_hash: Mainnet transaction hash returned by
+            bridge_eth_from_mainnet.
+        account: Account label whose Yominet owner balance is reported.
+
+    Returns:
+        {tx_hash, state, completed, yominet_owner_eth, detail} —
+        yominet_owner_eth is null when the account has no owner key
+        configured.
+    """
+    acct = _get_account(account)
+    try:
+        _router_post("/v2/tx/track",
+                     {"tx_hash": tx_hash, "chain_id": str(MAINNET_CHAIN_ID)})
+    except Exception:
+        pass
+    r = httpx.get(
+        f"{ROUTER_API}/v2/tx/status",
+        params={"tx_hash": tx_hash, "chain_id": str(MAINNET_CHAIN_ID)},
+        timeout=30,
+    )
+    status = r.json() if r.status_code == 200 else {"error": r.text[:300]}
+    transfers = status.get("transfers") or []
+    state = transfers[0].get("state") if transfers else status.get("state")
+    return {
+        "tx_hash": tx_hash,
+        "state": state or "unknown",
+        "completed": state == "STATE_COMPLETED_SUCCESS",
+        "yominet_owner_eth": str(w3.from_wei(
+            w3.eth.get_balance(acct.owner_addr), "ether")) if acct.owner_addr else None,
+        "detail": transfers[0] if transfers else status,
+    }
 
 
 # ---- Kamibots API: state reads ----
