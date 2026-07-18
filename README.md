@@ -227,10 +227,13 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`1.3.0`** — adds self-onboarding (in-process operator
-creation, on-chain account registration) and Ethereum mainnet → Yominet
-bridging; removes `store_operator_key` (the one tool that moved private
-key material off the server process).
+Current: **`1.4.0`** — adds pre-transaction validation on game-system
+writes (preconditions checked against chain state before signing; a
+failed check returns an error starting `validation failed; no
+transaction sent:` and spends no gas, distinguishable from an on-chain
+revert of a broadcast transaction), a `revive_kami` revive-path
+parameter, an estimate-based gas reserve for `withdraw_operator`, and
+empty-batch rejection on every batch write.
 
 ## No agent policy
 

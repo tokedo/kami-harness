@@ -89,6 +89,17 @@ class TestBuyKami:
         )
 
     def test_happy_batch(self, accounts, monkeypatch, sent):
+        # buy_kami's owner-balance gate reads w3.eth.get_balance; give
+        # the fake owner a deep balance so the gate passes offline.
+        from types import SimpleNamespace
+        from web3 import Web3
+        monkeypatch.setattr(
+            server, "w3",
+            SimpleNamespace(
+                eth=SimpleNamespace(get_balance=lambda a: 10**20),
+                from_wei=Web3.from_wei,
+            ),
+        )
         self._market(
             monkeypatch,
             [

@@ -22,6 +22,11 @@ KEY_D = "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6"
 
 ETH = 10**18
 FEE = server._PLAIN_TRANSFER_FEE_WEI
+# Fake eth_estimateGas result for the withdraw_operator reserve tests
+# (the observed plain-transfer burn on Yominet).
+EST = 113_251
+GASPRICE = server._GAS_PRICE["maxFeePerGas"]
+RESERVE = 2 * EST * GASPRICE  # estimate x2 safety factor at the flat price
 
 
 @pytest.fixture()
@@ -41,8 +46,22 @@ def gas_env(monkeypatch):
     )
 
     balances: dict[str, int] = {}
+
+    def fake_estimate_gas(tx):
+        # Mimic node behavior: estimation fails when the sender cannot
+        # cover the value being sent.
+        if tx["value"] > balances.get(tx["from"], 0):
+            raise ValueError(
+                "{'code': -32000, 'message': 'insufficient funds for gas"
+                " * price + value'}"
+            )
+        return EST
+
     fake_w3 = SimpleNamespace(
-        eth=SimpleNamespace(get_balance=lambda addr: balances.get(addr, 0)),
+        eth=SimpleNamespace(
+            get_balance=lambda addr: balances.get(addr, 0),
+            estimate_gas=fake_estimate_gas,
+        ),
         from_wei=Web3.from_wei,
         to_wei=Web3.to_wei,
     )
@@ -59,10 +78,10 @@ def gas_env(monkeypatch):
 
     sends: list[dict] = []
 
-    def fake_send_eth(from_key, from_addr, to_addr, value_wei):
+    def fake_send_eth(from_key, from_addr, to_addr, value_wei, gas_limit=None):
         sends.append(
             {"from_key": from_key, "from": from_addr,
-             "to": to_addr, "value": value_wei}
+             "to": to_addr, "value": value_wei, "gas_limit": gas_limit}
         )
         balances[from_addr] -= value_wei
         balances[to_addr] = balances.get(to_addr, 0) + value_wei
@@ -193,35 +212,77 @@ class TestWithdrawOperator:
         assert send["from_key"] == KEY_A  # operator-signed
         assert send["from"] == gas_env.solo.operator_addr
         assert send["to"] == gas_env.solo.owner_addr
-        assert send["value"] == ETH - FEE  # balance minus gas reserve
+        # Estimate-based reserve: balance minus estimate x2 at the flat
+        # price; the provisioned gas limit is estimate x2.
+        assert send["value"] == ETH - RESERVE
+        assert send["gas_limit"] == 2 * EST
         assert r["direction"] == "operator->owner"
-        assert r["amount_eth"] == str(Web3.from_wei(ETH - FEE, "ether"))
-        assert r["operator_eth"] == str(Web3.from_wei(FEE, "ether"))
-        assert r["owner_eth"] == str(Web3.from_wei(ETH - FEE, "ether"))
+        assert r["amount_eth"] == str(Web3.from_wei(ETH - RESERVE, "ether"))
+        assert r["gas_limit"] == 2 * EST
+        assert r["operator_eth"] == str(Web3.from_wei(RESERVE, "ether"))
+        assert r["owner_eth"] == str(Web3.from_wei(ETH - RESERVE, "ether"))
 
-    def test_sweep_below_reserve(self, gas_env):
-        gas_env.balances[gas_env.solo.operator_addr] = FEE
-        with pytest.raises(ValueError, match="nothing to sweep") as ei:
+    def test_sweep_zero_balance(self, gas_env):
+        with pytest.raises(server.PreTxValidationError) as ei:
             server.withdraw_operator(account="solo")
         msg = str(ei.value)
-        assert str(Web3.from_wei(FEE, "ether")) in msg  # gas reserve
+        assert "holds 0 ETH" in msg and "nothing to sweep" in msg
         assert gas_env.sends == []
+
+    def test_sweep_below_reserve(self, gas_env):
+        gas_env.balances[gas_env.solo.operator_addr] = RESERVE
+        with pytest.raises(server.PreTxValidationError) as ei:
+            server.withdraw_operator(account="solo")
+        msg = str(ei.value)
+        assert "nothing to sweep" in msg
+        assert str(Web3.from_wei(RESERVE, "ether")) in msg  # named reserve
+        assert str(EST) in msg  # named estimate
+        assert gas_env.sends == []
+
+    def test_sweep_reverifies_actual_value(self, gas_env):
+        # The verify estimate on the real sweep value comes back higher
+        # than the probe: the reserve is recomputed from it (x2) and the
+        # value re-derived, instead of sending a sweep that cannot clear.
+        gas_env.balances[gas_env.solo.operator_addr] = ETH
+
+        def two_stage_estimate(tx):
+            return EST if tx["value"] == 1 else 3 * EST
+
+        gas_env_w3 = server.w3
+        gas_env_w3.eth.estimate_gas = two_stage_estimate
+        r = server.withdraw_operator(account="solo")
+        send = gas_env.sends[0]
+        assert send["gas_limit"] == 6 * EST
+        assert send["value"] == ETH - 6 * EST * GASPRICE
+        assert r["gas_limit"] == 6 * EST
 
     def test_explicit_amount(self, gas_env):
         gas_env.balances[gas_env.solo.operator_addr] = ETH
         r = server.withdraw_operator("0.5", account="solo")
         assert gas_env.sends[0]["value"] == ETH // 2
+        assert gas_env.sends[0]["gas_limit"] == 2 * EST
         assert r["amount_eth"] == "0.5"
         assert r["owner_eth"] == "0.5"  # post-transaction
 
     def test_explicit_insufficient_names_numbers(self, gas_env):
         gas_env.balances[gas_env.solo.operator_addr] = 3 * ETH // 10
-        with pytest.raises(ValueError) as ei:
+        with pytest.raises(server.PreTxValidationError) as ei:
             server.withdraw_operator("0.3", account="solo")
         msg = str(ei.value)
         assert "0.3" in msg  # balance and requested amount
-        assert str(Web3.from_wei(FEE, "ether")) in msg  # gas provision
-        assert str(server._PLAIN_TRANSFER_GAS) in msg
+        assert str(Web3.from_wei(2 * EST * GASPRICE, "ether")) in msg
+        assert str(EST) in msg  # named estimate
+        assert gas_env.sends == []
+
+    def test_explicit_estimation_failure(self, gas_env):
+        # Requested amount exceeds the balance outright: the node-side
+        # estimate fails and surfaces as a validation error naming the
+        # observed balance.
+        gas_env.balances[gas_env.solo.operator_addr] = 3 * ETH // 10
+        with pytest.raises(server.PreTxValidationError) as ei:
+            server.withdraw_operator("0.5", account="solo")
+        msg = str(ei.value)
+        assert "0.3" in msg and "eth_estimateGas failed" in msg
         assert gas_env.sends == []
 
     def test_no_owner_address(self, gas_env):

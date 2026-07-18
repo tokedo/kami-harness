@@ -1,9 +1,11 @@
-"""Tool-contract surface checks for the v1.3.x interface.
+"""Tool-contract surface checks for the v1.4.x interface.
 
-Verifies the advertised tool count, the v1.3.0 additions/removal, and
-that the new tools' parameter schemas stay in the portable subset
-(SPEC §5.1: no anyOf/oneOf/allOf/$ref). v1.3.1 is a PATCH: the tool
-count and every input schema are unchanged.
+Verifies the advertised tool count (84, unchanged since v1.3.0), that
+the v1.3.0 additions are still present, and that every schema touched
+in v1.4.0 stays in the portable subset (SPEC §5.1: no
+anyOf/oneOf/allOf/$ref). v1.4.0 adds exactly one parameter to the
+surface: revive_kami's optional `method` enum (default "onyx",
+back-compatible).
 """
 
 import json
@@ -11,7 +13,7 @@ import json
 import server
 from schema_version import SCHEMA_VERSION
 
-NEW_TOOLS = {
+V130_TOOLS = {
     "create_operator_wallet",
     "register_account",
     "bridge_eth_from_mainnet",
@@ -24,23 +26,44 @@ def _tools():
 
 
 def test_schema_version():
-    assert SCHEMA_VERSION == "1.3.1"
+    assert SCHEMA_VERSION == "1.4.0"
 
 
-def test_tool_surface_v130():
+def test_tool_surface_count():
     names = set(_tools())
-    assert NEW_TOOLS <= names
+    assert V130_TOOLS <= names
     assert "store_operator_key" not in names
     assert len(names) == 84
 
 
-def test_new_tool_schemas_portable():
+def test_touched_tool_schemas_portable():
     tools = _tools()
-    for name in NEW_TOOLS:
+    for name in V130_TOOLS | {"revive_kami", "withdraw_operator"}:
         blob = json.dumps(tools[name].parameters)
         for banned in ("anyOf", "oneOf", "allOf", "$ref"):
             assert f'"{banned}"' not in blob, (
                 f"{name} schema contains {banned}")
+
+
+def test_revive_method_schema():
+    props = _tools()["revive_kami"].parameters["properties"]
+    method = props["method"]
+    assert method["type"] == "string"
+    assert method["default"] == "onyx"  # back-compatible default
+    assert set(method["enum"]) == {
+        "onyx",
+        "red_ribbon_gummy",
+        "melkarth_spell_card",
+        "djed_pillar",
+        "pale_potion",
+    }
+    assert props["kami_id"]["type"] == "integer"
+
+
+def test_withdraw_operator_params_unchanged():
+    props = _tools()["withdraw_operator"].parameters["properties"]
+    assert set(props) == {"amount_eth", "account"}
+    assert props["amount_eth"]["default"] == "all"
 
 
 def test_bridge_schema_shapes():

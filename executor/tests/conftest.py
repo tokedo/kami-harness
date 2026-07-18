@@ -101,7 +101,7 @@ def sent(monkeypatch):
             "account": account,
         }
 
-    def ok_batch(account, system_id, abi, fn_name, args, **kw):
+    def ok_batch(account, system_id, abi, fn_name, args, gas_per_item=None, **kw):
         calls.append(
             {
                 "account": account,
@@ -124,6 +124,38 @@ def sent(monkeypatch):
     monkeypatch.setattr(server, "_send_tx_owner", ok)
     monkeypatch.setattr(server, "_send_batch_tx", ok_batch)
     return calls
+
+
+# Sentinel account entity ID used by the permissive validation fixture.
+FAKE_ACCOUNT_ID = 0x7777
+
+
+@pytest.fixture()
+def validation_ok(monkeypatch):
+    """Make every pre-tx validation gate pass (offline).
+
+    Registration resolves to FAKE_ACCOUNT_ID, every kami reads as owned
+    by it and RESTING with an ACTIVE harvest, inventory is deep, and the
+    getter view reports full stamina in room 1. Tests that exercise a
+    specific gate patch the relevant helper themselves instead.
+    """
+    monkeypatch.setattr(
+        server, "_require_registered_operator", lambda a: FAKE_ACCOUNT_ID
+    )
+    monkeypatch.setattr(
+        server, "_require_registered_owner", lambda a: FAKE_ACCOUNT_ID
+    )
+    monkeypatch.setattr(server, "_kami_owner_id", lambda k: FAKE_ACCOUNT_ID)
+    monkeypatch.setattr(server, "_kami_state", lambda k: "RESTING")
+    monkeypatch.setattr(server, "_harvest_state", lambda k: "ACTIVE")
+    monkeypatch.setattr(
+        server, "_inventory_balance", lambda holder, item: 10**9
+    )
+    monkeypatch.setattr(
+        server, "_account_view",
+        lambda aid: {"index": 1, "name": "test", "stamina": 100, "room": 1},
+    )
+    return FAKE_ACCOUNT_ID
 
 
 # --- Minimal protobuf wire-format encoder (mirrors _proto_decode_fields) ---

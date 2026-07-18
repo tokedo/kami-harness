@@ -14,4 +14,4 @@ It is surfaced to clients two ways:
   2. As this importable constant, for tests and downstream tooling.
 """
 
-SCHEMA_VERSION = "1.3.1"
+SCHEMA_VERSION = "1.4.0"

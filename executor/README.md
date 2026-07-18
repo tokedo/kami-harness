@@ -82,6 +82,31 @@ Example config (Claude Code's `.mcp.json` shown):
 
 ## Available tools
 
+### Pre-transaction validation (all game-system writes)
+
+Every write that targets a game system validates mechanically-
+determinable preconditions against chain state before signing:
+
+1. **Registered account** — the signing wallet must be bound to an
+   on-chain account entity (operator writes resolve through
+   `component.address.operator`; owner writes check the account
+   entity's name component; `register_account` itself is exempt).
+2. **Gas balance** — the signer's ETH balance must cover the gas
+   provision (+ transaction value where applicable).
+3. **Per-tool prechecks** — ownership, state, holdings, batch shape
+   (see each tool's docstring). Batch writes reject an empty target
+   array (an empty `executeBatched` executes as an on-chain status=1
+   no-op).
+4. **eth_call dry-run** of the exact calldata from the signing
+   address.
+
+A failed validation raises an error whose message starts with
+`validation failed; no transaction sent:` — nothing was signed or
+broadcast and no gas was spent. It states the failed precondition
+factually with observed vs required values. A result with
+`status="reverted"` therefore always denotes a broadcast transaction
+that reverted on-chain (state changed between dry-run and inclusion).
+
 ### Account management
 
 | Tool | Description |
@@ -128,7 +153,7 @@ surface; none requires a game client or manual file edits.
 |---|---|
 | `get_gas_balance(account)` | Operator + owner ETH balances; empty `account` (default) returns all configured accounts |
 | `fund_operator(amount_eth, account)` | Plain ETH transfer owner → operator, owner-signed; pre-checks the owner balance covers amount + gas |
-| `withdraw_operator(amount_eth, account)` | Plain ETH transfer operator → owner, operator-signed; `amount_eth="all"` (default) sends the balance minus a gas reserve |
+| `withdraw_operator(amount_eth, account)` | Plain ETH transfer operator → owner, operator-signed; `amount_eth="all"` (default) sends the balance minus an estimate-based gas reserve (eth_estimateGas ×2, re-verified on the exact value before signing) |
 | `bridge_eth_from_mainnet(amount_eth, account, dry_run)` | Ethereum mainnet ETH → Yominet gas ETH at the same owner address; `dry_run=true` quotes without signing |
 | `bridge_status(tx_hash, account)` | Bridge transfer state + the account's Yominet owner balance |
 
@@ -138,9 +163,12 @@ and `bridge_eth_from_mainnet` lands at the same account's owner address
 on Yominet — all taken from the registry; an arbitrary recipient is not
 expressible in the tool parameters.
 
-Plain transfers provision 250k gas. A plain ETH value transfer on
+`fund_operator` provisions 250k gas. A plain ETH value transfer on
 Yominet burns ~113k gas (Initia MiniEVM), not the standard 21k; at the
 flat 0.0025 gwei gas price that is ~0.0000003 ETH per transfer.
+MiniEVM transfer costs vary with the recipient (~21.1k gas to an
+EIP-7702 delegated EOA, ~174k on first touch), so `withdraw_operator`
+measures with eth_estimateGas instead of assuming a constant.
 
 ### Bridging
 
@@ -209,7 +237,7 @@ carries at most 6 decimal places.
 | `listing_buy(merchant_index, item_indices, amounts, account)` | Buy items from NPC merchant |
 | `auction_buy(item_index, amount, account)` | Buy from the global Dutch auction (Marketplace, room 66, owner wallet) |
 | `feed_kami(kami_id, food_item_id, account)` | Feed kami to restore HP |
-| `revive_kami(kami_id, account)` | Revive dead kami (33 Onyx) |
+| `revive_kami(kami_id, method, account)` | Revive a DEAD kami; `method` selects the path: `onyx` (default, 33 Onyx Shards → 33 HP), `red_ribbon_gummy` (item 11001, +10 HP), `melkarth_spell_card` (11002, +50 HP), `djed_pillar` (11003, +5 HP), `pale_potion` (11004, +75 HP) |
 | `level_up_kami(kami_id, account)` | Level up if XP sufficient |
 | `name_kami(kami_id, name, account)` | Name/rename a kami (1 Holy Dust, must be in room 11) |
 | `equip_item(kami_id, item_index, account)` | Equip item to kami |

@@ -16,7 +16,7 @@ import server
 
 
 class TestFeedLevelAllocateBatch:
-    def test_happy_all_phases(self, accounts, sent, monkeypatch):
+    def test_happy_all_phases(self, accounts, validation_ok, sent, monkeypatch):
         async def fake_api(path, account):
             return {"progress": {"level": 3}}
 
@@ -50,7 +50,7 @@ class TestFeedLevelAllocateBatch:
         )
 
     def test_feed_failure_skips_later_phases(
-        self, accounts, sent, monkeypatch
+        self, accounts, validation_ok, sent, monkeypatch
     ):
         def failing_send(account, system_id, abi, args, **kw):
             raise Exception("insufficient balance")
@@ -79,7 +79,7 @@ class TestFeedLevelAllocateBatch:
         assert row["error"].startswith("feed:")
         assert "leveled" not in row
 
-    def test_missing_kami_id(self, accounts, sent):
+    def test_missing_kami_id(self, accounts, validation_ok, sent):
         r = asyncio.run(
             server.feed_level_allocate_batch(
                 [{"feed_item_id": 11, "feed_count": 1}], account="testa"
@@ -149,7 +149,7 @@ class TestUnequipAllBatch:
 
 
 class TestSpeedCraftBatch:
-    def test_happy(self, accounts, sent):
+    def test_happy(self, accounts, validation_ok, sent):
         r = server.speed_craft_batch(29, 2, account="testa")
         assert r["success"] is True
         assert r["crafted"] == 2 and r["stamina_used"] == 2
@@ -159,7 +159,7 @@ class TestSpeedCraftBatch:
             "system.account.use.item", "system.craft",
         ]
 
-    def test_stops_on_craft_revert(self, accounts, monkeypatch):
+    def test_stops_on_craft_revert(self, accounts, validation_ok, monkeypatch):
         calls = []
 
         def send(account, system_id, abi, args, **kw):
@@ -176,7 +176,7 @@ class TestSpeedCraftBatch:
         assert calls == ["system.account.use.item", "system.craft"]
 
     def test_zero_count_raises(self, accounts):
-        with pytest.raises(ValueError, match="> 0"):
+        with pytest.raises(ValueError, match="at least 1"):
             server.speed_craft_batch(29, 0, account="testa")
 
 

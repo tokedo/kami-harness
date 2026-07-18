@@ -22,6 +22,154 @@ marks the tool contract.
 - **PATCH** — non-semantic changes: documentation fixes, wording, catalog
   data refreshes, internal refactors that do not change the tool contract.
 
+## [1.4.0] — Pre-transaction validation, error legibility, revive paths
+
+Additive (MINOR) release: no tool added or removed (**84 tools**,
+unchanged), one new *optional* parameter (`revive_kami.method`, default
+`"onyx"` preserves the previous behavior). The behavioral change across
+write tools — preconditions that fail are now reported *before*
+broadcasting instead of as on-chain reverts — spends strictly less gas
+and cannot break an agent contract: no caller could rely on paying for
+a revert to learn about it. Egress surface unchanged: no new hosts.
+
+### Added — pre-transaction validation on game-system writes
+
+Every game-system write now validates mechanically-determinable
+preconditions against chain state before signing, generalizing
+`transfer_kami`'s existing state-precheck + dry-run pattern. A failed
+validation raises an error whose message starts with the stable marker
+`validation failed; no transaction sent:` — no gas is spent and nothing
+is broadcast. A result with `status="reverted"` can therefore only mean
+a broadcast transaction reverted on-chain (state changed between
+dry-run and inclusion); analyses can classify the two separately.
+
+Sender-level gates (all operator- and owner-signed system writes):
+
+- **Registered account** — operator writes resolve the operator through
+  `component.address.operator`'s reverse index (the on-chain
+  `LibAccount.getByOperator` lookup); owner writes check the account
+  entity's name component. `system.account.register` itself is exempt
+  (it creates the account). Positive results are cached per process.
+- **Gas balance** — with a known gas limit, balance must cover
+  `gas_limit x flat fee + value` (error names observed vs required);
+  without one, a zero balance is rejected outright.
+- **eth_call dry-run** of the exact calldata from the signing address —
+  reverts surface pre-broadcast carrying the chain's revert string.
+- **Empty-batch rejection** — a batch write whose target array is empty
+  is a validation error (`executeBatched` over an empty array was
+  observed in experiment 001 to execute as an on-chain status=1 no-op
+  "success"). Enforced per-tool with named messages and again in the
+  batch sender as a backstop; the existing empty-array guards on
+  transfer/marketplace/sacrifice/equip tools were reclassified to the
+  same validation-error type.
+
+Per-tool prechecks (validation coverage, tool -> preconditions checked
+before the generic gates):
+
+| Tool | Prechecks |
+|---|---|
+| `harvest_start` | non-empty batch; registered; each kami owned + RESTING |
+| `harvest_stop` / `harvest_collect` | non-empty batch; registered; each kami owned + harvest entity ACTIVE |
+| `stop_harvest_batch` | non-empty batch; registered (per-kami failures stay silent skips by design) |
+| `move_to_room` | registered; target differs from current room; live stamina >= 5 (system.getter view, regen-projected); non-adjacent target names the current room |
+| `travel_to_room` | registered (planner + per-hop gates unchanged) |
+| `accept_quest` | registered; quest not already accepted/completed |
+| `complete_quest` / `drop_quest` | registered; quest accepted; not already completed |
+| `feed_kami` | registered; kami owned; holds the item |
+| `use_item_batch` | count >= 1; registered; kami owned; holds `count` of the item |
+| `use_account_item` | amount >= 1; registered; holds `amount` of the item |
+| `level_up_kami` / `level_to` | registered; kami owned (XP via dry-run) |
+| `upgrade_skill` / `allocate_skills` | registered; kami owned; non-empty plan |
+| `equip_item` | registered; kami owned; holds the item |
+| `unequip_item` | registered; kami owned |
+| `name_kami` | name 1-16 bytes; registered; kami owned; holds 1 Holy Dust (11011) |
+| `burn_items` | non-empty; parallel arrays; amounts >= 1; registered; holds each amount |
+| `listing_buy` | non-empty; registered |
+| `craft_item` | amount >= 1; registered |
+| `speed_craft_batch` | count >= 1; registered |
+| `level_and_allocate_batch` / `feed_level_allocate_batch` | non-empty targets; registered |
+| `scavenge_claim` | registered; accumulated points cover >= 1 tier |
+| `droptable_reveal` | non-empty commit_ids; registered |
+| `buy_kami` | listing exists (existing); owner balance covers live total + gas provision |
+| `revive_kami` | registered; kami owned + DEAD; holdings for the chosen path |
+| trade/auction/marketplace/transfer/sacrifice writes | sender-level gates (their pre-existing prechecks unchanged) |
+
+### Added — `revive_kami` revive-path argument
+
+New optional `method` parameter (plain string enum — portable schema
+subset, no oneOf/anyOf): `"onyx"` (default; system.kami.onyx.revive,
+consumes 33 Onyx Shards, restores HP to 33), `"red_ribbon_gummy"`
+(item 11001, +10 HP), `"melkarth_spell_card"` (item 11002, +50 HP),
+`"djed_pillar"` (item 11003, +5 HP), `"pale_potion"` (item 11004,
++75 HP). Item paths go through `system.kami.use.item`. All five paths
+verified against the on-chain item registry (`registry.item` entities)
+and both systems resolved on-chain 2026-07-18. The docstring documents
+each path's cost and effect factually; no path is recommended.
+
+### Changed — error legibility standard
+
+New validation errors state the failed precondition factually with
+observed vs required values ("account stamina is 3; a room move
+requires 5", "kami #5 is HARVESTING; harvest_start requires RESTING",
+"no account is registered for operator 0x9bff...0076 (account
+'main')") — no next-step suggestions, no tool recommendations. Where a
+raw RPC error passes through and the underlying precondition is
+mechanically known, the factual statement is prepended to the raw
+error instead of surfacing the bare chain string: an unfunded sender's
+"account init1... does not exist: unknown address" (undiagnosable as
+observed in the field) now arrives as "operator wallet 0x...
+(account '...') holds 0 ETH on Yominet; the transaction requires gas
+paid in ETH from this wallet. Raw RPC error: ...".
+
+### Changed — `withdraw_operator` estimate-based gas reserve
+
+The full-balance sweep's gas reserve was a constant
+(250k gas x flat price) that underestimated MiniEVM's actual
+requirement — two sweeps reverted during experiment 001 cleanup while
+explicit smaller amounts succeeded. The reserve is now
+`eth_estimateGas x2` (observed MiniEVM transfer costs vary: ~21.1k gas
+to an EIP-7702 delegated EOA, where a bare 21k limit runs out of gas;
+~113k for a plain transfer; ~174k on first touch of the recipient;
+full-balance sends observed to need ~2x the gas-fee reserve to clear —
+measurements from kami-lab's provisioning/sweep_funds.py). The exact
+sweep value is re-verified with a second `eth_estimateGas` before
+signing, and the transaction is sent with the estimate-based gas
+limit. Explicit-amount withdrawals get the same estimate-based
+provision. Parameters unchanged.
+
+### Changed — Kamibots API observed-behavior notes (investigation)
+
+- `get_inventory` — the HTTP 400s recorded on every arm of experiment
+  001 are not reproducible: the identical request (same route, params,
+  header) returns 200 for every registered account as of 2026-07-18.
+  Upstream state, not request shape; docstring records both
+  observations.
+- `get_leaderboard` — upstream returns
+  `{"error": "Failed to get leaderboard", "message": "Internal server
+  error"}` for both types, under HTTP 500 on some requests and HTTP
+  200 on others (both observed 2026-07-18). The docstring states that
+  a 200-status error object is returned as the tool result and how to
+  recognize it.
+- `get_guild_members` — the 403s are the documented tier restriction:
+  HTTP 403 for accounts whose tier is not GUILD/TEAM, 200 otherwise
+  (both observed live). Docstring states the status-code behavior.
+
+### Tests
+
+- New offline module `test_validation.py` (92 tests): sender-level
+  gates driven through the real send path against a faked chain
+  (registration, gas balance with observed-vs-required text, dry-run
+  revert reasons, unknown-address prepend, empty-batch backstop,
+  register-account exemption); registration/state/holdings helpers
+  against fake components (including the inventory.instance keccak
+  derivation); every per-tool precheck happy + each failure path;
+  revive_kami's five paths and schema; buy_kami's balance gate;
+  error-format stability (prefix, `_revert_text`).
+- `withdraw_operator` tests rewritten for the estimate-based reserve
+  (sweep, below-reserve, re-verify escalation, explicit-amount,
+  estimation-failure paths).
+- Full suite green with keys and keyless (no network).
+
 ## [1.3.1] — Owner-only accounts + mainnet balance in the gas view
 
 Ships as PATCH: a behavior fix plus one additive return field. No tool
@@ -70,6 +218,15 @@ it produced an empty registry and made every tool unusable.
   Yominet fields beyond a short (5s) timeout. The `get_gas_balance`
   docstring changed to document the field — a recorded-surface delta
   that downstream fixture re-records will pick up.
+
+### Recorded-surface deltas (deferred note, added with v1.4.0)
+- Exactly three tool descriptions changed in this release, verified by
+  a live dump-and-diff of the v1.3.0 and v1.3.1 tags:
+  `create_operator_wallet` (registry entry upgraded in place wording),
+  `get_gas_balance` (documents `owner_mainnet_eth` and the per-wallet
+  field presence rules), and `list_accounts` (documents
+  `operator_address: null` for owner-only accounts). No parameter
+  schema changed.
 
 ### Config
 - `accounts/roster.yaml` is now gitignored (kami-lab audit F1): it is
@@ -281,6 +438,7 @@ private experiment repo — they are not part of this environment interface.
   quests, scavenge, and trading. Unchanged in count and behavior from the
   `v0-pilot` state — only descriptions were rewritten.
 
+[1.4.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.4.0
 [1.3.1]: https://github.com/tokedo/kami-harness/releases/tag/v1.3.1
 [1.3.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.3.0
 [1.2.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.2.0

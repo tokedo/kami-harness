@@ -286,6 +286,295 @@ def _get_account(label: str) -> _Account:
 
 
 # ---------------------------------------------------------------------------
+# Pre-transaction validation
+#
+# Game-system writes validate mechanically-determinable preconditions
+# against chain state BEFORE anything is signed or broadcast: account
+# registration, signer gas balance, per-tool state checks, and an
+# eth_call dry-run of the exact calldata. A failed validation raises
+# PreTxValidationError — its message always starts with
+# "validation failed; no transaction sent:" — and spends no gas. A
+# result with status="reverted" can therefore only come from a
+# transaction that passed validation, was broadcast, and reverted
+# on-chain (state changed between dry-run and inclusion).
+# ---------------------------------------------------------------------------
+
+
+class PreTxValidationError(ValueError):
+    """A precondition failed before signing; nothing was broadcast."""
+
+    PREFIX = "validation failed; no transaction sent: "
+
+    def __init__(self, detail: str):
+        self.detail = detail
+        super().__init__(self.PREFIX + detail)
+
+
+def _revert_text(e: Exception) -> str:
+    """Compact message from an eth_call / eth_estimateGas RPC error."""
+    a = e.args[0] if e.args else None
+    if isinstance(a, dict) and "message" in a:
+        return str(a["message"])
+    return str(e)
+
+
+# component.address.operator stores address values; its reverse index
+# takes the address type (the uint256 overload reverts on Yominet).
+_ABI_ADDRESS_ENTITIES = json.loads(
+    '[{"type":"function","name":"getEntitiesWithValue",'
+    '"inputs":[{"name":"v","type":"address"}],'
+    '"outputs":[{"type":"uint256[]"}],"stateMutability":"view"}]'
+)
+
+# Registration is checked on-chain once per address and cached: an
+# account entity cannot be unregistered, so a positive result stays
+# valid for the life of the process. Negative results are not cached.
+_operator_account_cache: dict[str, int] = {}
+_owner_registered_cache: set[str] = set()
+
+
+def _account_id_for_operator(operator_addr: str) -> int | None:
+    """Account entity bound to an operator address, or None.
+
+    Reads component.address.operator's reverse index — the same lookup
+    LibAccount.getByOperator performs on-chain.
+    """
+    if operator_addr in _operator_account_cache:
+        return _operator_account_cache[operator_addr]
+    comp = w3.eth.contract(
+        address=_resolve_component("component.address.operator"),
+        abi=_ABI_ADDRESS_ENTITIES,
+    )
+    entities = comp.functions.getEntitiesWithValue(operator_addr).call()
+    if not entities:
+        return None
+    _operator_account_cache[operator_addr] = entities[0]
+    return entities[0]
+
+
+def _require_registered_operator(account: str) -> int:
+    """Validation gate: the account's operator must be bound to an
+    on-chain account entity. Returns the account entity ID."""
+    acct = _get_account(account)
+    aid = _account_id_for_operator(acct.operator_addr)
+    if aid is None:
+        raise PreTxValidationError(
+            f"no account is registered for operator {acct.operator_addr} "
+            f"(account '{account}')"
+        )
+    return aid
+
+
+def _require_registered_owner(account: str) -> int:
+    """Validation gate: an account entity must exist for the owner
+    wallet (entity = uint256(owner address)). Returns the entity ID."""
+    acct = _get_account(account)
+    if not acct.owner_addr:
+        raise ValueError(
+            f"Account '{account}' has no owner key. "
+            f"Set {account.upper()}_OWNER_KEY in .env."
+        )
+    eid = int(acct.owner_addr, 16)
+    if acct.owner_addr in _owner_registered_cache:
+        return eid
+    name_comp = w3.eth.contract(
+        address=_resolve_component("component.name"), abi=_STRING_VALUE_ABI
+    )
+    if not name_comp.functions.safeGet(eid).call():
+        raise PreTxValidationError(
+            f"no account is registered for owner wallet {acct.owner_addr} "
+            f"(account '{account}')"
+        )
+    _owner_registered_cache.add(acct.owner_addr)
+    return eid
+
+
+def _kami_state(kami_index: int) -> str:
+    """Kami state string ("RESTING"/"HARVESTING"/"DEAD"/"721_EXTERNAL";
+    "" for a nonexistent kami)."""
+    comp = w3.eth.contract(
+        address=_resolve_component("component.state"), abi=_STRING_VALUE_ABI
+    )
+    return comp.functions.safeGet(_kami_entity_id(kami_index)).call()
+
+
+def _harvest_state(kami_index: int) -> str:
+    """State of the kami's harvest entity ("ACTIVE" while harvesting;
+    "" when no harvest entity exists)."""
+    comp = w3.eth.contract(
+        address=_resolve_component("component.state"), abi=_STRING_VALUE_ABI
+    )
+    return comp.functions.safeGet(_harvest_entity_id(kami_index)).call()
+
+
+def _kami_owner_id(kami_index: int) -> int:
+    """Account entity ID that owns a kami (0 for none)."""
+    comp = w3.eth.contract(
+        address=_resolve_component("component.id.kami.owns"),
+        abi=_ID_COMPONENT_ABI,
+    )
+    return comp.functions.safeGet(_kami_entity_id(kami_index)).call()
+
+
+def _inventory_balance(holder_id: int, item_index: int) -> int:
+    """On-chain inventory balance: component.value on the deterministic
+    inventory.instance entity. 0 for items never held."""
+    inv_id = int.from_bytes(
+        Web3.solidity_keccak(
+            ["string", "uint256", "uint32"],
+            ["inventory.instance", holder_id, item_index],
+        ),
+        "big",
+    )
+    comp = w3.eth.contract(
+        address=_resolve_component("component.value"), abi=_UINT_VALUE_ABI
+    )
+    return comp.functions.safeGet(inv_id).call()
+
+
+_ABI_GETTER_ACCOUNT = json.loads(
+    '[{"type":"function","name":"getAccount",'
+    '"inputs":[{"name":"accountId","type":"uint256"}],'
+    '"outputs":[{"type":"tuple","components":['
+    '{"name":"index","type":"uint32"},{"name":"name","type":"string"},'
+    '{"name":"currStamina","type":"int32"},{"name":"room","type":"uint32"}]}],'
+    '"stateMutability":"view"}]'
+)
+
+
+def _account_view(account_id: int) -> dict | None:
+    """Live account view from system.getter.getAccount: name, current
+    stamina, room. The getter view applies stamina regeneration to the
+    current block timestamp, so `stamina` is the current value, not the
+    last-synced snapshot. Returns None when the entity is not a
+    registered account (the getter reverts) or the read fails."""
+    getter = w3.eth.contract(
+        address=_resolve_system("system.getter"), abi=_ABI_GETTER_ACCOUNT
+    )
+    try:
+        idx, name, stamina, room = getter.functions.getAccount(
+            account_id
+        ).call()
+    except Exception:
+        return None
+    if not name:
+        return None
+    return {"index": idx, "name": name, "stamina": stamina, "room": room}
+
+
+def _require_kamis_owned(
+    kami_ids: list[int],
+    account: str,
+    account_id: int,
+    action: str,
+    required_state: str | None = None,
+) -> list[dict]:
+    """Per-kami ownership (+ optional state) validation gate.
+
+    Collects every failing kami into one PreTxValidationError so a batch
+    reports all problems at once. Returns per-kami {kami_id, state}.
+    """
+    problems: list[str] = []
+    per_kami: list[dict] = []
+    for k in kami_ids:
+        st = _kami_state(k)
+        per_kami.append({"kami_id": k, "state": st})
+        if _kami_owner_id(k) != account_id:
+            problems.append(f"kami #{k} is not owned by account '{account}'")
+        elif required_state is not None and st != required_state:
+            problems.append(
+                f"kami #{k} is {st or 'unset'}; {action} requires "
+                f"{required_state}"
+            )
+    if problems:
+        raise PreTxValidationError("; ".join(problems))
+    return per_kami
+
+
+def _require_item_balance(
+    account: str, account_id: int, item_index: int, needed: int, action: str
+) -> int:
+    """Holdings validation gate: the account inventory must hold at
+    least `needed` of the item. Returns the observed balance."""
+    balance = _inventory_balance(account_id, item_index)
+    if balance < needed:
+        raise PreTxValidationError(
+            f"account '{account}' holds {balance} of item {item_index} "
+            f"({_get_item_name(item_index)}); {action} requires {needed}"
+        )
+    return balance
+
+
+def _require_gas_balance(
+    addr: str, gas_limit: int | None, value_wei: int, role: str
+) -> None:
+    """Gas-balance validation gate for the signing wallet.
+
+    With a known gas limit the requirement is exact
+    (gas_limit x flat fee + value). Without one, only a zero balance is
+    rejected here — the gas estimate performed at build time surfaces
+    the shortfall pre-broadcast otherwise.
+    """
+    balance = w3.eth.get_balance(addr)
+    if gas_limit:
+        required = gas_limit * _GAS_PRICE["maxFeePerGas"] + value_wei
+        if balance < required:
+            detail = (
+                f"{role} wallet {addr} holds "
+                f"{w3.from_wei(balance, 'ether')} ETH; the transaction "
+                f"requires {w3.from_wei(required, 'ether')} ETH "
+                f"(gas limit {gas_limit} at the flat price"
+            )
+            if value_wei:
+                detail += (
+                    f" + {w3.from_wei(value_wei, 'ether')} ETH value"
+                )
+            raise PreTxValidationError(detail + ")")
+    elif balance == 0:
+        raise PreTxValidationError(
+            f"{role} wallet {addr} holds 0 ETH; a transaction requires "
+            f"gas paid in ETH from the sending wallet"
+        )
+
+
+def _dry_run(fn, from_addr: str, value_wei: int = 0) -> None:
+    """eth_call dry-run of the exact calldata from the signing address.
+
+    A revert here raises PreTxValidationError carrying the chain's
+    revert string; nothing has been signed or broadcast.
+    """
+    params: dict = {"from": from_addr}
+    if value_wei:
+        params["value"] = value_wei
+    try:
+        fn.call(params)
+    except Exception as e:
+        raise PreTxValidationError(
+            f"transaction dry-run reverted: {_revert_text(e)}"
+        )
+
+
+def _wrap_send_error(e: Exception, addr: str, role: str, account: str):
+    """Prepend the mechanically-known precondition to a raw RPC send
+    error where one is identifiable (an unfunded sender surfaces from
+    the chain as 'account ... does not exist: unknown address', which
+    on its own does not name the failed precondition)."""
+    s = str(e)
+    lo = s.lower()
+    if "does not exist" in lo or "unknown address" in lo or "insufficient funds" in lo:
+        try:
+            bal = w3.from_wei(w3.eth.get_balance(addr), "ether")
+        except Exception:
+            bal = "unreadable"
+        return ValueError(
+            f"{role} wallet {addr} (account '{account}') holds {bal} ETH "
+            f"on Yominet; the transaction requires gas paid in ETH from "
+            f"this wallet. Raw RPC error: {s}"
+        )
+    return e
+
+
+# ---------------------------------------------------------------------------
 # Transaction helper
 # ---------------------------------------------------------------------------
 
@@ -298,11 +587,20 @@ def _send_tx(
     gas_limit: int | None = None,
     return_receipt: bool = False,
 ) -> dict:
-    """Build, sign, send a transaction with the account's operator key."""
+    """Build, sign, send a transaction with the account's operator key.
+
+    Validates before signing (PreTxValidationError, no gas spent):
+    operator bound to a registered account, operator gas balance, and
+    an eth_call dry-run of the exact calldata.
+    """
     acct = _get_account(account)
     addr = _resolve_system(system_id)
     contract = w3.eth.contract(address=addr, abi=abi)
     fn = contract.functions.executeTyped(*args)
+
+    _require_registered_operator(account)
+    _require_gas_balance(acct.operator_addr, gas_limit, 0, "operator")
+    _dry_run(fn, acct.operator_addr)
 
     tx_params = {
         "from": acct.operator_addr,
@@ -313,9 +611,12 @@ def _send_tx(
     if gas_limit:
         tx_params["gas"] = gas_limit
 
-    built = fn.build_transaction(tx_params)
-    signed = w3.eth.account.sign_transaction(built, private_key=acct.operator_key)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    try:
+        built = fn.build_transaction(tx_params)
+        signed = w3.eth.account.sign_transaction(built, private_key=acct.operator_key)
+        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    except Exception as e:
+        raise _wrap_send_error(e, acct.operator_addr, "operator", account)
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
 
     result = {
@@ -338,21 +639,41 @@ def _send_batch_tx(
     args: list,
     gas_per_item: int,
 ) -> dict:
-    """Build, sign, send a batch transaction."""
+    """Build, sign, send a batch transaction.
+
+    Validates before signing (PreTxValidationError, no gas spent):
+    non-empty target array (an empty batch executes as an on-chain
+    status=1 no-op), registered account, operator gas balance, and an
+    eth_call dry-run.
+    """
+    if args and isinstance(args[0], list) and not args[0]:
+        raise PreTxValidationError(
+            "the batch target array is empty; an empty batch would "
+            "execute as an on-chain no-op"
+        )
     acct = _get_account(account)
     addr = _resolve_system(system_id)
     contract = w3.eth.contract(address=addr, abi=abi)
     fn = getattr(contract.functions, fn_name)(*args)
+    gas = gas_per_item * max(len(args[0]) if isinstance(args[0], list) else 1, 1)
+
+    _require_registered_operator(account)
+    _require_gas_balance(acct.operator_addr, gas, 0, "operator")
+    _dry_run(fn, acct.operator_addr)
+
     tx_params = {
         "from": acct.operator_addr,
         "chainId": CHAIN_ID,
         "nonce": w3.eth.get_transaction_count(acct.operator_addr),
-        "gas": gas_per_item * max(len(args[0]) if isinstance(args[0], list) else 1, 1),
+        "gas": gas,
         **_GAS_PRICE,
     }
-    built = fn.build_transaction(tx_params)
-    signed = w3.eth.account.sign_transaction(built, private_key=acct.operator_key)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    try:
+        built = fn.build_transaction(tx_params)
+        signed = w3.eth.account.sign_transaction(built, private_key=acct.operator_key)
+        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    except Exception as e:
+        raise _wrap_send_error(e, acct.operator_addr, "operator", account)
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
     return {
         "tx_hash": "0x" + receipt.transactionHash.hex(),
@@ -389,7 +710,13 @@ def _send_tx_owner(
     gas_limit: int | None = None,
     value_wei: int = 0,
 ) -> dict:
-    """Build, sign, send a transaction with the account's owner key."""
+    """Build, sign, send a transaction with the account's owner key.
+
+    Validates before signing (PreTxValidationError, no gas spent):
+    registered account for the owner wallet (skipped for
+    system.account.register, which creates that account), owner gas
+    balance, and an eth_call dry-run of the exact calldata.
+    """
     acct = _get_account(account)
     if not acct.owner_key:
         raise ValueError(
@@ -399,6 +726,11 @@ def _send_tx_owner(
     addr = _resolve_system(system_id)
     contract = w3.eth.contract(address=addr, abi=abi)
     fn = contract.functions.executeTyped(*args)
+
+    if system_id != "system.account.register":
+        _require_registered_owner(account)
+    _require_gas_balance(acct.owner_addr, gas_limit, value_wei, "owner")
+    _dry_run(fn, acct.owner_addr, value_wei)
 
     tx_params = {
         "from": acct.owner_addr,
@@ -411,9 +743,12 @@ def _send_tx_owner(
     if gas_limit:
         tx_params["gas"] = gas_limit
 
-    built = fn.build_transaction(tx_params)
-    signed = w3.eth.account.sign_transaction(built, private_key=acct.owner_key)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    try:
+        built = fn.build_transaction(tx_params)
+        signed = w3.eth.account.sign_transaction(built, private_key=acct.owner_key)
+        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    except Exception as e:
+        raise _wrap_send_error(e, acct.owner_addr, "owner", account)
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
 
     return {
@@ -431,13 +766,19 @@ _PLAIN_TRANSFER_GAS = 250_000
 _PLAIN_TRANSFER_FEE_WEI = _PLAIN_TRANSFER_GAS * _GAS_PRICE["maxFeePerGas"]
 
 
-def _send_eth(from_key: str, from_addr: str, to_addr: str, value_wei: int) -> dict:
+def _send_eth(
+    from_key: str,
+    from_addr: str,
+    to_addr: str,
+    value_wei: int,
+    gas_limit: int | None = None,
+) -> dict:
     """Sign and send a plain ETH value transfer (empty calldata)."""
     tx = {
         "from": from_addr,
         "to": to_addr,
         "value": value_wei,
-        "gas": _PLAIN_TRANSFER_GAS,
+        "gas": gas_limit or _PLAIN_TRANSFER_GAS,
         "chainId": CHAIN_ID,
         "nonce": w3.eth.get_transaction_count(from_addr),
         **_GAS_PRICE,
@@ -1476,22 +1817,31 @@ def withdraw_operator(amount_eth: str = "all", account: str = "main") -> dict:
 
     Plain value transfer signed by the operator key. The recipient is
     pinned to this account's owner address from the registry; an
-    arbitrary recipient is not expressible. Fails before sending if the
-    operator balance does not cover the amount plus the gas provision
-    (250k gas at the flat price; a plain transfer burns ~113k on
-    Yominet's Initia MiniEVM).
+    arbitrary recipient is not expressible.
+
+    The gas reserve is estimate-based, not a constant: the transfer's
+    gas is measured with eth_estimateGas and provisioned at 2x
+    (MiniEVM transfer costs vary — ~21.1k gas to an EIP-7702
+    delegated EOA, ~113k for a plain transfer, ~174k when the send
+    first touches the recipient — and full-balance sweeps observed on
+    v1.3.1 needed roughly a 2x gas-fee reserve to clear). With
+    amount_eth="all" the swept value is the balance minus that reserve,
+    and the exact value is re-verified with a second eth_estimateGas
+    before signing. A failed validation raises an error starting
+    "validation failed; no transaction sent:" and broadcasts nothing.
 
     Args:
         amount_eth: Decimal string in ETH (e.g. "0.005"), or "all"
-            (default) to send the full operator balance minus the gas
-            reserve.
+            (default) to send the full operator balance minus the
+            estimate-based gas reserve.
         account: Account label (must have an owner key in .env, so the
             owner address is known).
 
     Returns:
         Transaction result (tx_hash, status, block, gas_used) plus
-        direction, the amount_eth actually sent, and post-transaction
-        operator_eth and owner_eth balances.
+        direction, the amount_eth actually sent, the gas_limit
+        provisioned, and post-transaction operator_eth and owner_eth
+        balances.
     """
     acct = _get_account(account)
     if not acct.owner_addr:
@@ -1499,31 +1849,89 @@ def withdraw_operator(amount_eth: str = "all", account: str = "main") -> dict:
             f"Account '{account}' has no owner key in .env, so the owner "
             f"address is unknown — refusing to guess a recipient."
         )
-    balance = w3.eth.get_balance(acct.operator_addr)
+    op_addr = acct.operator_addr
+    balance = w3.eth.get_balance(op_addr)
+    fee = _GAS_PRICE["maxFeePerGas"]
+
+    def _estimate(value_wei: int) -> int:
+        return w3.eth.estimate_gas(
+            {"from": op_addr, "to": acct.owner_addr, "value": value_wei}
+        )
+
     if amount_eth == "all":
-        value = balance - _PLAIN_TRANSFER_FEE_WEI
-        if value <= 0:
-            raise ValueError(
-                f"Operator balance {w3.from_wei(balance, 'ether')} ETH is "
-                f"at or below the "
-                f"{w3.from_wei(_PLAIN_TRANSFER_FEE_WEI, 'ether')} ETH gas "
-                f"reserve ({_PLAIN_TRANSFER_GAS} gas at the flat price) — "
-                f"nothing to sweep."
+        if balance == 0:
+            raise PreTxValidationError(
+                f"operator wallet {op_addr} holds 0 ETH; nothing to sweep"
             )
+        try:
+            probe = _estimate(1)
+        except Exception as e:
+            raise PreTxValidationError(
+                f"operator balance {w3.from_wei(balance, 'ether')} ETH "
+                f"cannot fund the transfer's gas; eth_estimateGas "
+                f"failed: {_revert_text(e)}"
+            )
+        gas_limit = probe * 2
+        reserve = gas_limit * fee
+        value = balance - reserve
+        if value <= 0:
+            raise PreTxValidationError(
+                f"operator balance {w3.from_wei(balance, 'ether')} ETH "
+                f"is at or below the {w3.from_wei(reserve, 'ether')} ETH "
+                f"gas reserve (estimated {probe} gas x2 safety factor at "
+                f"the flat price); nothing to sweep"
+            )
+        # Verify the exact sweep value clears estimation before signing.
+        try:
+            verify = _estimate(value)
+        except Exception as e:
+            raise PreTxValidationError(
+                f"sweep dry-run failed for value "
+                f"{w3.from_wei(value, 'ether')} ETH (balance "
+                f"{w3.from_wei(balance, 'ether')} ETH, reserve "
+                f"{w3.from_wei(reserve, 'ether')} ETH): {_revert_text(e)}"
+            )
+        if verify > gas_limit:
+            gas_limit = verify * 2
+            reserve = gas_limit * fee
+            value = balance - reserve
+            if value <= 0:
+                raise PreTxValidationError(
+                    f"operator balance {w3.from_wei(balance, 'ether')} "
+                    f"ETH is at or below the "
+                    f"{w3.from_wei(reserve, 'ether')} ETH gas reserve "
+                    f"(re-estimated {verify} gas x2 safety factor at the "
+                    f"flat price); nothing to sweep"
+                )
     else:
         value = w3.to_wei(Decimal(amount_eth), "ether")
-        if balance < value + _PLAIN_TRANSFER_FEE_WEI:
-            raise ValueError(
-                f"Operator balance {w3.from_wei(balance, 'ether')} ETH "
-                f"cannot cover {amount_eth} ETH + the "
-                f"{w3.from_wei(_PLAIN_TRANSFER_FEE_WEI, 'ether')} ETH gas "
-                f"provision ({_PLAIN_TRANSFER_GAS} gas at the flat price)."
+        try:
+            est = _estimate(value)
+        except Exception as e:
+            raise PreTxValidationError(
+                f"operator balance {w3.from_wei(balance, 'ether')} ETH "
+                f"cannot cover {amount_eth} ETH plus gas; "
+                f"eth_estimateGas failed: {_revert_text(e)}"
             )
-    result = _send_eth(acct.operator_key, acct.operator_addr, acct.owner_addr, value)
+        gas_limit = est * 2
+        required = value + gas_limit * fee
+        if balance < required:
+            raise PreTxValidationError(
+                f"operator balance {w3.from_wei(balance, 'ether')} ETH "
+                f"cannot cover {amount_eth} ETH + the "
+                f"{w3.from_wei(gas_limit * fee, 'ether')} ETH gas "
+                f"provision (estimated {est} gas x2 safety factor at the "
+                f"flat price)"
+            )
+    result = _send_eth(
+        acct.operator_key, op_addr, acct.owner_addr, value,
+        gas_limit=gas_limit,
+    )
     result.update({
         "account": account,
         "direction": "operator->owner",
         "amount_eth": str(w3.from_wei(value, "ether")),
+        "gas_limit": gas_limit,
         "operator_eth": str(w3.from_wei(
             w3.eth.get_balance(acct.operator_addr), "ether")),
         "owner_eth": str(w3.from_wei(
@@ -1872,6 +2280,14 @@ async def get_tier(account: str = "main") -> dict:
 async def get_inventory(account: str = "main") -> dict:
     """All items and balances in the account inventory.
 
+    Observed availability: during experiment 001 (2026-07) this
+    endpoint returned HTTP 400 on every request across all accounts;
+    re-probed 2026-07-18, the identical request returns HTTP 200 for
+    every registered account. The failure was upstream state, not the
+    request shape. On-chain inventory balances are independently
+    readable per systems/state-reading.md (inventory.instance
+    entities).
+
     Args:
         account: Account label.
     """
@@ -1992,7 +2408,11 @@ async def get_all_strategy_statuses(account: str = "main") -> dict:
 async def get_guild_members(account: str = "main") -> dict:
     """List all guild and team member account names.
 
-    Restricted to GUILD and TEAM tier accounts.
+    Restricted to GUILD and TEAM tier accounts: the endpoint returns
+    HTTP 403 for an account whose tier (get_tier) is not GUILD or
+    TEAM, and HTTP 200 with the member list otherwise (both observed
+    live; the 403s recorded during experiment 001 came from
+    non-guild-tier accounts).
 
     Args:
         account: Account label.
@@ -2058,6 +2478,14 @@ async def get_killer_ranking(account: str = "main") -> dict:
 @mcp.tool()
 async def get_leaderboard(leaderboard_type: str, account: str = "main") -> dict:
     """Game leaderboards. Cached 20m.
+
+    Observed availability: as of 2026-07-18 the upstream endpoint
+    returns the body {"error": "Failed to get leaderboard",
+    "message": "Internal server error"} for both leaderboard types,
+    under HTTP status 500 on some requests and 200 on others. At
+    status 500 this tool raises; at status 200 it returns that error
+    object as the result — a result containing an "error" key is the
+    upstream failure, not leaderboard data.
 
     Args:
         leaderboard_type: One of 'harvest' or 'kill'.
@@ -2257,6 +2685,31 @@ _ABI_AUCTION_BUY = json.loads(
 )
 
 
+def _validate_active_harvests(
+    kami_ids: list[int], account: str, action: str
+) -> None:
+    """Shared harvest_stop/harvest_collect gate: non-empty batch,
+    registered account, each kami owned with an ACTIVE harvest entity."""
+    if not kami_ids:
+        raise PreTxValidationError(
+            f"kami_ids is empty; {action} requires at least one kami"
+        )
+    aid = _require_registered_operator(account)
+    problems: list[str] = []
+    for k in kami_ids:
+        if _kami_owner_id(k) != aid:
+            problems.append(f"kami #{k} is not owned by account '{account}'")
+            continue
+        hstate = _harvest_state(k)
+        if hstate != "ACTIVE":
+            problems.append(
+                f"no active harvest exists for kami #{k}; its harvest "
+                f"entity state is {hstate!r}"
+            )
+    if problems:
+        raise PreTxValidationError("; ".join(problems))
+
+
 @mcp.tool()
 def harvest_start(kami_ids: list[int], node_index: int, account: str = "main") -> dict:
     """Start harvesting for one or more kamis at a node. Costs gas.
@@ -2264,11 +2717,26 @@ def harvest_start(kami_ids: list[int], node_index: int, account: str = "main") -
     Kamis must be in the same room as the node and not already harvesting.
     Uses batch variant for multiple kamis (1 tx).
 
+    Validates before signing (no gas spent on failure): kami_ids
+    non-empty, account registered, each kami owned by the account and
+    RESTING, then an eth_call dry-run (which also covers room/node
+    mismatch and cooldown). A failed validation raises an error starting
+    "validation failed; no transaction sent:"; status="reverted" in a
+    result is an on-chain revert of a broadcast transaction.
+
     Args:
         kami_ids: List of kami token indices.
         node_index: Harvest node index (same as room index).
         account: Account label.
     """
+    if not kami_ids:
+        raise PreTxValidationError(
+            "kami_ids is empty; harvest_start requires at least one kami"
+        )
+    aid = _require_registered_operator(account)
+    _require_kamis_owned(
+        kami_ids, account, aid, "harvest_start", required_state="RESTING"
+    )
     entity_ids = [_kami_entity_id(k) for k in kami_ids]
     if len(entity_ids) == 1:
         return _send_tx(
@@ -2289,10 +2757,17 @@ def harvest_stop(kami_ids: list[int], account: str = "main") -> dict:
     Uses batch variant for multiple kamis (1 tx). Rewards + scavenge
     points are distributed on stop.
 
+    Validates before signing (no gas spent on failure): kami_ids
+    non-empty, account registered, each kami owned by the account with
+    an ACTIVE harvest entity, then an eth_call dry-run. A failed
+    validation raises an error starting "validation failed; no
+    transaction sent:".
+
     Args:
         kami_ids: List of kami token indices whose harvests to stop.
         account: Account label.
     """
+    _validate_active_harvests(kami_ids, account, "harvest_stop")
     h_ids = [_harvest_entity_id(k) for k in kami_ids]
     if len(h_ids) == 1:
         return _send_tx(
@@ -2314,10 +2789,17 @@ def harvest_collect(kami_ids: list[int], account: str = "main") -> dict:
     Partial collection — kamis keep harvesting. Rewards + scavenge points
     are distributed.
 
+    Validates before signing (no gas spent on failure): kami_ids
+    non-empty, account registered, each kami owned by the account with
+    an ACTIVE harvest entity, then an eth_call dry-run. A failed
+    validation raises an error starting "validation failed; no
+    transaction sent:".
+
     Args:
         kami_ids: List of kami token indices whose harvests to collect.
         account: Account label.
     """
+    _validate_active_harvests(kami_ids, account, "harvest_collect")
     h_ids = [_harvest_entity_id(k) for k in kami_ids]
     if len(h_ids) == 1:
         return _send_tx(
@@ -2339,13 +2821,41 @@ def move_to_room(room_index: int, account: str = "main") -> dict:
     Issues a single room-change transaction. travel_to_room performs
     multi-hop pathfinding over the room graph and manages stamina.
 
+    Validates before signing (no gas spent on failure): account
+    registered, target differs from the current room, current stamina
+    (regen-projected on-chain) at least 5, then an eth_call dry-run —
+    a non-adjacent target surfaces as a validation error naming the
+    current room. A failed validation raises an error starting
+    "validation failed; no transaction sent:".
+
     Args:
         room_index: Target room number (1-70). See catalogs/rooms.csv.
         account: Account label.
     """
-    return _send_tx(
-        account, "system.account.move", _ABI_MOVE, [room_index], gas_limit=1_200_000
-    )
+    aid = _require_registered_operator(account)
+    view = _account_view(aid)
+    if view is not None:
+        if view["room"] == room_index:
+            raise PreTxValidationError(
+                f"account '{account}' is already in room {room_index}"
+            )
+        if view["stamina"] < 5:
+            raise PreTxValidationError(
+                f"account stamina is {view['stamina']}; a room move "
+                f"requires 5"
+            )
+    try:
+        return _send_tx(
+            account, "system.account.move", _ABI_MOVE, [room_index],
+            gas_limit=1_200_000,
+        )
+    except PreTxValidationError as e:
+        if "unreachable room" in e.detail and view is not None:
+            raise PreTxValidationError(
+                f"room {room_index} is not connected to the account's "
+                f"current room {view['room']}; {e.detail}"
+            )
+        raise
 
 
 _SP_ITEM_IDS = {21201, 21202, 21203, 21204, 21205, 21206}
@@ -2365,6 +2875,10 @@ async def travel_to_room(
     graph (catalogs/rooms.csv) and plans item inserts when stamina would
     otherwise run out. Each hop is its own on-chain tx (no multicall).
 
+    Validates before planning: the account must be registered (error
+    starting "validation failed; no transaction sent:"). Each executed
+    hop additionally passes the per-transaction validation gates.
+
     Args:
         target_room: Destination room index. See catalogs/rooms.csv.
         account: Account label.
@@ -2373,6 +2887,10 @@ async def travel_to_room(
             insufficient and returns a partial result.
         dry_run: If True, return the plan without executing any tx.
     """
+    # Registration gate: an unregistered operator otherwise surfaces as
+    # an opaque state-read failure. Each executed hop additionally runs
+    # the per-transaction validation gates.
+    _require_registered_operator(account)
     # --- Read current state ---
     try:
         raw = await _api_get_account(account)
@@ -2609,10 +3127,6 @@ async def travel_to_room(
         "remainder": remainder_path,
         "stamina_needed_for_remainder": stamina_needed_for_remainder,
         "eta_to_recover_min": eta_min,
-        "suggestion": (
-            "Acquire SP+ items (21201-21206) or wait "
-            f"{eta_min} min for stamina to regen."
-        ),
         "partial_reason": partial_reason or exec_error,
         "error": exec_error,
     }
@@ -2627,14 +3141,24 @@ def listing_buy(
 ) -> dict:
     """Buy items from an NPC merchant. Must be in the merchant's room.
 
+    Validates before signing (no gas spent on failure): item_indices
+    non-empty and parallel to amounts, account registered, then an
+    eth_call dry-run (room, MUSU balance). A failed validation raises
+    an error starting "validation failed; no transaction sent:".
+
     Args:
         merchant_index: NPC merchant index (1=Mina, 2=Vending Machine).
         item_indices: List of item indices to buy (global item index, e.g. 11301).
         amounts: List of amounts for each item (parallel to item_indices).
         account: Account label.
     """
+    if not item_indices:
+        raise PreTxValidationError(
+            "item_indices is empty; listing_buy requires at least one item"
+        )
     if len(item_indices) != len(amounts):
         raise ValueError("item_indices and amounts must have the same length")
+    _require_registered_operator(account)
     return _send_tx(
         account,
         "system.listing.buy",
@@ -2679,6 +3203,11 @@ def auction_buy(
 def feed_kami(kami_id: int, food_item_id: int, account: str = "main") -> dict:
     """Use a food item on a kami to restore HP. Works while harvesting.
 
+    Validates before signing (no gas spent on failure): account
+    registered, kami owned by the account, inventory holds the item,
+    then an eth_call dry-run. A failed validation raises an error
+    starting "validation failed; no transaction sent:".
+
     Args:
         kami_id: Kami token index (e.g. 45).
         food_item_id: Item ID for the food. Common foods:
@@ -2687,6 +3216,9 @@ def feed_kami(kami_id: int, food_item_id: int, account: str = "main") -> dict:
             11313=golden_apple(150hp), 11314=blue_pansy(25hp).
         account: Account label.
     """
+    aid = _require_registered_operator(account)
+    _require_kamis_owned([kami_id], account, aid, "feed_kami")
+    _require_item_balance(account, aid, food_item_id, 1, "feed_kami")
     return _send_tx(
         account,
         "system.kami.use.item",
@@ -2695,25 +3227,112 @@ def feed_kami(kami_id: int, food_item_id: int, account: str = "main") -> dict:
     )
 
 
+# Revive paths the game supports. "onyx" is its own system
+# (system.kami.onyx.revive, taking the kami token index); the item paths
+# consume one revive consumable via system.kami.use.item (taking the
+# kami entity ID). Item indices and HP values are from the on-chain item
+# registry (registry.item entities, verified 2026-07-18) and
+# catalogs/items.csv.
+_ONYX_ITEM_INDEX = 100
+_ONYX_REVIVE_COST = 33
+_REVIVE_ITEM_PATHS: dict[str, dict] = {
+    "red_ribbon_gummy": {"item_index": 11001, "hp": 10},
+    "melkarth_spell_card": {"item_index": 11002, "hp": 50},
+    "djed_pillar": {"item_index": 11003, "hp": 5},
+    "pale_potion": {"item_index": 11004, "hp": 75},
+}
+
+
 @mcp.tool()
-def revive_kami(kami_id: int, account: str = "main") -> dict:
-    """Revive a dead kami. Costs 33 Onyx Shards. Restores 33 HP -> RESTING.
+def revive_kami(
+    kami_id: int,
+    method: Literal[
+        "onyx",
+        "red_ribbon_gummy",
+        "melkarth_spell_card",
+        "djed_pillar",
+        "pale_potion",
+    ] = "onyx",
+    account: str = "main",
+) -> dict:
+    """Revive a DEAD kami to RESTING via one of the game's revive paths.
+
+    Paths (each consumes from the account inventory):
+      onyx                — system.kami.onyx.revive; consumes 33 Onyx
+                            Shards (item 100); restores HP to 33.
+      red_ribbon_gummy    — system.kami.use.item with item 11001;
+                            consumes 1; restores 10 HP.
+      melkarth_spell_card — system.kami.use.item with item 11002
+                            (not tradable); consumes 1; restores 50 HP.
+      djed_pillar         — system.kami.use.item with item 11003;
+                            consumes 1; restores 5 HP.
+      pale_potion         — system.kami.use.item with item 11004;
+                            consumes 1; restores 75 HP.
+
+    Validates before signing (no gas spent on failure): account
+    registered, kami owned by the account and DEAD, inventory holds the
+    chosen path's cost (33 Onyx Shards, or 1 of the revive item), then
+    an eth_call dry-run. A failed validation raises an error starting
+    "validation failed; no transaction sent:".
 
     Args:
         kami_id: Kami token index (e.g. 45).
+        method: Revive path; one of the values listed above
+            (default "onyx").
         account: Account label.
     """
-    return _send_tx(account, "system.kami.onyx.revive", _ABI_REVIVE, [kami_id])
+    aid = _require_registered_operator(account)
+    _require_kamis_owned(
+        [kami_id], account, aid, "revive_kami", required_state="DEAD"
+    )
+    if method == "onyx":
+        _require_item_balance(
+            account, aid, _ONYX_ITEM_INDEX, _ONYX_REVIVE_COST, "revive_kami"
+        )
+        result = _send_tx(
+            account, "system.kami.onyx.revive", _ABI_REVIVE, [kami_id]
+        )
+        result.update({
+            "kami_id": kami_id,
+            "method": "onyx",
+            "consumed": f"{_ONYX_REVIVE_COST}x item {_ONYX_ITEM_INDEX} "
+                        f"(Onyx Shard)",
+        })
+        return result
+    path = _REVIVE_ITEM_PATHS[method]
+    item_index = path["item_index"]
+    _require_item_balance(account, aid, item_index, 1, "revive_kami")
+    result = _send_tx(
+        account,
+        "system.kami.use.item",
+        _ABI_FEED,
+        [_kami_entity_id(kami_id), item_index],
+    )
+    result.update({
+        "kami_id": kami_id,
+        "method": method,
+        "consumed": f"1x item {item_index} "
+                    f"({_get_item_name(item_index)})",
+    })
+    return result
 
 
 @mcp.tool()
 def level_up_kami(kami_id: int, account: str = "main") -> dict:
     """Level up a kami if it has enough XP. Grants 1 skill point.
 
+    Validates before signing (no gas spent on failure): account
+    registered, kami owned by the account, then an eth_call dry-run —
+    insufficient XP surfaces as a validation error carrying the chain's
+    "PetLevel: need more experience" reason. A failed validation raises
+    an error starting "validation failed; no transaction sent:".
+
     Args:
         kami_id: Kami token index (e.g. 45).
         account: Account label.
     """
+    aid = _require_registered_operator(account)
+    _require_kamis_owned([kami_id], account, aid, "level_up_kami")
     return _send_tx(
         account, "system.kami.level", _ABI_LEVEL, [_kami_entity_id(kami_id)]
     )
@@ -2723,11 +3342,26 @@ def level_up_kami(kami_id: int, account: str = "main") -> dict:
 def name_kami(kami_id: int, name: str, account: str = "main") -> dict:
     """Name or rename a kami. Costs 1 Holy Dust. Kami must be in room 11.
 
+    Validates before signing (no gas spent on failure): name length
+    1-16 bytes, account registered, kami owned by the account,
+    inventory holds 1 Holy Dust (item 11011), then an eth_call dry-run
+    (which also covers the room-11 requirement and name uniqueness). A
+    failed validation raises an error starting "validation failed; no
+    transaction sent:".
+
     Args:
         kami_id: Kami token index (e.g. 45).
         name: New name (1-16 characters, globally unique).
         account: Account label.
     """
+    name_bytes = len(name.encode())
+    if not 1 <= name_bytes <= 16:
+        raise PreTxValidationError(
+            f"kami name must be 1-16 bytes; '{name}' is {name_bytes} bytes"
+        )
+    aid = _require_registered_operator(account)
+    _require_kamis_owned([kami_id], account, aid, "name_kami")
+    _require_item_balance(account, aid, 11011, 1, "name_kami")
     return _send_tx(
         account, "system.kami.name", _ABI_NAME, [_kami_entity_id(kami_id), name]
     )
@@ -2737,12 +3371,19 @@ def name_kami(kami_id: int, name: str, account: str = "main") -> dict:
 def upgrade_skill(kami_id: int, skill_index: int, account: str = "main") -> dict:
     """Upgrade a skill on a kami by 1 point. Costs 1 SP. Kami must be RESTING.
 
+    Validates before signing (no gas spent on failure): account
+    registered, kami owned by the account, then an eth_call dry-run
+    (state, skill points, tier gates). A failed validation raises an
+    error starting "validation failed; no transaction sent:".
+
     Args:
         kami_id: Kami token index (e.g. 45).
         skill_index: Skill index from catalogs/skills.csv (e.g. 311 for
             Guardian Defensiveness, 212 for Enlightened Cardio).
         account: Account label.
     """
+    aid = _require_registered_operator(account)
+    _require_kamis_owned([kami_id], account, aid, "upgrade_skill")
     return _send_tx(
         account,
         "system.skill.upgrade",
@@ -2757,6 +3398,12 @@ def allocate_skills(
 ) -> dict:
     """Allocate multiple skill points in one call. Executes sequentially on-chain.
 
+    Validates before signing (no gas spent on failure): skill_plan
+    non-empty, account registered, kami owned by the account; each
+    upgrade transaction additionally passes an eth_call dry-run. A
+    failed validation raises an error starting "validation failed; no
+    transaction sent:".
+
     Args:
         kami_id: Kami token index.
         skill_plan: List of {"skill_index": int, "points": int} dicts.
@@ -2764,6 +3411,13 @@ def allocate_skills(
             Must respect tier gate ordering — lower tiers first.
         account: Account label.
     """
+    if not skill_plan:
+        raise PreTxValidationError(
+            "skill_plan is empty; allocate_skills requires at least one "
+            "{skill_index, points} entry"
+        )
+    aid = _require_registered_operator(account)
+    _require_kamis_owned([kami_id], account, aid, "allocate_skills")
     entity_id = _kami_entity_id(kami_id)
     total_planned = sum(s["points"] for s in skill_plan)
     done = 0
@@ -2802,11 +3456,18 @@ async def level_to(
     Queries current level from the API, then executes the exact number of
     level-up transactions needed. Retries on transient RPC errors.
 
+    Validates before signing (no gas spent on failure): account
+    registered and kami owned by the account; each level transaction
+    additionally passes an eth_call dry-run. A failed validation raises
+    an error starting "validation failed; no transaction sent:".
+
     Args:
         kami_id: Kami token index (e.g. 45).
         target_level: Desired level (e.g. 32). Must have enough XP banked.
         account: Account label.
     """
+    aid = _require_registered_operator(account)
+    _require_kamis_owned([kami_id], account, aid, "level_to")
     state = await _api_get(f"/api/playwright/kami/{kami_id}/", account)
     current = state["progress"]["level"]
     levels_needed = target_level - current
@@ -2856,6 +3517,11 @@ async def level_and_allocate_batch(
     optionally spends the given `skill_plan`, in a single MCP round-trip
     that returns one compact result blob.
 
+    Validates before signing (no gas spent on failure): targets
+    non-empty and account registered; each transaction additionally
+    passes an eth_call dry-run. A failed validation raises an error
+    starting "validation failed; no transaction sent:".
+
     Failures are captured per-kami: one kami's error does not abort the
     rest of the batch. Nonce conflicts are handled by `_send_tx_retry`.
 
@@ -2884,6 +3550,12 @@ async def level_and_allocate_batch(
             ],
         }
     """
+    if not targets:
+        raise PreTxValidationError(
+            "targets is empty; level_and_allocate_batch requires at "
+            "least one per-kami plan"
+        )
+    _require_registered_operator(account)
     results = []
     for t in targets:
         kid = t.get("kami_id")
@@ -2962,6 +3634,11 @@ async def feed_level_allocate_batch(
          "target_level": int   (optional),
          "skill_plan": [{"skill_index": int, "points": int}, ...] (optional)}
 
+    Validates before signing (no gas spent on failure): targets
+    non-empty and account registered; each transaction additionally
+    passes an eth_call dry-run. A failed validation raises an error
+    starting "validation failed; no transaction sent:".
+
     Failures are captured per kami: an error is recorded in that kami's
     result row and its remaining phases are skipped (a failed feed does not
     level into missing XP); the loop continues with the next kami. The
@@ -2976,6 +3653,12 @@ async def feed_level_allocate_batch(
     Returns:
         {count, ok, results: [{kami_id, fed?, leveled?, allocated?, error?}]}
     """
+    if not targets:
+        raise PreTxValidationError(
+            "targets is empty; feed_level_allocate_batch requires at "
+            "least one per-kami plan"
+        )
+    _require_registered_operator(account)
     results = []
     for t in targets:
         kid = t.get("kami_id")
@@ -3067,12 +3750,25 @@ def use_item_batch(
     Works for any consumable: food (HP), XP potions, buff potions, etc.
     Retries on transient RPC errors.
 
+    Validates before signing (no gas spent on failure): count at least
+    1, account registered, kami owned by the account, inventory holds
+    `count` of the item, then a per-transaction eth_call dry-run. A
+    failed validation raises an error starting "validation failed; no
+    transaction sent:".
+
     Args:
         kami_id: Kami token index (e.g. 45).
         item_id: Item ID (e.g. 11411 for Fortified XP Potion, 11302 for Burger).
         count: Number of times to use the item.
         account: Account label.
     """
+    if count < 1:
+        raise PreTxValidationError(
+            f"count is {count}; use_item_batch requires at least 1"
+        )
+    aid = _require_registered_operator(account)
+    _require_kamis_owned([kami_id], account, aid, "use_item_batch")
+    _require_item_balance(account, aid, item_id, count, "use_item_batch")
     entity_id = _kami_entity_id(kami_id)
     done = 0
     for _ in range(count):
@@ -3110,11 +3806,22 @@ def use_account_item(
     `system.account.use.item` (Operator wallet). The account contract
     syncs stamina before applying the effect.
 
+    Validates before signing (no gas spent on failure): amount at least
+    1, account registered, inventory holds `amount` of the item, then
+    an eth_call dry-run. A failed validation raises an error starting
+    "validation failed; no transaction sent:".
+
     Args:
         item_id: Item index, e.g. 21201 (Ice Cream, +20 stamina).
         account: Account label.
         amount: Quantity to consume in this call (default 1).
     """
+    if amount < 1:
+        raise PreTxValidationError(
+            f"amount is {amount}; use_account_item requires at least 1"
+        )
+    aid = _require_registered_operator(account)
+    _require_item_balance(account, aid, item_id, amount, "use_account_item")
     return _send_tx_retry(
         account,
         "system.account.use.item",
@@ -3127,11 +3834,20 @@ def use_account_item(
 def equip_item(kami_id: int, item_index: int, account: str = "main") -> dict:
     """Equip an inventory item to a kami. Kami must be RESTING.
 
+    Validates before signing (no gas spent on failure): account
+    registered, kami owned by the account, inventory holds the item,
+    then an eth_call dry-run (state, slot occupancy). A failed
+    validation raises an error starting "validation failed; no
+    transaction sent:".
+
     Args:
         kami_id: Kami token index (e.g. 45).
         item_index: Item index from inventory (e.g. 1001 for Wooden Stick).
         account: Account label.
     """
+    aid = _require_registered_operator(account)
+    _require_kamis_owned([kami_id], account, aid, "equip_item")
+    _require_item_balance(account, aid, item_index, 1, "equip_item")
     return _send_tx(
         account,
         "system.kami.equip",
@@ -3144,11 +3860,18 @@ def equip_item(kami_id: int, item_index: int, account: str = "main") -> dict:
 def unequip_item(kami_id: int, slot_type: str, account: str = "main") -> dict:
     """Unequip an item from a kami slot. Kami must be RESTING.
 
+    Validates before signing (no gas spent on failure): account
+    registered, kami owned by the account, then an eth_call dry-run
+    (state, slot occupancy). A failed validation raises an error
+    starting "validation failed; no transaction sent:".
+
     Args:
         kami_id: Kami token index (e.g. 45).
         slot_type: Equipment slot name (e.g. "Kami_Pet_Slot").
         account: Account label.
     """
+    aid = _require_registered_operator(account)
+    _require_kamis_owned([kami_id], account, aid, "unequip_item")
     return _send_tx(
         account,
         "system.kami.unequip",
@@ -3194,7 +3917,7 @@ def equip_all_batch(
     # wallet raises its own error instead of N "skipped" entries.
     op_addr = src.operator_addr
     if not equips:
-        raise ValueError(
+        raise PreTxValidationError(
             'equips is empty; pass a list of {"kami_id", "item_index"} dicts'
         )
 
@@ -3317,7 +4040,7 @@ def unequip_all_batch(
     # wallet raises its own error instead of N "skipped" entries.
     op_addr = src.operator_addr
     if not kami_ids:
-        raise ValueError("kami_ids is empty; pass kami token indices")
+        raise PreTxValidationError("kami_ids is empty; pass kami token indices")
 
     contract = w3.eth.contract(
         address=_resolve_system("system.kami.unequip"), abi=_ABI_UNEQUIP
@@ -3534,6 +4257,12 @@ def buy_kami(
     reverts. Bought kamis join this account's roster and enter a 1-hour
     purchase cooldown.
 
+    Validates before signing (no gas spent on failure): an active
+    listing exists for every kami, the live total is within
+    max_total_eth, the owner wallet balance covers total + gas
+    provision, and an eth_call dry-run passes. A failed validation
+    raises an error starting "validation failed; no transaction sent:".
+
     Args:
         kami_ids: Kami token indices to buy (e.g. [1116, 428]). A single
             kami is a 1-element list.
@@ -3548,7 +4277,7 @@ def buy_kami(
     """
     ids = list(dict.fromkeys(kami_ids))
     if not ids:
-        raise ValueError("kami_ids must not be empty")
+        raise PreTxValidationError("kami_ids must not be empty")
     cap_wei = _eth_to_wei(max_total_eth)
     if cap_wei <= 0:
         raise ValueError("max_total_eth must be > 0")
@@ -3590,12 +4319,24 @@ def buy_kami(
         )
 
     listing_ids = [int(l["order_id_hex"], 16) for l in picked]
+    gas_limit = 1_500_000 + 600_000 * len(listing_ids)
+    acct = _get_account(account)
+    balance = w3.eth.get_balance(acct.owner_addr)
+    gas_provision = gas_limit * _GAS_PRICE["maxFeePerGas"]
+    if balance < total_wei + gas_provision:
+        raise PreTxValidationError(
+            f"owner wallet {acct.owner_addr} holds "
+            f"{w3.from_wei(balance, 'ether')} ETH; buying kami(s) {ids} "
+            f"requires {w3.from_wei(total_wei, 'ether')} ETH (live "
+            f"listing total) + {w3.from_wei(gas_provision, 'ether')} ETH "
+            f"gas provision"
+        )
     result = _send_tx_owner(
         account,
         "system.kamimarket.buy",
         _ABI_KAMI_BUY,
         [listing_ids],
-        gas_limit=1_500_000 + 600_000 * len(listing_ids),
+        gas_limit=gas_limit,
         value_wei=total_wei,
     )
     result.update(
@@ -3645,7 +4386,7 @@ def cancel_kami_listing(kami_ids: list[int], account: str = "main") -> dict:
     """
     ids = list(dict.fromkeys(kami_ids))
     if not ids:
-        raise ValueError("kami_ids must not be empty")
+        raise PreTxValidationError("kami_ids must not be empty")
 
     market = get_kami_market_listings(size=500, include_expired=True)
     self_eid = str(_account_entity_id(account))
@@ -4363,7 +5104,7 @@ def transfer_kami(
 
     # --- Validate batch shape (1..9, no duplicates) ---
     if not kami_ids:
-        raise ValueError("kami_ids is empty; pass 1..9 kami token indices")
+        raise PreTxValidationError("kami_ids is empty; pass 1..9 kami token indices")
     indices: list[int] = []
     seen: set[int] = set()
     for k in kami_ids:
@@ -4551,7 +5292,7 @@ def transfer_items(
 
     # --- Validate batch shape (parallel arrays, 1..8 distinct types, amts>0) ---
     if not item_indices:
-        raise ValueError("item_indices is empty; pass 1..8 item indices")
+        raise PreTxValidationError("item_indices is empty; pass 1..8 item indices")
     if len(item_indices) != len(amounts):
         raise ValueError(
             f"item_indices ({len(item_indices)}) and amounts "
@@ -4766,10 +5507,21 @@ def stop_harvest_batch(
 
     Max ~5 per batch (eth_estimateGas cap).
 
+    Validates before signing (no gas spent on failure): kami_ids
+    non-empty and account registered. Per-kami failures are silent
+    skips by design (executeBatchedAllowFailure) and are reported via
+    the post-transaction per_kami harvest-state reads.
+
     Args:
         kami_ids: List of kami token indices (e.g. [45, 46, 47]).
         account: Account label.
     """
+    if not kami_ids:
+        raise PreTxValidationError(
+            "kami_ids is empty; stop_harvest_batch requires at least "
+            "one kami"
+        )
+    _require_registered_operator(account)
     harvest_ids = [
         _harvest_entity_id(kid) for kid in kami_ids
     ]
@@ -4936,16 +5688,53 @@ def get_quest_status(quest_index: int, account: str = "main") -> dict:
         }
 
 
+def _quest_owned_completed(q_id: int, account_id: int) -> tuple[bool, bool]:
+    """(owned, completed) for a quest instance entity, from chain state."""
+    owns = w3.eth.contract(
+        address=_resolve_component("component.id.quest.owns"),
+        abi=_ID_COMPONENT_ABI,
+    )
+    is_complete = w3.eth.contract(
+        address=_resolve_component("component.is.complete"),
+        abi=_BOOL_COMPONENT_ABI,
+    )
+    try:
+        owned = owns.functions.safeGet(q_id).call() == account_id
+    except Exception:
+        owned = False
+    try:
+        completed = bool(is_complete.functions.has(q_id).call())
+    except Exception:
+        completed = False
+    return owned, completed
+
+
 @mcp.tool()
 def accept_quest(quest_index: int, account: str = "main") -> dict:
     """Accept a quest by index. Costs gas.
 
     Requirements are checked on-chain (previous quest completed, location, etc).
 
+    Validates before signing (no gas spent on failure): account
+    registered, quest not already accepted or completed by the account,
+    then an eth_call dry-run (prerequisites, location). A failed
+    validation raises an error starting "validation failed; no
+    transaction sent:".
+
     Args:
         quest_index: Quest index to accept.
         account: Account label.
     """
+    aid = _require_registered_operator(account)
+    owned, completed = _quest_owned_completed(
+        _quest_entity_id(quest_index, aid), aid
+    )
+    if owned:
+        raise PreTxValidationError(
+            f"quest {quest_index} is already "
+            f"{'completed' if completed else 'accepted'} by account "
+            f"'{account}'"
+        )
     return _send_tx(
         account,
         "system.quest.accept",
@@ -4961,12 +5750,29 @@ def complete_quest(quest_index: int, account: str = "main") -> dict:
 
     Computes the quest entity ID from the index and account.
 
+    Validates before signing (no gas spent on failure): account
+    registered, quest accepted and not already completed, then an
+    eth_call dry-run — unmet objectives surface as a validation error
+    carrying the chain's revert reason. A failed validation raises an
+    error starting "validation failed; no transaction sent:".
+
     Args:
         quest_index: Quest index of the active quest to complete.
         account: Account label.
     """
-    acc_id = _account_entity_id(account)
-    q_id = _quest_entity_id(quest_index, acc_id)
+    aid = _require_registered_operator(account)
+    q_id = _quest_entity_id(quest_index, aid)
+    owned, completed = _quest_owned_completed(q_id, aid)
+    if completed:
+        raise PreTxValidationError(
+            f"quest {quest_index} is already completed by account "
+            f"'{account}'"
+        )
+    if not owned:
+        raise PreTxValidationError(
+            f"quest {quest_index} is not accepted by account '{account}'; "
+            f"complete_quest requires an accepted quest"
+        )
     return _send_tx(
         account,
         "system.quest.complete",
@@ -5160,12 +5966,28 @@ def get_expected_objective(quest_index: int) -> dict:
 def drop_quest(quest_index: int, account: str = "main") -> dict:
     """Drop/abandon an active quest. Costs gas.
 
+    Validates before signing (no gas spent on failure): account
+    registered, quest accepted and not already completed, then an
+    eth_call dry-run. A failed validation raises an error starting
+    "validation failed; no transaction sent:".
+
     Args:
         quest_index: Quest index of the active quest to drop.
         account: Account label.
     """
-    acc_id = _account_entity_id(account)
-    q_id = _quest_entity_id(quest_index, acc_id)
+    aid = _require_registered_operator(account)
+    q_id = _quest_entity_id(quest_index, aid)
+    owned, completed = _quest_owned_completed(q_id, aid)
+    if completed:
+        raise PreTxValidationError(
+            f"quest {quest_index} is already completed by account "
+            f"'{account}'; a completed quest cannot be dropped"
+        )
+    if not owned:
+        raise PreTxValidationError(
+            f"quest {quest_index} is not accepted by account '{account}'; "
+            f"drop_quest requires an accepted quest"
+        )
     return _send_tx(
         account,
         "system.quest.drop",
@@ -5195,11 +6017,33 @@ def burn_items(
 ) -> dict:
     """Burn (destroy) items from inventory, reducing their balances.
 
+    Validates before signing (no gas spent on failure): item_indices
+    non-empty and parallel to amounts, account registered, inventory
+    holds each amount, then an eth_call dry-run. A failed validation
+    raises an error starting "validation failed; no transaction sent:".
+
     Args:
         item_indices: List of item indices to burn (e.g. [1005]).
         amounts: List of amounts to burn, parallel to item_indices.
         account: Account label.
     """
+    if not item_indices:
+        raise PreTxValidationError(
+            "item_indices is empty; burn_items requires at least one item"
+        )
+    if len(item_indices) != len(amounts):
+        raise ValueError(
+            f"item_indices ({len(item_indices)}) and amounts "
+            f"({len(amounts)}) must be the same length"
+        )
+    aid = _require_registered_operator(account)
+    for idx, amt in zip(item_indices, amounts):
+        if amt <= 0:
+            raise PreTxValidationError(
+                f"amount for item {idx} is {amt}; burn_items requires "
+                f"amounts of at least 1"
+            )
+        _require_item_balance(account, aid, idx, amt, "burn_items")
     return _send_tx(
         account,
         "system.item.burn",
@@ -5231,11 +6075,21 @@ def craft_item(
 
     See catalogs/recipes.csv for recipe indices and requirements.
 
+    Validates before signing (no gas spent on failure): amount at least
+    1, account registered, then an eth_call dry-run (recipe inputs,
+    stamina). A failed validation raises an error starting "validation
+    failed; no transaction sent:".
+
     Args:
         recipe_index: Recipe index (e.g. 6 for Extract Pine Pollen).
         amount: Number of times to craft (multiplies inputs/outputs).
         account: Account label.
     """
+    if amount < 1:
+        raise PreTxValidationError(
+            f"amount is {amount}; craft_item requires at least 1"
+        )
+    _require_registered_operator(account)
     return _send_tx(
         account,
         "system.craft",
@@ -5269,6 +6123,11 @@ def speed_craft_batch(
     the loop halts and returns partial progress. The server-side loop keeps
     running even if the MCP client call times out.
 
+    Validates before signing (no gas spent on failure): count at least
+    1 and account registered; each transaction additionally passes an
+    eth_call dry-run. A failed validation raises an error starting
+    "validation failed; no transaction sent:".
+
     Args:
         recipe_index: Recipe to craft (see catalogs/recipes.csv).
         count: Number of crafts (one stamina item consumed per craft).
@@ -5283,7 +6142,10 @@ def speed_craft_batch(
     """
     _get_account(account)
     if count <= 0:
-        raise ValueError("count must be > 0")
+        raise PreTxValidationError(
+            f"count is {count}; speed_craft_batch requires at least 1"
+        )
+    _require_registered_operator(account)
 
     crafted = 0
     stamina_used = 0
@@ -5527,10 +6389,23 @@ def scavenge_claim(node_index: int, account: str = "main") -> dict:
     Triggers droptable commit(s) that must be revealed in a later block.
     Returns commit_ids for use with droptable_reveal.
 
+    Validates before signing (no gas spent on failure): account
+    registered, accumulated scavenge points cover at least one tier at
+    the node, then an eth_call dry-run. A failed validation raises an
+    error starting "validation failed; no transaction sent:".
+
     Args:
         node_index: Harvest node index.
         account: Account label.
     """
+    _require_registered_operator(account)
+    points_info = get_scavenge_points(node_index, account)
+    if points_info["claimable_tiers"] < 1:
+        raise PreTxValidationError(
+            f"account '{account}' has {points_info['points']} scavenge "
+            f"points at node {node_index}; claiming a tier requires "
+            f"{points_info['tier_cost']}"
+        )
     reg_id = _scavenge_registry_id(node_index)
     result = _send_tx(
         account,
@@ -5552,10 +6427,21 @@ def droptable_reveal(commit_ids: list[int], account: str = "main") -> dict:
 
     Must be called in a later block than the claim that created the commits.
 
+    Validates before signing (no gas spent on failure): commit_ids
+    non-empty, account registered, then an eth_call dry-run. A failed
+    validation raises an error starting "validation failed; no
+    transaction sent:".
+
     Args:
         commit_ids: List of commit entity IDs from scavenge claims.
         account: Account label.
     """
+    if not commit_ids:
+        raise PreTxValidationError(
+            "commit_ids is empty; droptable_reveal requires at least "
+            "one commit entity ID"
+        )
+    _require_registered_operator(account)
     return _send_tx(
         account,
         "system.droptable.item.reveal",
@@ -5592,8 +6478,20 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
         if w3.eth.block_number > claim_block:
             break
 
-    # Step 3: Reveal (may revert if items were granted directly by claim)
-    reveal_result = droptable_reveal(commit_ids, account)
+    # Step 3: Reveal (may revert if items were granted directly by claim;
+    # the reveal's own dry-run gate catches that pre-send).
+    try:
+        reveal_result = droptable_reveal(commit_ids, account)
+    except PreTxValidationError as e:
+        return {
+            "claim": claim_result,
+            "reveal": None,
+            "reveal_skipped": (
+                f"reveal dry-run reverted — items likely granted "
+                f"directly by claim ({e.detail})"
+            ),
+            "commit_ids": commit_ids,
+        }
     if reveal_result.get("status") == "reverted":
         return {
             "claim": claim_result,
@@ -5773,7 +6671,7 @@ def sacrifice_kami_batch(
     # wallet raises its own error instead of N "skipped" entries.
     op_addr = src.operator_addr
     if not kami_ids:
-        raise ValueError("kami_ids is empty; pass kami token indices")
+        raise PreTxValidationError("kami_ids is empty; pass kami token indices")
 
     commit_contract = w3.eth.contract(
         address=_resolve_system("system.kami.sacrifice.commit"),
@@ -5850,7 +6748,7 @@ def sacrifice_reveal(commit_ids: list[int], account: str = "main") -> dict:
     commit IDs revealed.
     """
     if not commit_ids:
-        raise ValueError(
+        raise PreTxValidationError(
             "commit_ids is empty; pass the ids returned by sacrifice_kami"
         )
     ids = [int(c) for c in commit_ids]
