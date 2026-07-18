@@ -22,6 +22,80 @@ marks the tool contract.
 - **PATCH** — non-semantic changes: documentation fixes, wording, catalog
   data refreshes, internal refactors that do not change the tool contract.
 
+## [1.5.0] — Droptable/sacrifice reveal correctness: string commit IDs, estimated gas
+
+No tool added or removed (**84 tools**, unchanged). Ships as MINOR with
+one nominally breaking schema change, declared here explicitly: the
+`commit_ids` parameter of `droptable_reveal` and `sacrifice_reveal`
+changes `array of integer` → `array of string`, and every returned
+commit ID (`scavenge_claim`, `scavenge_claim_and_reveal`,
+`sacrifice_reveal`) is now a decimal string. Commit IDs are uint256
+entity IDs (> 2^128); they exceed IEEE-754 float precision, so no
+JSON-boundary caller could ever have round-tripped the integer form
+correctly — the integer contract was unusable for its purpose, and no
+working caller existed to break. Origin: the scavenge-path fix in
+kami-hybrid-play commit `74b1af6` (2026-07-15), merged here into the
+v1.4.0 validated tool bodies; the sacrifice-path string typing closes
+the inconsistency that fix left open (flagged in hybrid-play's own
+delta ledger). Egress surface unchanged: no new hosts.
+
+### Changed — commit IDs cross the MCP boundary as strings
+
+- `droptable_reveal(commit_ids: list[str])` and
+  `sacrifice_reveal(commit_ids: list[str])` accept decimal or 0x-hex
+  strings (`_parse_commit_id`; ints still accepted from internal
+  callers). Schemas stay in the portable subset (plain
+  `array`/`string`, no `anyOf`/`oneOf`).
+- `scavenge_claim` and `scavenge_claim_and_reveal` return `commit_ids`
+  as decimal strings; `sacrifice_reveal` echoes the revealed IDs as
+  decimal strings.
+- Known residual (out of this release's scope): `sacrifice_kami` still
+  returns its `commit_ids` as integers — recorded for a future release.
+
+### Changed — droptable reveal gas is estimated per call
+
+Reveal gas scales with the roll count inside each commit (~1,130
+gas/roll measured; per-roll RNG loop), so the fixed 2M limit ran large
+scavenge claims out of gas. `droptable_reveal` and the reveal step of
+`scavenge_claim_and_reveal` now send with `eth_estimateGas × 1.5`. The
+estimate doubles as a preflight under the v1.4.0 validation
+convention: a doomed reveal raises the stable
+`validation failed; no transaction sent:` marker (it does not adopt
+hybrid-play's `status=reverted_preflight` result dict), so the
+validation/revert split in invalid-attempt analyses stays mechanical.
+All v1.4.0 pre-tx validation on the touched tools is preserved
+verbatim in effect: empty-commit_ids guard, registered-operator check,
+scavenge claimable-tier check, and the eth_call dry-run of the exact
+calldata.
+
+### Changed — `scavenge_claim_and_reveal` retries and reports honestly
+
+- Still waits for the next block after the claim, then retries the
+  reveal up to 3 times, 3 seconds apart, inside the reveal window: a
+  commit must be revealed in a later block than its claim and within
+  256 blocks (~6 min) — the reveal seed is the claim block's
+  blockhash, which stops being available after 256 blocks, so an
+  expired commit cannot be revealed by any player action. The window
+  is stated factually in the docstrings and error text.
+- Removed the v1.4.0 mislabel: a reveal revert was reported as
+  `reveal_skipped: "reveal reverted — items likely granted directly by
+  claim"`, which mislabeled an out-of-gas revert as success. A failed
+  reveal now returns the claim result, the commit IDs, and the last
+  failure as it occurred (preflight raise or on-chain revert), with no
+  interpretation added.
+
+### Tests
+
+- String/hex commit-ID parsing, including a value above 2^53
+  round-tripping exactly through the string form.
+- Preflight-failure path: raises with the validation marker, nothing
+  sent; `scavenge_claim_and_reveal` retry and expiry paths (retries
+  succeed / exhaust; no `reveal_skipped` key survives).
+- Regression: all three touched tools fail their v1.4.0 validation
+  cases identically (empty commit_ids, unclaimable tier, empty
+  sacrifice batch).
+- Full suite green keyless (no network).
+
 ## [1.4.0] — Pre-transaction validation, error legibility, revive paths
 
 Additive (MINOR) release: no tool added or removed (**84 tools**,
@@ -438,6 +512,7 @@ private experiment repo — they are not part of this environment interface.
   quests, scavenge, and trading. Unchanged in count and behavior from the
   `v0-pilot` state — only descriptions were rewritten.
 
+[1.5.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.5.0
 [1.4.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.4.0
 [1.3.1]: https://github.com/tokedo/kami-harness/releases/tag/v1.3.1
 [1.3.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.3.0

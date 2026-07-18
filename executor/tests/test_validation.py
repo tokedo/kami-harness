@@ -919,13 +919,16 @@ class TestScavengeValidation:
             server.droptable_reveal([], account="testa")
         assert sent == []
 
-    def test_claim_and_reveal_handles_validation_skip(
+    def test_claim_and_reveal_reports_blocked_reveal_honestly(
         self, accounts, monkeypatch
     ):
+        # v1.5.0: a reveal blocked in preflight is retried and then
+        # reported as itself — the v1.4.0 "items likely granted
+        # directly by claim" mislabel is gone.
         monkeypatch.setattr(
             server, "scavenge_claim",
             lambda node, account: {
-                "status": "success", "block": 10, "commit_ids": [111],
+                "status": "success", "block": 10, "commit_ids": ["111"],
             },
         )
         monkeypatch.setattr(
@@ -934,15 +937,18 @@ class TestScavengeValidation:
         )
         monkeypatch.setattr(server.time, "sleep", lambda s: None)
 
-        def reveal_blocked(ids, account):
+        def reveal_blocked(account, ids):
             raise server.PreTxValidationError(
-                "transaction dry-run reverted: revert: already revealed"
+                "reveal gas estimation reverted: revert: already revealed"
             )
 
-        monkeypatch.setattr(server, "droptable_reveal", reveal_blocked)
+        monkeypatch.setattr(server, "_send_reveal_tx", reveal_blocked)
         r = server.scavenge_claim_and_reveal(16, account="testa")
         assert r["reveal"] is None
-        assert "already revealed" in r["reveal_skipped"]
+        assert "reveal_skipped" not in r
+        assert "already revealed" in r["last_failure"]
+        assert "reveal failed after 3 attempts" in r["error"]
+        assert "256 blocks" in r["error"]
 
 
 # ---------------------------------------------------------------------------

@@ -6382,12 +6382,67 @@ def _extract_commit_ids(receipt) -> list[int]:
     return []
 
 
+def _parse_commit_id(v) -> int:
+    """Accept int, decimal string, or 0x-hex string commit entity IDs.
+
+    Commit IDs are uint256 — they exceed IEEE-754 float precision, so
+    they cross the MCP JSON boundary as strings.
+    """
+    if isinstance(v, int):
+        return v
+    s = str(v).strip()
+    return int(s, 16) if s.lower().startswith("0x") else int(s)
+
+
+def _send_reveal_tx(account: str, ids: list[int]) -> dict:
+    """Estimate-gas preflight + send for a droptable reveal.
+
+    Reveal gas scales with the roll count inside each commit (per-roll
+    RNG loop, ~1,130 gas/roll measured), so a fixed gas limit is wrong
+    for large scavenge claims. The estimate doubles as a preflight: a
+    doomed reveal (same-block call, unknown or expired commit) raises
+    PreTxValidationError here and nothing is signed or broadcast.
+    """
+    acct = _get_account(account)
+    # Resolved before the estimate try below: a missing operator wallet
+    # raises its own error, not a wrapped estimation revert.
+    op_addr = acct.operator_addr
+    contract = w3.eth.contract(
+        address=_resolve_system("system.droptable.item.reveal"),
+        abi=_ABI_DROPTABLE_REVEAL,
+    )
+    try:
+        est = contract.functions.executeTyped(ids).estimate_gas(
+            {"from": op_addr}
+        )
+    except Exception as e:
+        raise PreTxValidationError(
+            f"reveal gas estimation reverted: {_revert_text(e)}. A "
+            f"droptable commit is revealable only in a later block than "
+            f"its claim and within 256 blocks (~6 min) of it; after "
+            f"that the claim block's blockhash is unavailable and the "
+            f"commit cannot be revealed by any player action."
+        )
+    return _send_tx(
+        account,
+        "system.droptable.item.reveal",
+        _ABI_DROPTABLE_REVEAL,
+        [ids],
+        gas_limit=int(est * 3 // 2),
+    )
+
+
 @mcp.tool()
 def scavenge_claim(node_index: int, account: str = "main") -> dict:
     """Claim scavenge rewards for a node. Costs gas.
 
-    Triggers droptable commit(s) that must be revealed in a later block.
-    Returns commit_ids for use with droptable_reveal.
+    Triggers droptable commit(s) that must be revealed in a later block
+    than the claim and within 256 blocks (~6 min) of it — the reveal
+    seed is the claim block's blockhash, which stops being available
+    after 256 blocks; a commit past that window cannot be revealed by
+    any player action. Returns commit_ids for droptable_reveal as
+    decimal strings (uint256 values exceed IEEE-754 float precision and
+    do not survive JSON as numbers).
 
     Validates before signing (no gas spent on failure): account
     registered, accumulated scavenge points cover at least one tier at
@@ -6417,23 +6472,30 @@ def scavenge_claim(node_index: int, account: str = "main") -> dict:
     )
     receipt = result.pop("_receipt", None)
     if receipt and result["status"] == "success":
-        result["commit_ids"] = _extract_commit_ids(receipt)
+        result["commit_ids"] = [str(c) for c in _extract_commit_ids(receipt)]
     return result
 
 
 @mcp.tool()
-def droptable_reveal(commit_ids: list[int], account: str = "main") -> dict:
+def droptable_reveal(commit_ids: list[str], account: str = "main") -> dict:
     """Reveal droptable commits to receive items. Costs gas.
 
-    Must be called in a later block than the claim that created the commits.
+    Must be called in a later block than the claim that created the
+    commits and within 256 blocks (~6 min) of it — the reveal seed is
+    the claim block's blockhash, which stops being available after 256
+    blocks; a commit past that window cannot be revealed by any player
+    action. Gas is estimated per call with a 1.5x buffer (reveal cost
+    scales with the number of rolls in the commits).
 
     Validates before signing (no gas spent on failure): commit_ids
-    non-empty, account registered, then an eth_call dry-run. A failed
-    validation raises an error starting "validation failed; no
-    transaction sent:".
+    non-empty, account registered, an eth_estimateGas preflight of the
+    exact calldata, then an eth_call dry-run. A failed validation
+    raises an error starting "validation failed; no transaction sent:".
 
     Args:
-        commit_ids: List of commit entity IDs from scavenge claims.
+        commit_ids: Commit entity IDs from scavenge claims, as decimal
+            or 0x-hex strings (uint256 values exceed IEEE-754 float
+            precision and do not survive JSON as numbers).
         account: Account label.
     """
     if not commit_ids:
@@ -6442,27 +6504,30 @@ def droptable_reveal(commit_ids: list[int], account: str = "main") -> dict:
             "one commit entity ID"
         )
     _require_registered_operator(account)
-    return _send_tx(
-        account,
-        "system.droptable.item.reveal",
-        _ABI_DROPTABLE_REVEAL,
-        [commit_ids],
-        gas_limit=2_000_000,
-    )
+    ids = [_parse_commit_id(c) for c in commit_ids]
+    return _send_reveal_tx(account, ids)
 
 
 @mcp.tool()
 def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
     """Claim scavenge rewards AND reveal droptable items in one call.
 
-    Combines scavenge_claim + droptable_reveal. Waits for the next block
-    between claim and reveal (reveal must be in a later block than claim).
+    Combines scavenge_claim + droptable_reveal: waits for the next
+    block after the claim (the reveal must land in a later block), then
+    reveals with estimated gas (1.5x buffer; cost scales with the roll
+    count), retrying up to 3 times, 3 seconds apart. The commits expire
+    256 blocks (~6 min) after the claim block — the reveal seed is the
+    claim block's blockhash, which stops being available after 256
+    blocks; an expired commit cannot be revealed by any player action.
+    If the reveal does not succeed, the result reports the claim
+    result, the commit_ids (decimal strings), and the last failure as
+    it occurred; the claim itself is already final on-chain.
 
     Args:
         node_index: Harvest node index.
         account: Account label.
     """
-    # Step 1: Claim
+    # Step 1: Claim (scavenge_claim's own validation gates apply)
     claim_result = scavenge_claim(node_index, account)
     if claim_result["status"] != "success":
         return {"claim": claim_result, "reveal": None, "error": "claim failed"}
@@ -6470,6 +6535,7 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
     commit_ids = claim_result.get("commit_ids", [])
     if not commit_ids:
         return {"claim": claim_result, "reveal": None, "error": "no commit_ids found in claim receipt"}
+    ids = [_parse_commit_id(c) for c in commit_ids]
 
     # Step 2: Wait for next block (reveal must be in a different block)
     claim_block = claim_result["block"]
@@ -6478,26 +6544,41 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
         if w3.eth.block_number > claim_block:
             break
 
-    # Step 3: Reveal (may revert if items were granted directly by claim;
-    # the reveal's own dry-run gate catches that pre-send).
-    try:
-        reveal_result = droptable_reveal(commit_ids, account)
-    except PreTxValidationError as e:
+    # Step 3: Reveal, retrying inside the 256-block window. A failed
+    # preflight raises before anything is sent; a reveal that passed
+    # the preflight can still revert on-chain. Either way the attempt
+    # failed and is reported as itself.
+    reveal_result = None
+    last_failure = None
+    for attempt in range(3):
+        if attempt:
+            time.sleep(3)
+        try:
+            reveal_result = _send_reveal_tx(account, ids)
+        except PreTxValidationError as e:
+            reveal_result = None
+            last_failure = str(e)
+            continue
+        if reveal_result.get("status") == "success":
+            break
+        last_failure = (
+            f"reveal transaction {reveal_result.get('tx_hash')} "
+            f"reverted on-chain"
+        )
+
+    if reveal_result is None or reveal_result.get("status") != "success":
         return {
             "claim": claim_result,
-            "reveal": None,
-            "reveal_skipped": (
-                f"reveal dry-run reverted — items likely granted "
-                f"directly by claim ({e.detail})"
+            "reveal": reveal_result,
+            "commit_ids": commit_ids,
+            "last_failure": last_failure,
+            "error": (
+                f"reveal failed after 3 attempts (last_failure has the "
+                f"most recent one). The commits expire 256 blocks "
+                f"(~6 min) after claim block {claim_block}; after that "
+                f"the claim block's blockhash is unavailable and the "
+                f"commits cannot be revealed by any player action."
             ),
-            "commit_ids": commit_ids,
-        }
-    if reveal_result.get("status") == "reverted":
-        return {
-            "claim": claim_result,
-            "reveal": None,
-            "reveal_skipped": "reveal reverted — items likely granted directly by claim",
-            "commit_ids": commit_ids,
         }
     return {
         "claim": claim_result,
@@ -6732,7 +6813,7 @@ def sacrifice_kami_batch(
 
 
 @mcp.tool()
-def sacrifice_reveal(commit_ids: list[int], account: str = "main") -> dict:
+def sacrifice_reveal(commit_ids: list[str], account: str = "main") -> dict:
     """Manually reveal sacrifice commit(s) — recovery path only.
 
     The sacrifice reveal fires automatically on-chain after sacrifice_kami;
@@ -6741,17 +6822,19 @@ def sacrifice_reveal(commit_ids: list[int], account: str = "main") -> dict:
     a later block than the commit. Operator wallet.
 
     Args:
-        commit_ids: Commit entity IDs from sacrifice_kami.
+        commit_ids: Commit entity IDs from sacrifice_kami, as decimal
+            or 0x-hex strings (uint256 values exceed IEEE-754 float
+            precision and do not survive JSON as numbers).
         account: Account label.
 
     Returns the batch tx result (tx_hash, status, gas_used) plus the
-    commit IDs revealed.
+    commit IDs revealed (decimal strings).
     """
     if not commit_ids:
         raise PreTxValidationError(
             "commit_ids is empty; pass the ids returned by sacrifice_kami"
         )
-    ids = [int(c) for c in commit_ids]
+    ids = [_parse_commit_id(c) for c in commit_ids]
     # On-chain reveal fn is executeTypedBatch(uint256[]); _send_tx hardcodes
     # executeTyped, so use the fn-name-aware batch helper instead.
     result = _send_batch_tx(
@@ -6762,7 +6845,7 @@ def sacrifice_reveal(commit_ids: list[int], account: str = "main") -> dict:
         [ids],
         gas_per_item=2_000_000,
     )
-    result.update({"commit_ids": ids, "account": account})
+    result.update({"commit_ids": [str(c) for c in ids], "account": account})
     return result
 
 

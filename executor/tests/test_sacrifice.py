@@ -108,9 +108,11 @@ class TestSacrificeKamiBatch:
 
 class TestSacrificeReveal:
     def test_happy_uses_batch_fn(self, accounts, sent):
-        r = server.sacrifice_reveal([9, 10], account="testa")
+        # v1.5.0: commit IDs cross the MCP boundary as strings (decimal
+        # or 0x-hex in, decimal out); the on-chain call gets ints.
+        r = server.sacrifice_reveal(["9", "0xa"], account="testa")
         assert r["status"] == "success"
-        assert r["commit_ids"] == [9, 10]
+        assert r["commit_ids"] == ["9", "10"]
         assert sent[0]["fn_name"] == "executeTypedBatch"
         assert sent[0]["args"] == [[9, 10]]
 
