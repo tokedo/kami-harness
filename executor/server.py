@@ -2280,7 +2280,7 @@ async def get_tier(account: str = "main") -> dict:
 async def get_inventory(account: str = "main") -> dict:
     """All items and balances in the account inventory.
 
-    Observed availability: during experiment 001 (2026-07) this
+    Observed availability: in 2026-07 this
     endpoint returned HTTP 400 on every request across all accounts;
     re-probed 2026-07-18, the identical request returns HTTP 200 for
     every registered account. The failure was upstream state, not the
@@ -2411,7 +2411,7 @@ async def get_guild_members(account: str = "main") -> dict:
     Restricted to GUILD and TEAM tier accounts: the endpoint returns
     HTTP 403 for an account whose tier (get_tier) is not GUILD or
     TEAM, and HTTP 200 with the member list otherwise (both observed
-    live; the 403s recorded during experiment 001 came from
+    live; the 403s recorded in 2026-07 came from
     non-guild-tier accounts).
 
     Args:

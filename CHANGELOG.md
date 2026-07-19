@@ -22,6 +22,29 @@ marks the tool contract.
 - **PATCH** — non-semantic changes: documentation fixes, wording, catalog
   data refreshes, internal refactors that do not change the tool contract.
 
+## [1.5.1] — Apparatus vocabulary scrubbed from two tool docstrings
+
+PATCH: description-only. No tool added or removed (**84 tools**,
+unchanged), no schema delta, no behavior change.
+
+### Fixed — D12: apparatus framing in agent-visible descriptions
+
+- The `get_inventory` and `get_guild_members` docstrings dated their
+  observed-availability notes as "during experiment 001" — apparatus
+  vocabulary that must not appear on the agent-visible surface
+  (D12/D13). Both now read "in 2026-07". The mechanics content of both
+  notes (the HTTP 400 history and its resolution; the tier-gated 403s)
+  is unchanged.
+- Found by the experiment 002 pre-flight forbidden-word scan
+  (kami-lab tri-provider smoke, 2026-07-19), which failed against
+  v1.5.0 on all three providers.
+
+Non-agent-visible occurrences retained by design: the
+`"experimental_features"` bridge-router request-payload key (a wire
+constant, never surfaced to the agent). The `sacrifice_kami` integer
+`commit_ids` residual noted in [1.5.0] remains queued and is
+deliberately out of this release's scope.
+
 ## [1.5.0] — Droptable/sacrifice reveal correctness: string commit IDs, estimated gas
 
 No tool added or removed (**84 tools**, unchanged). Ships as MINOR with
@@ -512,6 +535,7 @@ private experiment repo — they are not part of this environment interface.
   quests, scavenge, and trading. Unchanged in count and behavior from the
   `v0-pilot` state — only descriptions were rewritten.
 
+[1.5.1]: https://github.com/tokedo/kami-harness/releases/tag/v1.5.1
 [1.5.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.5.0
 [1.4.0]: https://github.com/tokedo/kami-harness/releases/tag/v1.4.0
 [1.3.1]: https://github.com/tokedo/kami-harness/releases/tag/v1.3.1

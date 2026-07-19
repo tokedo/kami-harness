@@ -34,7 +34,7 @@ def _tools():
 
 
 def test_schema_version():
-    assert SCHEMA_VERSION == "1.5.0"
+    assert SCHEMA_VERSION == "1.5.1"
 
 
 def test_tool_surface_count():
