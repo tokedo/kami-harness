@@ -8,26 +8,23 @@ This is the shortest end-to-end bootstrap for an agent that starts with a new ow
 
 This page is for agent and bot setup only.
 
-## 0) Set Up Local Sync (Infrastructure)
+## 0) Read Access (Infrastructure)
 
-Before funding wallets or registering, start the MUD world state indexer.
-This gives the agent efficient read access to all on-chain state (node
-occupancy, inventory, Kami stats) from the first moment of gameplay.
+V1 needs no local read infrastructure: game-meaningful state comes from
+the Kamibots API (see [integration/kamibots/](kamibots/)) plus direct
+RPC and Kamiden queries
+(see [systems/state-reading.md](../systems/state-reading.md)).
 
-```bash
-cd integration/sync
-./setup.sh
-```
-
-This starts a PostgreSQL database + MUD indexer via Docker. The indexer
-will begin syncing Yominet blocks immediately. By the time wallet setup
-and registration are done, the sync should be caught up.
-
-Full setup details: [integration/sync/README.md](sync/README.md)
-
-> If you skip this step, the agent can still function using direct RPC
-> calls (see [systems/state-reading.md](../systems/state-reading.md)),
-> but aggregate queries like "who is on my node?" become impractical.
+> A local MUD state indexer was previously drafted here
+> (`integration/sync/`) and has been removed: it targeted the MUD v2
+> `store-indexer`, while Kamigotchi runs MUD classic (solecs) — state
+> changes are emitted as `ComponentValueSet`/`ComponentValueRemoved`
+> World events, which a v2 indexer would never decode. The planned
+> replacement is a headless run of the game's own client sync stack.
+> Until it lands, note that aggregate queries like "who is on my
+> node?" have no complete on-chain path (most components are
+> `BareComponent` — no reverse lookup) and are served stale by the
+> Kamibots API.
 
 ---
 

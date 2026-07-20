@@ -17,13 +17,17 @@ See [integration/kamibots/](../integration/kamibots/)
 **V1 agents use this.** External dependency — will be replaced by a
 local interpretation layer on top of the MUD sync in Phase 2.
 
-### 2. Local MUD sync (Phase 2)
+### 2. Local headless sync client (planned)
 
-Raw ECS tables mirrored to local PostgreSQL. Requires a game logic
-interpretation layer to convert into game-meaningful state. Not used
-in V1 — preserved for Phase 2.
-
-Setup: [integration/sync/](../integration/sync/)
+A previous draft here pointed to a local MUD indexer
+(`integration/sync/`, now removed): it targeted MUD v2, while
+Kamigotchi runs MUD classic (solecs) — the drafted stack would have
+indexed nothing. The planned replacement is a headless run of the
+game's own client sync stack (snapshot/stream service + RPC
+event-replay fallback into a local ECS mirror). That mirror is also
+the only complete path for discovery queries (node occupancy, room
+presence): most components are `BareComponent`, so on-chain reverse
+lookup reverts.
 
 ### 3. Direct RPC (fallback)
 
