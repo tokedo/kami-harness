@@ -30,6 +30,7 @@ from dotenv import load_dotenv, set_key
 from eth_account.messages import encode_defunct
 from mcp.server.fastmcp import FastMCP
 from web3 import Web3
+from web3.exceptions import TimeExhausted
 
 import rooms_graph
 from schema_version import SCHEMA_VERSION
@@ -293,10 +294,18 @@ def _get_account(label: str) -> _Account:
 # registration, signer gas balance, per-tool state checks, and an
 # eth_call dry-run of the exact calldata. A failed validation raises
 # PreTxValidationError — its message always starts with
-# "validation failed; no transaction sent:" — and spends no gas. A
-# result with status="reverted" can therefore only come from a
-# transaction that passed validation, was broadcast, and reverted
-# on-chain (state changed between dry-run and inclusion).
+# "validation failed; no transaction sent:" — and spends no gas.
+#
+# After broadcast there are exactly three terminal states, and none is
+# reported as another:
+#   confirmed-success — the tool returns a result (status="success",
+#     always with tx_hash, block, gas_used);
+#   confirmed-revert  — OnChainRevertError is raised (the tx passed
+#     validation, landed, and reverted because state changed between
+#     dry-run and inclusion; gas was spent);
+#   unconfirmed       — TxUnconfirmedError is raised (no receipt within
+#     the timeout; the outcome is unknown).
+# A returned result therefore never carries status="reverted".
 # ---------------------------------------------------------------------------
 
 
@@ -316,6 +325,113 @@ def _revert_text(e: Exception) -> str:
     if isinstance(a, dict) and "message" in a:
         return str(a["message"])
     return str(e)
+
+
+class OnChainRevertError(RuntimeError):
+    """A broadcast transaction was included on-chain and reverted.
+
+    Raised instead of returning a result: a confirmed revert is never
+    reported as (or alongside) success. The transaction is final and its
+    gas was spent."""
+
+    def __init__(
+        self, tx_hash: str, block: int, gas_used: int, reason: str | None
+    ):
+        self.tx_hash = tx_hash
+        self.block = block
+        self.gas_used = gas_used
+        self.reason = reason
+        super().__init__(
+            f"transaction {tx_hash} landed on-chain in block {block} and "
+            f"REVERTED: gas was spent ({gas_used} gas) and no state change "
+            f"was applied. Revert reason (best-effort eth_call replay at "
+            f"block {block}): "
+            f"{reason or 'unavailable (the replay did not revert)'}"
+        )
+
+
+class TxUnconfirmedError(RuntimeError):
+    """No receipt within the timeout — the transaction outcome is UNKNOWN.
+
+    Neither a success nor a failure: the transaction was broadcast and
+    may still be included and spend gas."""
+
+    def __init__(self, tx_hash: str, timeout: int):
+        self.tx_hash = tx_hash
+        super().__init__(
+            f"transaction {tx_hash} is UNCONFIRMED: it was broadcast, but "
+            f"no receipt arrived within {timeout}s. It may still be "
+            f"included and spend gas later. Check its on-chain status "
+            f"before retrying — a blind retry can execute the action twice."
+        )
+
+
+class BatchTxError(RuntimeError):
+    """One or more per-item failures in a multi-transaction tool call.
+
+    The message carries every per-item outcome, successes included:
+    transactions that succeeded are final on-chain regardless of this
+    error."""
+
+    def __init__(self, tool: str, summary: str, outcomes):
+        self.outcomes = outcomes
+        super().__init__(
+            f"{tool}: {summary} Items reported successful below are final "
+            f"on-chain (their gas was spent and their state changes "
+            f"applied) — do not resubmit them. Per-item outcomes: "
+            f"{json.dumps(outcomes, default=str)}"
+        )
+
+
+def _hex_hash(h) -> str:
+    """0x-prefixed hex string from HexBytes / bytes / str."""
+    s = h.hex() if hasattr(h, "hex") else str(h)
+    return s if s.startswith("0x") else "0x" + s
+
+
+def _replay_revert_reason(built: dict | None, block: int) -> str | None:
+    """Best-effort revert reason for a landed revert: re-run the exact
+    calldata via eth_call at the block the transaction landed in.
+    Returns None when no reason is recoverable (the replay does not
+    revert against that block's state, or the RPC refuses the call)."""
+    if not built:
+        return None
+    call = {k: built[k] for k in ("from", "to", "value", "data") if k in built}
+    try:
+        w3.eth.call(call, block_identifier=block)
+        return None
+    except (AttributeError, TypeError):
+        return None
+    except Exception as e:
+        return _revert_text(e)
+
+
+def _await_receipt(tx_hash, built: dict | None, timeout: int):
+    """Wait for the receipt and enforce the three terminal states.
+
+    confirmed-success -> returns the receipt;
+    confirmed-revert  -> raises OnChainRevertError (gas spent, tx final);
+    unconfirmed       -> raises TxUnconfirmedError (outcome unknown).
+    """
+    try:
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+    except TimeExhausted:
+        raise TxUnconfirmedError(_hex_hash(tx_hash), timeout)
+    if receipt.status != 1:
+        raise OnChainRevertError(
+            _hex_hash(receipt.transactionHash),
+            receipt.blockNumber,
+            receipt.gasUsed,
+            _replay_revert_reason(built, receipt.blockNumber),
+        )
+    return receipt
+
+
+def _receipt_fields(r: dict) -> dict:
+    """Uniform receipt-evidence subset of a tx result."""
+    return {
+        k: r[k] for k in ("tx_hash", "status", "block", "gas_used") if k in r
+    }
 
 
 # component.address.operator stores address values; its reverse index
@@ -591,7 +707,10 @@ def _send_tx(
 
     Validates before signing (PreTxValidationError, no gas spent):
     operator bound to a registered account, operator gas balance, and
-    an eth_call dry-run of the exact calldata.
+    an eth_call dry-run of the exact calldata. After broadcast the
+    receipt is enforced: a confirmed revert raises OnChainRevertError,
+    a receipt timeout raises TxUnconfirmedError; a returned result is
+    always a confirmed success.
     """
     acct = _get_account(account)
     addr = _resolve_system(system_id)
@@ -617,11 +736,11 @@ def _send_tx(
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     except Exception as e:
         raise _wrap_send_error(e, acct.operator_addr, "operator", account)
-    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+    receipt = _await_receipt(tx_hash, built, timeout=120)
 
     result = {
-        "tx_hash": "0x" + receipt.transactionHash.hex(),
-        "status": "success" if receipt.status == 1 else "reverted",
+        "tx_hash": _hex_hash(receipt.transactionHash),
+        "status": "success",
         "block": receipt.blockNumber,
         "gas_used": receipt.gasUsed,
         "account": account,
@@ -644,7 +763,9 @@ def _send_batch_tx(
     Validates before signing (PreTxValidationError, no gas spent):
     non-empty target array (an empty batch executes as an on-chain
     status=1 no-op), registered account, operator gas balance, and an
-    eth_call dry-run.
+    eth_call dry-run. The batch call is atomic on-chain; a confirmed
+    revert raises OnChainRevertError, a receipt timeout raises
+    TxUnconfirmedError.
     """
     if args and isinstance(args[0], list) and not args[0]:
         raise PreTxValidationError(
@@ -674,10 +795,10 @@ def _send_batch_tx(
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     except Exception as e:
         raise _wrap_send_error(e, acct.operator_addr, "operator", account)
-    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
+    receipt = _await_receipt(tx_hash, built, timeout=180)
     return {
-        "tx_hash": "0x" + receipt.transactionHash.hex(),
-        "status": "success" if receipt.status == 1 else "reverted",
+        "tx_hash": _hex_hash(receipt.transactionHash),
+        "status": "success",
         "block": receipt.blockNumber,
         "gas_used": receipt.gasUsed,
     }
@@ -695,6 +816,11 @@ def _send_tx_retry(
     for attempt in range(retries):
         try:
             return _send_tx(account, system_id, abi, args, gas_limit)
+        except (OnChainRevertError, TxUnconfirmedError):
+            # Never blindly resubmit: a confirmed revert is final (a
+            # retry would re-execute the action), and an unconfirmed tx
+            # may still land (a retry could execute it twice).
+            raise
         except Exception as e:
             if attempt < retries - 1 and "-32000" in str(e):
                 time.sleep(1)
@@ -749,11 +875,11 @@ def _send_tx_owner(
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     except Exception as e:
         raise _wrap_send_error(e, acct.owner_addr, "owner", account)
-    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+    receipt = _await_receipt(tx_hash, built, timeout=120)
 
     return {
-        "tx_hash": "0x" + receipt.transactionHash.hex(),
-        "status": "success" if receipt.status == 1 else "reverted",
+        "tx_hash": _hex_hash(receipt.transactionHash),
+        "status": "success",
         "block": receipt.blockNumber,
         "gas_used": receipt.gasUsed,
         "account": account,
@@ -785,10 +911,10 @@ def _send_eth(
     }
     signed = w3.eth.account.sign_transaction(tx, private_key=from_key)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+    receipt = _await_receipt(tx_hash, tx, timeout=120)
     return {
-        "tx_hash": "0x" + receipt.transactionHash.hex(),
-        "status": "success" if receipt.status == 1 else "reverted",
+        "tx_hash": _hex_hash(receipt.transactionHash),
+        "status": "success",
         "block": receipt.blockNumber,
         "gas_used": receipt.gasUsed,
     }
@@ -2721,8 +2847,9 @@ def harvest_start(kami_ids: list[int], node_index: int, account: str = "main") -
     non-empty, account registered, each kami owned by the account and
     RESTING, then an eth_call dry-run (which also covers room/node
     mismatch and cooldown). A failed validation raises an error starting
-    "validation failed; no transaction sent:"; status="reverted" in a
-    result is an on-chain revert of a broadcast transaction.
+    "validation failed; no transaction sent:"; a broadcast transaction
+    that reverts on-chain raises an error naming the tx hash and the gas
+    spent.
 
     Args:
         kami_ids: List of kami token indices.
@@ -2867,6 +2994,7 @@ async def travel_to_room(
     account: str = "main",
     use_items: bool = True,
     dry_run: bool = False,
+    allow_partial: bool = False,
 ) -> dict:
     """Travel to a target room via the shortest path, consuming stamina
     and optionally using SP+ items to extend range.
@@ -2877,7 +3005,13 @@ async def travel_to_room(
 
     Validates before planning: the account must be registered (error
     starting "validation failed; no transaction sent:"). Each executed
-    hop additionally passes the per-transaction validation gates.
+    hop additionally passes the per-transaction validation gates. If a
+    step transaction fails mid-path, the call raises an error listing
+    every executed step (completed hops are final — the account really
+    moved); pass allow_partial=true to receive that partial result as a
+    normal return instead. A plan that cannot reach the target on
+    stamina alone returns a partial result in both modes (no failed
+    transaction is involved).
 
     Args:
         target_room: Destination room index. See catalogs/rooms.csv.
@@ -2886,6 +3020,8 @@ async def travel_to_room(
             to reach the target. If False, stops when stamina is
             insufficient and returns a partial result.
         dry_run: If True, return the plan without executing any tx.
+        allow_partial: If True, a mid-path transaction failure returns
+            the partial result instead of raising an error.
     """
     # Registration gate: an unregistered operator otherwise surfaces as
     # an opaque state-read failure. Each executed hop additionally runs
@@ -3029,6 +3165,7 @@ async def travel_to_room(
     gas_used = 0
     final_room = current_room
     exec_error: str | None = None
+    txs: list[dict] = []
     # Track stamina locally — avoids the 15s Kamibots API cache lag
     # that otherwise returns stale values right after execution.
     live_stamina = stamina
@@ -3046,15 +3183,12 @@ async def travel_to_room(
             except Exception as e:
                 exec_error = (
                     f"hop {moves_executed + 1} to room {step['room']} "
-                    f"reverted: likely gate or adjacency issue ({e})"
+                    f"failed: {e}"
                 )
                 break
-            if r.get("status") != "success":
-                exec_error = (
-                    f"hop {moves_executed + 1} to room {step['room']} "
-                    f"status={r.get('status')}"
-                )
-                break
+            txs.append(
+                {"step": "move", "room": step["room"], **_receipt_fields(r)}
+            )
             gas_used += r.get("gas_used", 0)
             final_room = step["room"]
             moves_executed += 1
@@ -3069,11 +3203,11 @@ async def travel_to_room(
                     gas_limit=1_500_000,
                 )
             except Exception as e:
-                exec_error = f"item {step['id']} use reverted: {e}"
+                exec_error = f"item {step['id']} use failed: {e}"
                 break
-            if r.get("status") != "success":
-                exec_error = f"item {step['id']} use status={r.get('status')}"
-                break
+            txs.append(
+                {"step": "item", "item_id": step["id"], **_receipt_fields(r)}
+            )
             gas_used += r.get("gas_used", 0)
             items_used_counts[step["id"]] = (
                 items_used_counts.get(step["id"], 0) + 1
@@ -3102,6 +3236,7 @@ async def travel_to_room(
             "gas_used": gas_used,
             "stamina_remaining": stamina_after,
             "final_room": final_room,
+            "txs": txs,
         }
 
     # Partial result
@@ -3116,7 +3251,7 @@ async def travel_to_room(
         stamina_needed_for_remainder
         - (stamina_after if stamina_after is not None else 0),
     )
-    return {
+    partial = {
         "reached_target": False,
         "path": path,
         "final_room": final_room,
@@ -3129,7 +3264,18 @@ async def travel_to_room(
         "eta_to_recover_min": eta_min,
         "partial_reason": partial_reason or exec_error,
         "error": exec_error,
+        "txs": txs,
     }
+    if exec_error is not None and not allow_partial:
+        raise BatchTxError(
+            "travel_to_room",
+            f"a step transaction failed mid-path ({exec_error}); the "
+            f"account stopped in room {final_room}, "
+            f"{max(0, len(remainder_path) - 1)} hop(s) short of room "
+            f"{target_room}.",
+            partial,
+        )
+    return partial
 
 
 @mcp.tool()
@@ -3394,7 +3540,8 @@ def upgrade_skill(kami_id: int, skill_index: int, account: str = "main") -> dict
 
 @mcp.tool()
 def allocate_skills(
-    kami_id: int, skill_plan: list[dict], account: str = "main"
+    kami_id: int, skill_plan: list[dict], account: str = "main",
+    allow_partial: bool = False,
 ) -> dict:
     """Allocate multiple skill points in one call. Executes sequentially on-chain.
 
@@ -3402,7 +3549,10 @@ def allocate_skills(
     non-empty, account registered, kami owned by the account; each
     upgrade transaction additionally passes an eth_call dry-run. A
     failed validation raises an error starting "validation failed; no
-    transaction sent:".
+    transaction sent:". If an upgrade transaction fails mid-plan, the
+    call raises an error listing the upgrades already landed (those are
+    final on-chain); pass allow_partial=true to receive that partial
+    result as a normal return instead.
 
     Args:
         kami_id: Kami token index.
@@ -3410,6 +3560,8 @@ def allocate_skills(
             Example: [{"skill_index": 311, "points": 5}, {"skill_index": 312, "points": 5}]
             Must respect tier gate ordering — lower tiers first.
         account: Account label.
+        allow_partial: If True, a mid-plan transaction failure returns
+            the partial result instead of raising an error.
     """
     if not skill_plan:
         raise PreTxValidationError(
@@ -3421,35 +3573,47 @@ def allocate_skills(
     entity_id = _kami_entity_id(kami_id)
     total_planned = sum(s["points"] for s in skill_plan)
     done = 0
-    failed = 0
+    txs: list[dict] = []
     for skill in skill_plan:
         for _ in range(skill["points"]):
             try:
-                _send_tx_retry(
+                r = _send_tx_retry(
                     account, "system.skill.upgrade", _ABI_SKILL,
                     [entity_id, skill["skill_index"]],
                 )
-                done += 1
             except Exception as e:
-                failed += 1
-                return {
+                outcome = {
                     "kami_id": kami_id,
                     "allocated": done,
                     "failed_at": skill["skill_index"],
                     "total_planned": total_planned,
                     "error": str(e),
+                    "txs": txs,
                 }
+                if allow_partial:
+                    return outcome
+                raise BatchTxError(
+                    "allocate_skills",
+                    f"upgrade {done + 1}/{total_planned} (skill "
+                    f"{skill['skill_index']}) failed after {done} "
+                    f"upgrade(s) landed.",
+                    outcome,
+                )
+            done += 1
+            txs.append(_receipt_fields(r))
     return {
         "kami_id": kami_id,
         "allocated": done,
         "total_planned": total_planned,
         "success": True,
+        "txs": txs,
     }
 
 
 @mcp.tool()
 async def level_to(
-    kami_id: int, target_level: int, account: str = "main"
+    kami_id: int, target_level: int, account: str = "main",
+    allow_partial: bool = False,
 ) -> dict:
     """Level up a kami repeatedly until it reaches target_level.
 
@@ -3459,12 +3623,18 @@ async def level_to(
     Validates before signing (no gas spent on failure): account
     registered and kami owned by the account; each level transaction
     additionally passes an eth_call dry-run. A failed validation raises
-    an error starting "validation failed; no transaction sent:".
+    an error starting "validation failed; no transaction sent:". If a
+    level transaction fails mid-run, the call raises an error listing
+    the levels already gained (those are final on-chain); pass
+    allow_partial=true to receive that partial result as a normal
+    return instead.
 
     Args:
         kami_id: Kami token index (e.g. 45).
         target_level: Desired level (e.g. 32). Must have enough XP banked.
         account: Account label.
+        allow_partial: If True, a mid-run transaction failure returns
+            the partial result instead of raising an error.
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "level_to")
@@ -3480,36 +3650,48 @@ async def level_to(
         }
     entity_id = _kami_entity_id(kami_id)
     done = 0
+    txs: list[dict] = []
     for _ in range(levels_needed):
         try:
             r = _send_tx_retry(
                 account, "system.kami.level", _ABI_LEVEL, [entity_id],
             )
-            if r["status"] != "success":
-                break
-            done += 1
         except Exception as e:
-            return {
+            outcome = {
                 "kami_id": kami_id,
                 "from_level": current,
                 "reached_level": current + done,
                 "target_level": target_level,
                 "levels_gained": done,
                 "error": str(e),
+                "txs": txs,
             }
+            if allow_partial:
+                return outcome
+            raise BatchTxError(
+                "level_to",
+                f"level-up {done + 1}/{levels_needed} failed after {done} "
+                f"level(s) landed (kami {kami_id} is at level "
+                f"{current + done}, target {target_level}).",
+                outcome,
+            )
+        done += 1
+        txs.append(_receipt_fields(r))
     return {
         "kami_id": kami_id,
         "from_level": current,
         "reached_level": current + done,
         "target_level": target_level,
         "levels_gained": done,
-        "success": current + done >= target_level,
+        "success": True,
+        "txs": txs,
     }
 
 
 @mcp.tool()
 async def level_and_allocate_batch(
-    targets: list[dict], account: str = "main"
+    targets: list[dict], account: str = "main",
+    allow_partial: bool = False,
 ) -> dict:
     """Batch level-up and skill allocation across many kamis in one call.
 
@@ -3524,6 +3706,10 @@ async def level_and_allocate_batch(
 
     Failures are captured per-kami: one kami's error does not abort the
     rest of the batch. Nonce conflicts are handled by `_send_tx_retry`.
+    If any kami's plan failed, the call raises an error listing every
+    per-kami outcome (successes included — those are final on-chain);
+    pass allow_partial=true to receive the per-kami results as a normal
+    return instead.
 
     Args:
         targets: List of per-kami plans. Each item is a dict:
@@ -3534,6 +3720,8 @@ async def level_and_allocate_batch(
             }
             At least one of target_level / skill_plan must be present.
         account: Account label.
+        allow_partial: If True, per-kami failures return in the result
+            instead of raising an error.
 
     Returns:
         {
@@ -3544,6 +3732,7 @@ async def level_and_allocate_batch(
                     "kami_id": ...,
                     "leveled": {"from": int, "to": int, "target": int} (if requested),
                     "allocated": {"done": int, "planned": int} (if requested),
+                    "txs": [{tx_hash, status, block, gas_used}, ...],
                     "error": str (if any phase failed),
                 },
                 ...
@@ -3562,6 +3751,7 @@ async def level_and_allocate_batch(
         target_level = t.get("target_level")
         skill_plan = t.get("skill_plan")
         row: dict = {"kami_id": kid}
+        row_txs: list[dict] = []
 
         # Level-up phase
         if target_level is not None:
@@ -3575,20 +3765,16 @@ async def level_and_allocate_batch(
                     r = _send_tx_retry(
                         account, "system.kami.level", _ABI_LEVEL, [entity_id],
                     )
-                    if r["status"] != "success":
-                        break
+                    row_txs.append(_receipt_fields(r))
                     done += 1
                 row["leveled"] = {
                     "from": current,
                     "to": current + done,
                     "target": target_level,
                 }
-                if current + done < target_level:
-                    row["error"] = f"level stopped at {current + done}"
-                    results.append(row)
-                    continue
             except Exception as e:
                 row["error"] = f"level: {e}"
+                row["txs"] = row_txs
                 results.append(row)
                 continue
 
@@ -3600,24 +3786,34 @@ async def level_and_allocate_batch(
                 allocated = 0
                 for skill in skill_plan:
                     for _ in range(skill["points"]):
-                        _send_tx_retry(
+                        r = _send_tx_retry(
                             account, "system.skill.upgrade", _ABI_SKILL,
                             [entity_id, skill["skill_index"]],
                         )
+                        row_txs.append(_receipt_fields(r))
                         allocated += 1
                 row["allocated"] = {"done": allocated, "planned": total_planned}
             except Exception as e:
                 row["error"] = f"skill: {e}"
 
+        row["txs"] = row_txs
         results.append(row)
 
     ok = sum(1 for r in results if "error" not in r)
-    return {"count": len(results), "ok": ok, "results": results}
+    summary = {"count": len(results), "ok": ok, "results": results}
+    if ok < len(results) and not allow_partial:
+        raise BatchTxError(
+            "level_and_allocate_batch",
+            f"{len(results) - ok} of {len(results)} per-kami plans failed.",
+            summary,
+        )
+    return summary
 
 
 @mcp.tool()
 async def feed_level_allocate_batch(
-    targets: list[dict], account: str = "main"
+    targets: list[dict], account: str = "main",
+    allow_partial: bool = False,
 ) -> dict:
     """Per kami: FEED consumable items, then LEVEL to a target, then ALLOCATE skills.
 
@@ -3642,16 +3838,22 @@ async def feed_level_allocate_batch(
     Failures are captured per kami: an error is recorded in that kami's
     result row and its remaining phases are skipped (a failed feed does not
     level into missing XP); the loop continues with the next kami. The
-    level phase re-reads the live level and stops early if a level
-    transaction reverts. The server-side loop keeps running even if the
-    MCP client call times out; completed work is still applied on-chain.
+    server-side loop keeps running even if the MCP client call times
+    out; completed work is still applied on-chain. If any kami's plan
+    failed, the call raises an error listing every per-kami outcome
+    (successes included — those are final on-chain); pass
+    allow_partial=true to receive the per-kami results as a normal
+    return instead.
 
     Args:
         targets: List of per-kami target dicts (see above).
         account: Account label.
+        allow_partial: If True, per-kami failures return in the result
+            instead of raising an error.
 
     Returns:
-        {count, ok, results: [{kami_id, fed?, leveled?, allocated?, error?}]}
+        {count, ok, results: [{kami_id, fed?, leveled?, allocated?, txs,
+        error?}]}
     """
     if not targets:
         raise PreTxValidationError(
@@ -3666,6 +3868,7 @@ async def feed_level_allocate_batch(
             results.append({"kami_id": None, "error": "target missing kami_id"})
             continue
         row: dict = {"kami_id": kid}
+        row_txs: list[dict] = []
         entity_id = _kami_entity_id(kid)
 
         # Feed phase — deposit XP first.
@@ -3679,15 +3882,14 @@ async def feed_level_allocate_batch(
                         account, "system.kami.use.item", _ABI_FEED,
                         [entity_id, feed_item],
                     )
-                    if r.get("status") != "success":
-                        row["error"] = f"feed reverted after {fed}/{feed_count}"
-                        break
+                    row_txs.append(_receipt_fields(r))
                     fed += 1
                 row["fed"] = {"done": fed, "planned": feed_count}
             except Exception as e:
                 row["fed"] = {"done": fed, "planned": feed_count}
                 row["error"] = f"feed: {e}"
             if "error" in row:
+                row["txs"] = row_txs
                 results.append(row)
                 continue
 
@@ -3703,18 +3905,14 @@ async def feed_level_allocate_batch(
                     r = _send_tx_retry(
                         account, "system.kami.level", _ABI_LEVEL, [entity_id],
                     )
-                    if r["status"] != "success":
-                        break
+                    row_txs.append(_receipt_fields(r))
                     done += 1
                 row["leveled"] = {
                     "from": current, "to": current + done, "target": target_level
                 }
-                if current + done < target_level:
-                    row["error"] = f"level stopped at {current + done}"
-                    results.append(row)
-                    continue
             except Exception as e:
                 row["error"] = f"level: {e}"
+                row["txs"] = row_txs
                 results.append(row)
                 continue
 
@@ -3726,24 +3924,34 @@ async def feed_level_allocate_batch(
                 allocated = 0
                 for skill in skill_plan:
                     for _ in range(skill["points"]):
-                        _send_tx_retry(
+                        r = _send_tx_retry(
                             account, "system.skill.upgrade", _ABI_SKILL,
                             [entity_id, skill["skill_index"]],
                         )
+                        row_txs.append(_receipt_fields(r))
                         allocated += 1
                 row["allocated"] = {"done": allocated, "planned": total_planned}
             except Exception as e:
                 row["error"] = f"skill: {e}"
 
+        row["txs"] = row_txs
         results.append(row)
 
     ok = sum(1 for r in results if "error" not in r)
-    return {"count": len(results), "ok": ok, "results": results}
+    summary = {"count": len(results), "ok": ok, "results": results}
+    if ok < len(results) and not allow_partial:
+        raise BatchTxError(
+            "feed_level_allocate_batch",
+            f"{len(results) - ok} of {len(results)} per-kami plans failed.",
+            summary,
+        )
+    return summary
 
 
 @mcp.tool()
 def use_item_batch(
-    kami_id: int, item_id: int, count: int, account: str = "main"
+    kami_id: int, item_id: int, count: int, account: str = "main",
+    allow_partial: bool = False,
 ) -> dict:
     """Use the same item on a kami multiple times. Executes sequentially.
 
@@ -3754,13 +3962,18 @@ def use_item_batch(
     1, account registered, kami owned by the account, inventory holds
     `count` of the item, then a per-transaction eth_call dry-run. A
     failed validation raises an error starting "validation failed; no
-    transaction sent:".
+    transaction sent:". If a use transaction fails mid-run, the call
+    raises an error listing the uses already landed (those are final
+    on-chain); pass allow_partial=true to receive that partial result
+    as a normal return instead.
 
     Args:
         kami_id: Kami token index (e.g. 45).
         item_id: Item ID (e.g. 11411 for Fortified XP Potion, 11302 for Burger).
         count: Number of times to use the item.
         account: Account label.
+        allow_partial: If True, a mid-run transaction failure returns
+            the partial result instead of raising an error.
     """
     if count < 1:
         raise PreTxValidationError(
@@ -3771,27 +3984,39 @@ def use_item_batch(
     _require_item_balance(account, aid, item_id, count, "use_item_batch")
     entity_id = _kami_entity_id(kami_id)
     done = 0
+    txs: list[dict] = []
     for _ in range(count):
         try:
-            _send_tx_retry(
+            r = _send_tx_retry(
                 account, "system.kami.use.item", _ABI_FEED,
                 [entity_id, item_id],
             )
-            done += 1
         except Exception as e:
-            return {
+            outcome = {
                 "kami_id": kami_id,
                 "item_id": item_id,
                 "used": done,
                 "planned": count,
                 "error": str(e),
+                "txs": txs,
             }
+            if allow_partial:
+                return outcome
+            raise BatchTxError(
+                "use_item_batch",
+                f"use {done + 1}/{count} of item {item_id} failed after "
+                f"{done} use(s) landed.",
+                outcome,
+            )
+        done += 1
+        txs.append(_receipt_fields(r))
     return {
         "kami_id": kami_id,
         "item_id": item_id,
         "used": done,
         "planned": count,
         "success": True,
+        "txs": txs,
     }
 
 
@@ -3885,6 +4110,7 @@ def equip_all_batch(
     equips: list[dict],
     account: str = "main",
     delay_seconds: float = 2.0,
+    allow_partial: bool = False,
 ) -> dict:
     """Equip an inventory item to many kamis (server-side loop, dry-run gated).
 
@@ -3899,16 +4125,23 @@ def equip_all_batch(
     One item per kami (Kami_Pet_Slot is the only equipment slot). Duplicate
     kami_ids are de-duplicated; a delay_seconds pause is inserted between
     cycles. The server-side loop keeps running even if the MCP client call
-    times out.
+    times out. If any submitted equip transaction fails, the call raises
+    an error listing every per-entry outcome (successes included — those
+    are final on-chain); pass allow_partial=true to receive the
+    per-entry results as a normal return instead. Dry-run-gated skips
+    alone (no transaction sent) do not raise.
 
     Args:
         equips: List of {"kami_id": int, "item_index": int} dicts.
         account: Account label.
         delay_seconds: Pause between cycles (default 2.0; 0 disables).
+        allow_partial: If True, submitted-transaction failures return in
+            the per-entry results instead of raising an error.
 
     Returns:
         {account, requested, equipped, skipped, errors,
-         results: [{kami_id, item_index, status, tx_hash?/reason?}]}.
+         results: [{kami_id, item_index, status, tx_hash?/reason?,
+         block?, gas_used?}]}.
         Items are equipped from the account inventory into the
         Kami_Pet_Slot.
     """
@@ -3977,25 +4210,17 @@ def equip_all_batch(
                     "kami_id": ki,
                     "item_index": item_index,
                     "status": "error",
-                    "reason": str(e)[:120],
+                    "reason": str(e)[:300],
                 }
             )
             errors += 1
             continue
         results.append(
-            {
-                "kami_id": ki,
-                "item_index": item_index,
-                "status": r.get("status"),
-                "tx_hash": r.get("tx_hash"),
-            }
+            {"kami_id": ki, "item_index": item_index, **_receipt_fields(r)}
         )
-        if r.get("status") == "success":
-            equipped += 1
-        else:
-            errors += 1
+        equipped += 1
 
-    return {
+    summary = {
         "account": account,
         "requested": len(seen),
         "equipped": equipped,
@@ -4003,6 +4228,15 @@ def equip_all_batch(
         "errors": errors,
         "results": results,
     }
+    if errors and not allow_partial:
+        raise BatchTxError(
+            "equip_all_batch",
+            f"{errors} of {len(seen)} equips failed after submission "
+            f"({equipped} succeeded, {skipped} were skipped by the "
+            f"dry-run gate with no transaction sent).",
+            summary,
+        )
+    return summary
 
 
 @mcp.tool()
@@ -4011,6 +4245,7 @@ def unequip_all_batch(
     slot_type: str = "Kami_Pet_Slot",
     account: str = "main",
     delay_seconds: float = 2.0,
+    allow_partial: bool = False,
 ) -> dict:
     """Unequip a slot from many kamis (server-side loop, dry-run gated).
 
@@ -4020,7 +4255,11 @@ def unequip_all_batch(
     returns to the account inventory. Kamis must be RESTING. Duplicate
     kami_ids are de-duplicated; a delay_seconds pause is inserted between
     cycles. The server-side loop keeps running even if the MCP client call
-    times out.
+    times out. If any submitted unequip transaction fails, the call
+    raises an error listing every per-kami outcome (successes included —
+    those are final on-chain); pass allow_partial=true to receive the
+    per-kami results as a normal return instead. Empty-slot skips alone
+    (no transaction sent) do not raise.
 
     Kami_Pet_Slot is currently the only equipment slot in the game, so the
     default slot_type unequips all equipment.
@@ -4030,10 +4269,12 @@ def unequip_all_batch(
         slot_type: Equipment slot name (default "Kami_Pet_Slot").
         account: Account label.
         delay_seconds: Pause between cycles (default 2.0; 0 disables).
+        allow_partial: If True, submitted-transaction failures return in
+            the per-kami results instead of raising an error.
 
     Returns:
         {account, slot_type, requested, unequipped, skipped_empty, errors,
-         results: [{kami_id, status, tx_hash?/reason?}]}
+         results: [{kami_id, status, tx_hash?/reason?, block?, gas_used?}]}
     """
     src = _get_account(account)
     # Resolved before the per-item dry-run loop: a missing operator
@@ -4080,18 +4321,13 @@ def unequip_all_batch(
                 gas_limit=3_000_000,  # unequip uses ~1.02M; 1M was too low → reverts
             )
         except Exception as e:
-            results.append({"kami_id": ki, "status": "error", "reason": str(e)[:120]})
+            results.append({"kami_id": ki, "status": "error", "reason": str(e)[:300]})
             errors += 1
             continue
-        results.append(
-            {"kami_id": ki, "status": r.get("status"), "tx_hash": r.get("tx_hash")}
-        )
-        if r.get("status") == "success":
-            unequipped += 1
-        else:
-            errors += 1
+        results.append({"kami_id": ki, **_receipt_fields(r)})
+        unequipped += 1
 
-    return {
+    summary = {
         "account": account,
         "slot_type": slot_type,
         "requested": len(seen),
@@ -4100,6 +4336,15 @@ def unequip_all_batch(
         "errors": errors,
         "results": results,
     }
+    if errors and not allow_partial:
+        raise BatchTxError(
+            "unequip_all_batch",
+            f"{errors} of {len(seen)} unequips failed after submission "
+            f"({unequipped} succeeded, {skipped_empty} were skipped with "
+            f"no transaction sent).",
+            summary,
+        )
+    return summary
 
 
 # ---- On-chain: marketplace ----
@@ -4365,24 +4610,32 @@ _ABI_KAMI_CANCEL = json.loads(
 
 
 @mcp.tool()
-def cancel_kami_listing(kami_ids: list[int], account: str = "main") -> dict:
+def cancel_kami_listing(
+    kami_ids: list[int], account: str = "main",
+    allow_partial: bool = False,
+) -> dict:
     """Cancel this account's KamiSwap listing(s). Operator wallet.
 
     Returns each kami from LISTED back to RESTING. The cancel system takes
     one order ID per transaction, so multiple kami_ids run as a server-side
-    loop (one tx each, continue-on-error; per-kami status is reported in
-    the result). Order IDs are resolved via the Kamiden indexer; only
-    listings made by this account are matched. Expired listings can be
-    cancelled too — cancelling is what frees a kami stuck in LISTED after
-    its listing expires.
+    loop (one tx each; every kami is attempted). Order IDs are resolved
+    via the Kamiden indexer; only listings made by this account are
+    matched. Expired listings can be cancelled too — cancelling is what
+    frees a kami stuck in LISTED after its listing expires. If any
+    cancel fails, the call raises an error listing every per-kami
+    outcome (successes included — those cancels are final on-chain);
+    pass allow_partial=true to receive the per-kami results as a normal
+    return instead.
 
     Args:
         kami_ids: Kami token indices whose listings to cancel.
         account: Account label (must be the seller).
+        allow_partial: If True, per-kami failures return in the result
+            instead of raising an error.
 
     Returns:
         {account, cancelled, failed, results: [{kami_index, listing_id,
-         price_eth, status, tx_hash?, error?}]}
+         price_eth, status, tx_hash?, block?, gas_used?, error?}]}
     """
     ids = list(dict.fromkeys(kami_ids))
     if not ids:
@@ -4424,24 +4677,25 @@ def cancel_kami_listing(kami_ids: list[int], account: str = "main") -> dict:
                 [int(lst["order_id_hex"], 16)],
                 gas_limit=1_000_000,
             )
-            entry.update(
-                {
-                    "status": tx["status"],
-                    "tx_hash": tx["tx_hash"],
-                    "gas_used": tx["gas_used"],
-                }
-            )
+            entry.update(_receipt_fields(tx))
         except Exception as e:
             entry.update({"status": "error", "error": str(e)})
         results.append(entry)
 
     ok = sum(1 for r in results if r["status"] == "success")
-    return {
+    summary = {
         "account": account,
         "cancelled": ok,
         "failed": len(results) - ok,
         "results": results,
     }
+    if ok < len(results) and not allow_partial:
+        raise BatchTxError(
+            "cancel_kami_listing",
+            f"{len(results) - ok} of {len(results)} listing cancels failed.",
+            summary,
+        )
+    return summary
 
 
 # ---- On-chain: trading ----
@@ -5378,15 +5632,22 @@ def complete_trade(trade_id: str, account: str = "main") -> dict:
 
 
 @mcp.tool()
-def complete_all_trades(account: str = "main") -> dict:
+def complete_all_trades(
+    account: str = "main", allow_partial: bool = False
+) -> dict:
     """Find and complete all EXECUTED trades for this account.
 
     Discovers trades via on-chain components, filters for EXECUTED status,
     and completes each one. Only trades where this account is the maker
-    can be completed.
+    can be completed. If any completion fails, the call raises an error
+    listing every per-trade outcome (successes included — those
+    completions are final on-chain); pass allow_partial=true to receive
+    the per-trade results as a normal return instead.
 
     Args:
         account: Account label.
+        allow_partial: If True, per-trade failures return in the result
+            instead of raising an error.
     """
     discovery = get_account_trades(account)
     trades = discovery.get("trades", [])
@@ -5420,7 +5681,7 @@ def complete_all_trades(account: str = "main") -> dict:
             })
 
     succeeded = sum(1 for r in results if r.get("status") == "success")
-    return {
+    summary = {
         "account": account,
         "total_found": len(trades),
         "executed_found": len(executed),
@@ -5428,6 +5689,14 @@ def complete_all_trades(account: str = "main") -> dict:
         "failed": len(executed) - succeeded,
         "results": results,
     }
+    if succeeded < len(executed) and not allow_partial:
+        raise BatchTxError(
+            "complete_all_trades",
+            f"{len(executed) - succeeded} of {len(executed)} trade "
+            f"completions failed.",
+            summary,
+        )
+    return summary
 
 
 @mcp.tool()
@@ -5494,27 +5763,33 @@ _ABI_HARVEST_STOP_BATCH = json.loads(
 
 @mcp.tool()
 def stop_harvest_batch(
-    kami_ids: list[int], account: str = "main"
+    kami_ids: list[int], account: str = "main",
+    allow_partial: bool = False,
 ) -> dict:
     """Stop harvests for multiple kamis in one transaction. Collects rewards automatically.
 
     Uses executeBatchedAllowFailure — individual reverts skip silently
     instead of reverting the entire batch. After the tx commits, this
     function reads each kami's harvest entity state on-chain to detect
-    silent skips.
-    Returns `per_kami` map with the resulting harvest state and a
-    `stopped` boolean. `stopped_count`/`failed_count` summarize.
+    silent skips. If any harvest did not stop, the call raises an error
+    listing every per-kami outcome (stops that landed are final
+    on-chain); pass allow_partial=true to receive the per-kami results
+    as a normal return instead. The `per_kami` map carries the
+    resulting harvest state and a `stopped` boolean;
+    `stopped_count`/`failed_count` summarize.
 
     Max ~5 per batch (eth_estimateGas cap).
 
     Validates before signing (no gas spent on failure): kami_ids
-    non-empty and account registered. Per-kami failures are silent
-    skips by design (executeBatchedAllowFailure) and are reported via
-    the post-transaction per_kami harvest-state reads.
+    non-empty and account registered. A batch transaction that reverts
+    as a whole, or times out awaiting its receipt, raises the
+    corresponding transaction error.
 
     Args:
         kami_ids: List of kami token indices (e.g. [45, 46, 47]).
         account: Account label.
+        allow_partial: If True, silently-skipped per-kami stops return
+            in the result instead of raising an error.
     """
     if not kami_ids:
         raise PreTxValidationError(
@@ -5541,7 +5816,7 @@ def stop_harvest_batch(
     built = fn.build_transaction(tx_params)
     signed = w3.eth.account.sign_transaction(built, private_key=acct.operator_key)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+    receipt = _await_receipt(tx_hash, built, timeout=120)
 
     # Post-tx verification: read each kami's harvest.state component.
     # ACTIVE = still harvesting (silent skip), INACTIVE = stopped successfully.
@@ -5564,9 +5839,9 @@ def stop_harvest_batch(
         else:
             failed += 1
 
-    return {
-        "tx_hash": "0x" + receipt.transactionHash.hex(),
-        "status": "success" if receipt.status == 1 else "reverted",
+    summary = {
+        "tx_hash": _hex_hash(receipt.transactionHash),
+        "status": "success",
         "block": receipt.blockNumber,
         "gas_used": receipt.gasUsed,
         "account": account,
@@ -5576,6 +5851,17 @@ def stop_harvest_batch(
         "failed_count": failed,
         "per_kami": per_kami,
     }
+    if failed and not allow_partial:
+        raise BatchTxError(
+            "stop_harvest_batch",
+            f"the batch transaction landed (gas was spent), but "
+            f"{failed} of {len(kami_ids)} harvest stops did not take "
+            f"effect (silently skipped on-chain by "
+            f"executeBatchedAllowFailure, or unverifiable by the "
+            f"post-transaction state read).",
+            summary,
+        )
+    return summary
 
 
 # ---- On-chain: quest management ----
@@ -6106,6 +6392,7 @@ def speed_craft_batch(
     stamina_item_id: int = 21205,
     account: str = "main",
     delay_seconds: float = 0.0,
+    allow_partial: bool = False,
 ) -> dict:
     """Craft a stamina-gated recipe N times, restoring stamina between crafts.
 
@@ -6119,9 +6406,11 @@ def speed_craft_batch(
     nonce-retry. Consumes `count` stamina items plus `count`× the recipe
     inputs from the account inventory.
 
-    Stop-on-error: if a stamina-use or craft transaction errors or reverts,
-    the loop halts and returns partial progress. The server-side loop keeps
-    running even if the MCP client call times out.
+    Stop-on-error: if a stamina-use or craft transaction fails, the loop
+    halts and the call raises an error listing the completed cycles
+    (those are final on-chain); pass allow_partial=true to receive that
+    partial progress as a normal return instead. The server-side loop
+    keeps running even if the MCP client call times out.
 
     Validates before signing (no gas spent on failure): count at least
     1 and account registered; each transaction additionally passes an
@@ -6135,10 +6424,12 @@ def speed_craft_batch(
             +80 stamina; see catalogs/items.csv for alternatives).
         account: Account label.
         delay_seconds: Pause between cycles (default 0).
+        allow_partial: If True, a mid-run transaction failure returns
+            the partial progress instead of raising an error.
 
     Returns:
         {account, recipe_index, stamina_item_id, requested, crafted,
-         stamina_used, last_error, success}
+         stamina_used, txs, last_error, success}
     """
     _get_account(account)
     if count <= 0:
@@ -6150,20 +6441,22 @@ def speed_craft_batch(
     crafted = 0
     stamina_used = 0
     last_error = None
+    txs: list[dict] = []
     for i in range(count):
         if i > 0 and delay_seconds and delay_seconds > 0:
             time.sleep(delay_seconds)
         # 1) Refill stamina (clamped to the 100 cap).
         try:
-            _send_tx_retry(
+            r = _send_tx_retry(
                 account,
                 "system.account.use.item",
                 _ABI_ACCOUNT_USE,
                 [stamina_item_id, 1],
             )
+            txs.append({"step": "stamina-use", **_receipt_fields(r)})
             stamina_used += 1
         except Exception as e:
-            last_error = f"stamina-use failed at cycle {i + 1}/{count}: {str(e)[:160]}"
+            last_error = f"stamina-use failed at cycle {i + 1}/{count}: {str(e)[:300]}"
             break
         # 2) Craft one unit.
         try:
@@ -6175,27 +6468,30 @@ def speed_craft_batch(
                 gas_limit=1_500_000,
             )
         except Exception as e:
-            last_error = f"craft failed at cycle {i + 1}/{count}: {str(e)[:160]}"
+            last_error = f"craft failed at cycle {i + 1}/{count}: {str(e)[:300]}"
             break
-        if r.get("status") == "success":
-            crafted += 1
-        else:
-            last_error = (
-                f"craft reverted at cycle {i + 1}/{count} "
-                f"(tx {r.get('tx_hash')}, status {r.get('status')})"
-            )
-            break
+        txs.append({"step": "craft", **_receipt_fields(r)})
+        crafted += 1
 
-    return {
+    outcome = {
         "account": account,
         "recipe_index": recipe_index,
         "stamina_item_id": stamina_item_id,
         "requested": count,
         "crafted": crafted,
         "stamina_used": stamina_used,
+        "txs": txs,
         "last_error": last_error,
         "success": last_error is None and crafted == count,
     }
+    if last_error is not None and not allow_partial:
+        raise BatchTxError(
+            "speed_craft_batch",
+            f"the loop halted after {crafted}/{count} craft(s) "
+            f"({last_error}).",
+            outcome,
+        )
+    return outcome
 
 
 # ---------------------------------------------------------------------------
@@ -6471,7 +6767,7 @@ def scavenge_claim(node_index: int, account: str = "main") -> dict:
         return_receipt=True,
     )
     receipt = result.pop("_receipt", None)
-    if receipt and result["status"] == "success":
+    if receipt:
         result["commit_ids"] = [str(c) for c in _extract_commit_ids(receipt)]
     return result
 
@@ -6519,22 +6815,28 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
     256 blocks (~6 min) after the claim block — the reveal seed is the
     claim block's blockhash, which stops being available after 256
     blocks; an expired commit cannot be revealed by any player action.
-    If the reveal does not succeed, the result reports the claim
-    result, the commit_ids (decimal strings), and the last failure as
-    it occurred; the claim itself is already final on-chain.
+    The call returns normally only when both the claim and the reveal
+    confirmed on-chain. If the reveal does not succeed, the call raises
+    an error carrying the claim result and the commit_ids (decimal
+    strings) for a later droptable_reveal; the claim itself is already
+    final on-chain either way.
 
     Args:
         node_index: Harvest node index.
         account: Account label.
     """
-    # Step 1: Claim (scavenge_claim's own validation gates apply)
+    # Step 1: Claim (scavenge_claim's own validation gates apply; a
+    # claim that reverts on-chain raises from scavenge_claim itself).
     claim_result = scavenge_claim(node_index, account)
-    if claim_result["status"] != "success":
-        return {"claim": claim_result, "reveal": None, "error": "claim failed"}
 
     commit_ids = claim_result.get("commit_ids", [])
     if not commit_ids:
-        return {"claim": claim_result, "reveal": None, "error": "no commit_ids found in claim receipt"}
+        raise BatchTxError(
+            "scavenge_claim_and_reveal",
+            "the claim landed and succeeded, but no commit IDs could be "
+            "extracted from its receipt, so no reveal was attempted.",
+            {"claim": claim_result},
+        )
     ids = [_parse_commit_id(c) for c in commit_ids]
 
     # Step 2: Wait for next block (reveal must be in a different block)
@@ -6547,7 +6849,9 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
     # Step 3: Reveal, retrying inside the 256-block window. A failed
     # preflight raises before anything is sent; a reveal that passed
     # the preflight can still revert on-chain. Either way the attempt
-    # failed and is reported as itself.
+    # failed and is retried; an unconfirmed reveal (receipt timeout) is
+    # NOT retried — it may still land, and a blind resend could reveal
+    # twice — so it propagates as itself.
     reveal_result = None
     last_failure = None
     for attempt in range(3):
@@ -6555,31 +6859,25 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
             time.sleep(3)
         try:
             reveal_result = _send_reveal_tx(account, ids)
-        except PreTxValidationError as e:
-            reveal_result = None
-            last_failure = str(e)
-            continue
-        if reveal_result.get("status") == "success":
             break
-        last_failure = (
-            f"reveal transaction {reveal_result.get('tx_hash')} "
-            f"reverted on-chain"
-        )
+        except (PreTxValidationError, OnChainRevertError) as e:
+            last_failure = str(e)
 
-    if reveal_result is None or reveal_result.get("status") != "success":
-        return {
-            "claim": claim_result,
-            "reveal": reveal_result,
-            "commit_ids": commit_ids,
-            "last_failure": last_failure,
-            "error": (
-                f"reveal failed after 3 attempts (last_failure has the "
-                f"most recent one). The commits expire 256 blocks "
-                f"(~6 min) after claim block {claim_block}; after that "
-                f"the claim block's blockhash is unavailable and the "
-                f"commits cannot be revealed by any player action."
-            ),
-        }
+    if reveal_result is None:
+        raise BatchTxError(
+            "scavenge_claim_and_reveal",
+            f"the claim landed and succeeded, but the reveal failed "
+            f"after 3 attempts (most recent failure: {last_failure}). "
+            f"The commits expire 256 blocks (~6 min) after claim block "
+            f"{claim_block}; after that the claim block's blockhash is "
+            f"unavailable and the commits cannot be revealed by any "
+            f"player action.",
+            {
+                "claim": claim_result,
+                "commit_ids": commit_ids,
+                "last_failure": last_failure,
+            },
+        )
     return {
         "claim": claim_result,
         "reveal": reveal_result,
@@ -6701,7 +6999,7 @@ def sacrifice_kami(kami_id: int, account: str = "main") -> dict:
         return_receipt=True,
     )
     receipt = result.pop("_receipt", None)
-    if receipt and result.get("status") == "success":
+    if receipt:
         result["commit_ids"] = _extract_sacrifice_commit_ids(receipt)
     result.update(
         {
@@ -6720,7 +7018,8 @@ def sacrifice_kami(kami_id: int, account: str = "main") -> dict:
 
 @mcp.tool()
 def sacrifice_kami_batch(
-    kami_ids: list[int], account: str = "main", delay_seconds: float = 3.0
+    kami_ids: list[int], account: str = "main", delay_seconds: float = 3.0,
+    allow_partial: bool = False,
 ) -> dict:
     """PERMANENTLY sacrifice many kamis at the Temple of the Wheel (room 19).
 
@@ -6730,7 +7029,12 @@ def sacrifice_kami_batch(
     doomed one is skipped with its revert reason and no transaction —
     then the commit is submitted with nonce-retry. Each kami's equipment
     reveal fires automatically on-chain; the items land in the account
-    inventory. Duplicate kami_ids are de-duplicated.
+    inventory. Duplicate kami_ids are de-duplicated. If any submitted
+    commit fails, the call raises an error listing every per-kami
+    outcome (successes included — those sacrifices are final on-chain);
+    pass allow_partial=true to receive the per-kami results as a normal
+    return instead. Dry-run-gated skips alone (no transaction sent) do
+    not raise.
 
     A delay_seconds pause is inserted between cycles. The server-side loop
     keeps running even if the MCP client call times out.
@@ -6742,10 +7046,12 @@ def sacrifice_kami_batch(
         kami_ids: Kami token indices to sacrifice.
         account: Account label.
         delay_seconds: Pause between cycles (default 3.0; 0 disables).
+        allow_partial: If True, submitted-transaction failures return in
+            the per-kami results instead of raising an error.
 
     Returns:
-        {account, requested, submitted, skipped,
-         results: [{kami_id, status, tx_hash?/reason?, block?}]}
+        {account, requested, submitted, skipped, errors,
+         results: [{kami_id, status, tx_hash?/reason?, block?, gas_used?}]}
     """
     src = _get_account(account)
     # Resolved before the per-item dry-run loop: a missing operator
@@ -6761,6 +7067,7 @@ def sacrifice_kami_batch(
     results: list[dict] = []
     submitted = 0
     skipped = 0
+    errors = 0
     seen: set[int] = set()
     processed = 0
     for raw in kami_ids:
@@ -6788,28 +7095,33 @@ def sacrifice_kami_batch(
                 gas_limit=2_000_000,
             )
         except Exception as e:
-            results.append({"kami_id": ki, "status": "error", "reason": str(e)[:140]})
-            skipped += 1
+            results.append({"kami_id": ki, "status": "error", "reason": str(e)[:300]})
+            errors += 1
             continue
-        results.append(
-            {"kami_id": ki, "status": r.get("status"), "tx_hash": r.get("tx_hash"), "block": r.get("block")}
-        )
-        if r.get("status") == "success":
-            submitted += 1
-        else:
-            skipped += 1
+        results.append({"kami_id": ki, **_receipt_fields(r)})
+        submitted += 1
 
-    return {
+    summary = {
         "account": account,
         "requested": len(seen),
         "submitted": submitted,
         "skipped": skipped,
+        "errors": errors,
         "note": (
             "Sacrifices committed; each equipment reveal fires "
             "automatically on-chain and lands in the account inventory."
         ),
         "results": results,
     }
+    if errors and not allow_partial:
+        raise BatchTxError(
+            "sacrifice_kami_batch",
+            f"{errors} of {len(seen)} sacrifice commits failed after "
+            f"submission ({submitted} succeeded, {skipped} were skipped "
+            f"by the dry-run gate with no transaction sent).",
+            summary,
+        )
+    return summary
 
 
 @mcp.tool()

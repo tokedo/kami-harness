@@ -72,6 +72,7 @@ class TestFeedLevelAllocateBatch:
                     }
                 ],
                 account="testa",
+                allow_partial=True,
             )
         )
         assert r["ok"] == 0
@@ -79,10 +80,30 @@ class TestFeedLevelAllocateBatch:
         assert row["error"].startswith("feed:")
         assert "leveled" not in row
 
+    def test_failure_raises_by_default_with_outcomes(
+        self, accounts, validation_ok, sent, monkeypatch
+    ):
+        def failing_send(account, system_id, abi, args, **kw):
+            raise Exception("insufficient balance")
+
+        monkeypatch.setattr(server, "_send_tx_retry", failing_send)
+        with pytest.raises(server.BatchTxError) as ei:
+            asyncio.run(
+                server.feed_level_allocate_batch(
+                    [{"kami_id": 5, "feed_item_id": 11, "feed_count": 1}],
+                    account="testa",
+                )
+            )
+        msg = str(ei.value)
+        assert "1 of 1 per-kami plans failed" in msg
+        assert "feed: insufficient balance" in msg  # per-item outcome
+
     def test_missing_kami_id(self, accounts, validation_ok, sent):
         r = asyncio.run(
             server.feed_level_allocate_batch(
-                [{"feed_item_id": 11, "feed_count": 1}], account="testa"
+                [{"feed_item_id": 11, "feed_count": 1}],
+                account="testa",
+                allow_partial=True,
             )
         )
         assert r["ok"] == 0
@@ -160,19 +181,43 @@ class TestSpeedCraftBatch:
         ]
 
     def test_stops_on_craft_revert(self, accounts, validation_ok, monkeypatch):
+        # A craft that lands and reverts raises from the sender; the
+        # loop halts and the default (allow_partial=False) raises with
+        # the completed cycles in the error text.
         calls = []
 
         def send(account, system_id, abi, args, **kw):
             calls.append(system_id)
-            status = "reverted" if system_id == "system.craft" else "success"
-            return {"tx_hash": "0x1", "status": status, "block": 1,
+            if system_id == "system.craft":
+                raise server.OnChainRevertError("0xdead", 1, 100_000, "revert: stamina")
+            return {"tx_hash": "0x1", "status": "success", "block": 1,
                     "gas_used": 1, "account": account}
 
         monkeypatch.setattr(server, "_send_tx_retry", send)
-        r = server.speed_craft_batch(29, 3, account="testa")
+        with pytest.raises(server.BatchTxError) as ei:
+            server.speed_craft_batch(29, 3, account="testa")
+        msg = str(ei.value)
+        assert "halted after 0/3" in msg
+        assert "0xdead" in msg
+        assert calls == ["system.account.use.item", "system.craft"]
+
+    def test_craft_revert_allow_partial_returns(
+        self, accounts, validation_ok, monkeypatch
+    ):
+        calls = []
+
+        def send(account, system_id, abi, args, **kw):
+            calls.append(system_id)
+            if system_id == "system.craft":
+                raise server.OnChainRevertError("0xdead", 1, 100_000, "revert: stamina")
+            return {"tx_hash": "0x1", "status": "success", "block": 1,
+                    "gas_used": 1, "account": account}
+
+        monkeypatch.setattr(server, "_send_tx_retry", send)
+        r = server.speed_craft_batch(29, 3, account="testa", allow_partial=True)
         assert r["success"] is False
         assert r["crafted"] == 0 and r["stamina_used"] == 1
-        assert "craft reverted at cycle 1/3" in r["last_error"]
+        assert "craft failed at cycle 1/3" in r["last_error"]
         assert calls == ["system.account.use.item", "system.craft"]
 
     def test_zero_count_raises(self, accounts):

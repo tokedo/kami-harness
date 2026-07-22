@@ -192,7 +192,7 @@ class TestClaimAndRevealRetry:
         assert attempts["n"] == 2
         assert len(sent) == 1
 
-    def test_exhausted_retries_report_factually(
+    def test_exhausted_retries_raise_factually(
         self, accounts, reveal_chain, sent
     ):
         attempts = {"n": 0}
@@ -202,43 +202,63 @@ class TestClaimAndRevealRetry:
             raise ValueError("execution reverted: blockhash unavailable")
 
         reveal_chain["estimate"] = always
-        r = server.scavenge_claim_and_reveal(16, account="testa")
+        with pytest.raises(server.BatchTxError) as ei:
+            server.scavenge_claim_and_reveal(16, account="testa")
+        msg = str(ei.value)
         assert attempts["n"] == 3
         assert sent == []  # every attempt died in preflight
-        assert r["reveal"] is None
-        assert r["claim"]["status"] == "success"
-        assert r["commit_ids"] == [str(BIG_ID)]
-        assert "reveal failed after 3 attempts" in r["error"]
-        assert "blockhash unavailable" in r["last_failure"]
-        assert r["last_failure"].startswith(
-            "validation failed; no transaction sent: "
-        )
-        assert "256 blocks" in r["error"]
-        assert "claim block 10" in r["error"]
+        # The error text carries the successful claim, the commit IDs
+        # (recovery input for droptable_reveal), and the last failure.
+        assert "reveal failed after 3 attempts" in msg
+        assert "blockhash unavailable" in msg
+        assert "validation failed; no transaction sent: " in msg
+        assert "256 blocks" in msg
+        assert "claim block 10" in msg
+        assert str(BIG_ID) in msg
+        outcomes = ei.value.outcomes
+        assert outcomes["claim"]["status"] == "success"
+        assert outcomes["commit_ids"] == [str(BIG_ID)]
         # v1.4.0 mislabel removed; no operational advice in the text.
-        assert "reveal_skipped" not in r
-        assert "granted directly by claim" not in str(r)
-        assert "escalate" not in str(r).lower()
-        assert "incident" not in str(r).lower()
+        assert "reveal_skipped" not in msg
+        assert "granted directly by claim" not in msg
+        assert "escalate" not in msg.lower()
+        assert "incident" not in msg.lower()
 
-    def test_onchain_revert_reported_as_itself(
+    def test_onchain_revert_raises_as_itself(
         self, accounts, reveal_chain, monkeypatch
     ):
         reveal_chain["estimate"] = lambda ids: 100_000
 
         def reverted(account, system_id, abi, args, **kw):
-            return {
-                "tx_hash": "0xdead", "status": "reverted", "block": 11,
-                "gas_used": 100_000, "account": account,
-            }
+            raise server.OnChainRevertError(
+                "0xdead", 11, 100_000, "revert: already revealed"
+            )
 
         monkeypatch.setattr(server, "_send_tx", reverted)
-        r = server.scavenge_claim_and_reveal(16, account="testa")
-        assert r["reveal"]["status"] == "reverted"
-        assert "reveal failed after 3 attempts" in r["error"]
-        assert "reverted on-chain" in r["last_failure"]
-        assert "0xdead" in r["last_failure"]
-        assert "reveal_skipped" not in r
+        with pytest.raises(server.BatchTxError) as ei:
+            server.scavenge_claim_and_reveal(16, account="testa")
+        msg = str(ei.value)
+        assert "reveal failed after 3 attempts" in msg
+        assert "REVERTED" in msg and "0xdead" in msg
+        assert "gas was spent" in msg
+        assert ei.value.outcomes["claim"]["status"] == "success"
+
+    def test_unconfirmed_reveal_not_retried(
+        self, accounts, reveal_chain, monkeypatch
+    ):
+        # An unconfirmed reveal may still land; a blind resend could
+        # reveal twice — it propagates immediately, without retries.
+        reveal_chain["estimate"] = lambda ids: 100_000
+        attempts = {"n": 0}
+
+        def unconfirmed(account, system_id, abi, args, **kw):
+            attempts["n"] += 1
+            raise server.TxUnconfirmedError("0xfeed", 120)
+
+        monkeypatch.setattr(server, "_send_tx", unconfirmed)
+        with pytest.raises(server.TxUnconfirmedError, match="UNCONFIRMED"):
+            server.scavenge_claim_and_reveal(16, account="testa")
+        assert attempts["n"] == 1
 
 
 # ---------------------------------------------------------------------------

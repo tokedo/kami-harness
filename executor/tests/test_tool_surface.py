@@ -33,8 +33,43 @@ def _tools():
     return {t.name: t for t in server.mcp._tool_manager.list_tools()}
 
 
+# The 13 tools that submit multiple transactions (or an on-chain
+# allow-failure batch) and expose the explicit allow_partial escape
+# hatch from fail-on-any-revert reporting.
+ALLOW_PARTIAL_TOOLS = {
+    "travel_to_room",
+    "allocate_skills",
+    "level_to",
+    "level_and_allocate_batch",
+    "feed_level_allocate_batch",
+    "use_item_batch",
+    "equip_all_batch",
+    "unequip_all_batch",
+    "cancel_kami_listing",
+    "complete_all_trades",
+    "speed_craft_batch",
+    "stop_harvest_batch",
+    "sacrifice_kami_batch",
+}
+
+
 def test_schema_version():
-    assert SCHEMA_VERSION == "1.5.1"
+    assert SCHEMA_VERSION == "2.0.0-dev"
+
+
+def test_allow_partial_surface():
+    """Exactly the documented tools expose allow_partial, as a portable
+    boolean defaulting to false."""
+    tools = _tools()
+    have = {
+        name for name, t in tools.items()
+        if "allow_partial" in t.parameters.get("properties", {})
+    }
+    assert have == ALLOW_PARTIAL_TOOLS
+    for name in sorted(have):
+        prop = tools[name].parameters["properties"]["allow_partial"]
+        assert prop["type"] == "boolean", name
+        assert prop["default"] is False, name
 
 
 def test_tool_surface_count():

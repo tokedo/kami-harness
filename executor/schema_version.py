@@ -14,4 +14,7 @@ It is surfaced to clients two ways:
   2. As this importable constant, for tests and downstream tooling.
 """
 
-SCHEMA_VERSION = "1.5.1"
+# 2.0.0-dev: the v2.0.0 release train (H1 ACT-reporting fidelity landed;
+# further breaking changes follow before 2.0.0 is finalized). Pre-release
+# per semver: 2.0.0-dev < 2.0.0.
+SCHEMA_VERSION = "2.0.0-dev"

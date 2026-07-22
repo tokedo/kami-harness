@@ -22,6 +22,72 @@ marks the tool contract.
 - **PATCH** — non-semantic changes: documentation fixes, wording, catalog
   data refreshes, internal refactors that do not change the tool contract.
 
+## [2.0.0-dev] — ACT reporting fidelity: tool success == on-chain success
+
+MAJOR (in progress; ships as 2.0.0): return semantics change on every
+transaction-sending tool. No tool added or removed (**84 tools**,
+unchanged); 13 tools gain an optional `allow_partial` parameter
+(portable `boolean`, default `false`).
+
+### Changed — three terminal states, none conflatable
+
+Every broadcast transaction now resolves to exactly one of:
+
+- **confirmed-success** — the tool returns a result; `status` is always
+  `"success"` and always carries `tx_hash`, `block`, `gas_used`.
+- **confirmed-revert** — the tool raises an error (`OnChainRevertError`)
+  naming the tx hash, block, gas used, a best-effort revert reason
+  (eth_call replay of the exact calldata at the landed block), and the
+  explicit statement that gas was spent and the transaction landed and
+  reverted. A returned result never carries `status="reverted"` anymore.
+- **unconfirmed** — a receipt timeout raises a distinct error
+  (`TxUnconfirmedError`) carrying the tx hash and the instruction to
+  check on-chain status before retrying. Never reported as success or
+  failure.
+
+Nonce-race retry (`_send_tx_retry`) never resubmits after a confirmed
+revert (final; a retry would re-execute the action) or an unconfirmed
+send (it may still land; a retry could execute it twice).
+
+### Changed — batch/multi-transaction tools: explicit `allow_partial`
+
+If any submitted transaction in a multi-transaction tool call fails,
+the call raises an error whose text carries every per-item outcome —
+successes included, marked final on-chain. The new `allow_partial`
+argument (default `false`) returns the per-item results without an
+error instead; all previously-implicit allow-failure flows are
+re-expressed through it. Tools: `travel_to_room`, `allocate_skills`,
+`level_to`, `level_and_allocate_batch`, `feed_level_allocate_batch`,
+`use_item_batch`, `equip_all_batch`, `unequip_all_batch`,
+`cancel_kami_listing`, `complete_all_trades`, `speed_craft_batch`,
+`stop_harvest_batch` (silent per-kami skips of its on-chain
+allow-failure batch now raise by default), `sacrifice_kami_batch`.
+Dry-run-gated skips (no transaction sent, no gas spent) stay in-band
+and do not raise.
+
+`scavenge_claim_and_reveal` returns normally only when both the claim
+and the reveal confirmed on-chain; a reveal failure raises an error
+carrying the claim result and the commit IDs for a later
+`droptable_reveal` (no `allow_partial` — the recovery path is the
+dedicated reveal tool).
+
+### Changed — success payloads carry receipt evidence uniformly
+
+Sequential multi-transaction tools now include a `txs` list
+(`{tx_hash, status, block, gas_used}` per transaction) in results and
+per-item rows (`travel_to_room`, `allocate_skills`, `level_to`,
+`use_item_batch`, `speed_craft_batch`, and the per-kami rows of
+`level_and_allocate_batch` / `feed_level_allocate_batch`);
+per-item rows of the loop batches (`equip_all_batch`,
+`unequip_all_batch`, `cancel_kami_listing`, `sacrifice_kami_batch`)
+carry `block`/`gas_used` alongside the existing `tx_hash`/`status`.
+`sacrifice_kami_batch` reports send-failures under a new `errors`
+count instead of folding them into `skipped`.
+
+Out of scope, unchanged by design: `bridge_eth_from_mainnet` still
+returns `status="submitted"` without awaiting a receipt (kami-lab M1;
+`bridge_status` carries all subsequent polling).
+
 ## [1.5.1] — Apparatus vocabulary scrubbed from two tool docstrings
 
 PATCH: description-only. No tool added or removed (**84 tools**,

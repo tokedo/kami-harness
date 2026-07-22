@@ -922,9 +922,10 @@ class TestScavengeValidation:
     def test_claim_and_reveal_reports_blocked_reveal_honestly(
         self, accounts, monkeypatch
     ):
-        # v1.5.0: a reveal blocked in preflight is retried and then
-        # reported as itself — the v1.4.0 "items likely granted
-        # directly by claim" mislabel is gone.
+        # 2.0.0-dev: a reveal blocked in preflight is retried and then
+        # RAISED as itself, carrying the successful claim and the
+        # commit IDs — the v1.4.0 "items likely granted directly by
+        # claim" mislabel is gone.
         monkeypatch.setattr(
             server, "scavenge_claim",
             lambda node, account: {
@@ -943,12 +944,15 @@ class TestScavengeValidation:
             )
 
         monkeypatch.setattr(server, "_send_reveal_tx", reveal_blocked)
-        r = server.scavenge_claim_and_reveal(16, account="testa")
-        assert r["reveal"] is None
-        assert "reveal_skipped" not in r
-        assert "already revealed" in r["last_failure"]
-        assert "reveal failed after 3 attempts" in r["error"]
-        assert "256 blocks" in r["error"]
+        with pytest.raises(server.BatchTxError) as ei:
+            server.scavenge_claim_and_reveal(16, account="testa")
+        msg = str(ei.value)
+        assert "reveal_skipped" not in msg
+        assert "already revealed" in msg
+        assert "reveal failed after 3 attempts" in msg
+        assert "256 blocks" in msg
+        assert ei.value.outcomes["claim"]["status"] == "success"
+        assert ei.value.outcomes["commit_ids"] == ["111"]
 
 
 # ---------------------------------------------------------------------------
