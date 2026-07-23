@@ -16,6 +16,7 @@ Architecture:
 
 import asyncio
 import csv
+import hashlib
 import json
 import os
 import socket
@@ -1767,10 +1768,9 @@ mcp._mcp_server.version = SCHEMA_VERSION
 def list_accounts() -> dict:
     """List all configured accounts with labels and public addresses.
 
-    No private data is exposed. Shows whether Kamibots API is registered.
-    operator_address is null for an account whose operator wallet does
-    not exist yet (owner key only; create_operator_wallet generates the
-    operator keypair).
+    No private data; shows whether the Kamibots API is registered.
+    operator_address is null until create_operator_wallet generates
+    the keypair.
     """
     accts = {}
     for label, acct in _accounts.items():
@@ -1852,28 +1852,16 @@ def _roster_add_account(
 
 @mcp.tool()
 def create_operator_wallet(account: str) -> dict:
-    """Generate an operator keypair for an account and persist it.
+    """Generate a fresh operator keypair for an account, server-side.
 
-    Requires {LABEL}_OWNER_KEY to already exist in the keys file
-    (~/.blocklife-keys/.env); refuses if {LABEL}_OPERATOR_KEY already
-    exists — operator rotation via system.account.set.operator is not
-    implemented. The keypair is generated inside the server process,
-    the private key is written to the keys file next to the owner key,
-    the account's registry entry is upgraded in place (an owner-only
-    entry gains its operator wallet), and its public
-    addresses are recorded in accounts/roster.yaml. Only public
-    addresses are returned; key material never leaves the server
-    process. Registration of the on-chain account that binds this
-    operator is a separate transaction (register_account).
+    The private key is created in the server process, written to the
+    keys file (outside the repo), and never returned: the response
+    carries only the public address. Refuses to overwrite an existing
+    operator key. The new operator is bound on-chain later by
+    register_account.
 
     Args:
-        account: Account label (alphanumeric/underscore; must have an
-            owner key in the keys file and no operator key yet).
-
-    Returns:
-        {account, operator_address, owner_address, key_saved, roster} —
-        roster is the roster.yaml update outcome ("created", "added",
-        "already_present", or "failed: <reason>").
+        account: Account label to create the operator wallet for.
     """
     label = account.lower()
     if not label.replace("_", "").isalnum():
@@ -1928,25 +1916,15 @@ def register_account(name: str, account: str = "main") -> dict:
     creates the account entity, sets the display name, and binds the
     operator address.
 
-    Registration binds an operator address; operator keypairs are
-    created with create_operator_wallet. The call is dry-run via
-    eth_call before sending, so common reverts ("Account: exists for
-    Owner", "Account: exists for Operator", "Account: name taken")
-    surface without spending gas. Gas limit 2M (883k observed). A newly
-    registered account starts in Room 1 (Misty Riverside) with 100
-    stamina.
+    Operator keypairs come from create_operator_wallet. The call is
+    dry-run via eth_call before sending, so common reverts ("exists
+    for Owner/Operator", "name taken") surface without spending gas. A
+    new account starts in Room 1 with 100 stamina.
 
     Args:
-        name: Display name, 1-15 bytes, unique across the game. No
-            whitespace (the official client rejects it even though the
-            contract allows it).
-        account: Account label (must have an owner key in the keys
-            file and an operator address in the registry).
-
-    Returns:
-        Transaction result (tx_hash, status, block, gas_used) plus
-        name, operator_address, owner_address, account_entity_id, and
-        starting_room.
+        name: Display name, 1-15 bytes, unique, no whitespace.
+        account: Account label (owner key in the keys file + operator
+            address in the registry).
     """
     acct = _get_account(account)
     if not acct.owner_key:
@@ -2001,14 +1979,14 @@ def register_account(name: str, account: str = "main") -> dict:
 
 @mcp.tool()
 async def register_kamibots(account: str = "main") -> dict:
-    """Register with Kamibots API using the account's owner wallet.
+    """Register with the Kamibots API using the account's owner wallet.
 
-    Signs a registration message, obtains API key and privy_id, and saves
-    them to .env as {LABEL}_KAMIBOTS_API_KEY and {LABEL}_PRIVY_ID.
-    Each account has its own credentials.
+    Signs a registration message (a signature, not a key), obtains the
+    API key and privy_id, and saves them to the keys file per account.
+    Next onboarding step: kamibots_enable_strategies.
 
     Args:
-        account: Account label (must have an owner key in .env).
+        account: Account label (owner key required).
     """
     acct = _get_account(account)
     if not acct.owner_key:
@@ -2070,30 +2048,16 @@ async def register_kamibots(account: str = "main") -> dict:
 
 @mcp.tool()
 def get_gas_balance(account: str = "") -> dict:
-    """ETH balances of the operator and owner wallets, per account.
+    """Check native ETH gas balances for the account's wallets on Yominet
+    (and the owner's Ethereum mainnet balance when configured).
 
-    Gas on Yominet is paid in ETH by whichever wallet signs a
-    transaction: the operator for gameplay txs, the owner for
-    trades/mints/funding. A plain ETH transfer burns ~113k gas
-    (Initia MiniEVM), not the standard 21k — ~0.0000003 ETH at the
-    flat 0.0025 gwei gas price. For accounts with an owner key the
-    owner's Ethereum-mainnet balance is also reported
-    (owner_mainnet_eth), read via the configured MAINNET_RPC_URL —
-    mainnet ETH is what bridge_eth_from_mainnet converts into Yominet
-    gas ETH.
+    Reads live balances for the operator and owner wallets plus the
+    owner's mainnet balance (bridging source). No secrets are exposed;
+    read-only. An account without an operator wallet reports
+    operator_eth as null.
 
     Args:
-        account: Account label. Empty string (default) returns every
-            configured account.
-
-    Returns:
-        {balances: {label: {operator_address, operator_eth,
-        owner_address, owner_eth, owner_mainnet_eth}}} — operator
-        fields present only when the account has an operator wallet,
-        owner fields only when it has an owner key configured.
-        owner_mainnet_eth reads "unavailable" when the mainnet RPC
-        errors or times out; it never blocks the Yominet fields beyond
-        a short timeout.
+        account: Account label; empty reports every account.
     """
     labels = [account] if account else list(_accounts)
     out = {}
@@ -2117,21 +2081,15 @@ def get_gas_balance(account: str = "") -> dict:
 def fund_operator(amount_eth: str, account: str = "main") -> dict:
     """Send ETH from the owner wallet to the same account's operator wallet.
 
-    Plain value transfer signed by the owner key. The recipient is
-    pinned to this account's operator address from the registry; an
-    arbitrary recipient is not expressible. Fails before sending if the
-    owner balance does not cover the amount plus the gas provision
-    (250k gas at the flat price; a plain transfer burns ~113k on
-    Yominet's Initia MiniEVM).
+    Plain value transfer signed by the owner key; the recipient is
+    pinned to this account's operator address — an arbitrary recipient
+    is not expressible. Fails before sending if the owner balance does
+    not cover amount + the gas provision (250k gas at the flat price; a
+    plain transfer burns ~113k on Yominet).
 
     Args:
         amount_eth: Amount as a decimal string in ETH (e.g. "0.01").
-        account: Account label (must have an owner key in .env).
-
-    Returns:
-        Transaction result (tx_hash, status, block, gas_used) plus
-        direction, amount_eth, and post-transaction operator_eth and
-        owner_eth balances.
+        account: Account label (owner key required).
     """
     acct = _get_account(account)
     # Resolved first: a missing operator wallet raises its own error
@@ -2168,33 +2126,15 @@ def fund_operator(amount_eth: str, account: str = "main") -> dict:
 def withdraw_operator(amount_eth: str = "all", account: str = "main") -> dict:
     """Send ETH from the operator wallet to the same account's owner wallet.
 
-    Plain value transfer signed by the operator key. The recipient is
-    pinned to this account's owner address from the registry; an
-    arbitrary recipient is not expressible.
-
-    The gas reserve is estimate-based, not a constant: the transfer's
-    gas is measured with eth_estimateGas and provisioned at 2x
-    (MiniEVM transfer costs vary — ~21.1k gas to an EIP-7702
-    delegated EOA, ~113k for a plain transfer, ~174k when the send
-    first touches the recipient — and full-balance sweeps observed on
-    v1.3.1 needed roughly a 2x gas-fee reserve to clear). With
-    amount_eth="all" the swept value is the balance minus that reserve,
-    and the exact value is re-verified with a second eth_estimateGas
-    before signing. A failed validation raises an error starting
-    "validation failed; no transaction sent:" and broadcasts nothing.
+    Plain value transfer signed by the operator key; the recipient is
+    pinned to this account's owner address. The gas reserve is
+    estimate-based (eth_estimateGas x2; MiniEVM transfer costs vary
+    ~21k-174k); amount_eth="all" sweeps the balance minus the reserve,
+    re-verified before signing. A failed validation broadcasts nothing.
 
     Args:
-        amount_eth: Decimal string in ETH (e.g. "0.005"), or "all"
-            (default) to send the full operator balance minus the
-            estimate-based gas reserve.
-        account: Account label (must have an owner key in .env, so the
-            owner address is known).
-
-    Returns:
-        Transaction result (tx_hash, status, block, gas_used) plus
-        direction, the amount_eth actually sent, the gas_limit
-        provisioned, and post-transaction operator_eth and owner_eth
-        balances.
+        amount_eth: Decimal ETH string, or "all" (default).
+        account: Account label (owner key required).
     """
     acct = _get_account(account)
     if not acct.owner_addr:
@@ -2469,31 +2409,20 @@ def bridge_eth_from_mainnet(
 ) -> dict:
     """Bridge ETH from Ethereum mainnet to Yominet gas ETH.
 
-    One mainnet transaction (LayerZero OFT to Initia L1, auto-forwarded
-    over IBC to Yominet) converts mainnet ETH into native Yominet gas
-    ETH arriving at the SAME account's owner address — the recipient is
-    pinned to the registry address and is not expressible as a
-    parameter. Arrival is typically ~5 min, up to ~20 min observed;
-    bridge_status(tx_hash) reports transfer state. Amounts transit a
-    6-decimal denom. The owner's mainnet balance is checked against
-    amount + bridge fee + max gas before signing. Returns immediately
-    after broadcast with status "submitted" and the tx_hash; the
-    receipt is not awaited. Requires MAINNET_RPC_URL (the server fails
-    at startup when it is unset).
+    One mainnet transaction (LayerZero OFT to Initia L1, IBC-forwarded)
+    lands native gas ETH at the SAME account's owner address — the
+    recipient is pinned to the registry, not a parameter. Arrival
+    typically ~5 min (up to ~20 observed); track with
+    bridge_status(tx_hash). Amounts transit a 6-decimal denom. The
+    owner's mainnet balance is checked against amount + bridge fee +
+    max gas before signing. Returns immediately after broadcast with
+    status "submitted"; the receipt is deliberately not awaited.
+    Requires MAINNET_RPC_URL.
 
     Args:
-        amount_eth: Amount as a decimal string in ETH (e.g. "0.01").
-            Max 6 decimal places.
+        amount_eth: Decimal string (max 6 decimals), e.g. "0.01".
         account: Account label; its owner key signs on mainnet.
-        dry_run: If true, returns the quote (fees, estimated duration,
-            balance check) without signing or broadcasting anything.
-
-    Returns:
-        Quote fields (account, amount_eth, bridge_fee_eth,
-        mainnet_gas_max_eth, mainnet_balance_eth,
-        estimated_duration_seconds, recipient_yominet); a broadcast
-        additionally returns tx_hash and status "submitted", a dry run
-        dry_run=true instead.
+        dry_run: If true, return the quote without signing.
     """
     acct = _get_account(account)
     if not acct.owner_key:
@@ -2575,22 +2504,16 @@ def bridge_eth_from_mainnet(
 def bridge_status(tx_hash: str, account: str = "main") -> dict:
     """State of a mainnet->Yominet bridge transfer, plus arrival balance.
 
-    Registers the hash with the router's tracker (best-effort,
-    idempotent), polls the router's status endpoint, and reads the
-    account's current Yominet owner balance. `state` is the router's
-    transfer state; `completed` is true at STATE_COMPLETED_SUCCESS.
-    Arrival is typically ~5 min after mainnet inclusion, up to ~20 min
-    observed.
+    Registers the hash with the router's tracker (best-effort),
+    polls its status endpoint, and reads the account's current
+    Yominet owner balance. `completed` is true at
+    STATE_COMPLETED_SUCCESS; arrival is typically ~5 min after mainnet
+    inclusion (up to ~20 observed). yominet_owner_eth is null when the
+    account has no owner key configured.
 
     Args:
-        tx_hash: Mainnet transaction hash returned by
-            bridge_eth_from_mainnet.
-        account: Account label whose Yominet owner balance is reported.
-
-    Returns:
-        {tx_hash, state, completed, yominet_owner_eth, detail} —
-        yominet_owner_eth is null when the account has no owner key
-        configured.
+        tx_hash: Mainnet tx hash from bridge_eth_from_mainnet.
+        account: Account label whose Yominet balance is reported.
     """
     acct = _get_account(account)
     try:
@@ -2624,7 +2547,6 @@ async def get_tier(account: str = "main") -> dict:
     """Account tier info: tier name, tax rate, total/used/remaining strategy slots.
 
     Args:
-        account: Account label.
     """
     return await _strategy_api("GET", "/api/agent/tier", None, account)
 
@@ -2634,7 +2556,6 @@ async def get_all_strategies(account: str = "main") -> dict:
     """List all active strategies for this account.
 
     Args:
-        account: Account label.
     """
     return await _strategy_api("GET", "/api/agent/strategies", None, account)
 
@@ -2648,7 +2569,6 @@ async def get_all_strategy_statuses(account: str = "main") -> dict:
     get_all_strategies database listing.
 
     Args:
-        account: Account label.
     """
     return await _strategy_api("GET", "/api/strategies/status/all", None, account)
 
@@ -2707,8 +2627,8 @@ def lens_account(account_key: str = "", prose: bool = False) -> dict:
     (current/total), kami roster.
 
     Args:
-        account_key: Account index (digits) or account name. Empty uses
-            the daemon's configured default operator, if set.
+        account_key: Account index (digits) or account name. Empty:
+            the daemon's default operator, if set.
         prose: If true, includes player-authored prose fields (bio).
     """
     return _lens_request(
@@ -2721,8 +2641,7 @@ def lens_party(account_index: int = -1) -> dict:
     """Party report for an account: every kami with full vitals.
 
     Args:
-        account_index: Account index. -1 uses the daemon's configured
-            default operator, if set.
+        account_index: Account index (-1: daemon default operator).
     """
     return _lens_request("party", [account_index] if account_index >= 0 else [])
 
@@ -2736,9 +2655,9 @@ def lens_node(
     """Harvest node with its ACTIVE harvests (occupant identities).
 
     with_vitals adds per-harvest vitals (hp current/total/percent,
-    hpRatePerHr, musuAccrued, cooldownSec). attacker_kami_index (any
+    hpRatePerHr, musuAccrued, cooldownSec); attacker_kami_index (any
     kami; requires with_vitals) adds a liquidation preview per
-    non-attacker row: eligible, threshold, spoils, salvage, recoil.
+    non-attacker row (eligible, threshold, spoils, salvage, recoil).
 
     Args:
         node_index: Harvest node index.
@@ -2771,8 +2690,8 @@ def lens_inventory(account_key: str = "") -> dict:
     item index).
 
     Args:
-        account_key: Account index (digits) or account name. Empty uses
-            the daemon's configured default operator, if set.
+        account_key: Account index (digits) or account name. Empty:
+            the daemon's default operator, if set.
     """
     return _lens_request("inventory", [account_key] if account_key else [])
 
@@ -2872,8 +2791,8 @@ def lens_trades(account_index: int = -1) -> dict:
     history and open offers.
 
     Args:
-        account_index: Account index; -1 lists open trades only (or the
-            daemon's default operator, if configured).
+        account_index: Account index (-1: open trades only / daemon
+            default operator).
     """
     return _lens_request("trades", [account_index] if account_index >= 0 else [])
 
@@ -2895,8 +2814,8 @@ def lens_quests(account_index: int = -1) -> dict:
     quests and completion state.
 
     Args:
-        account_index: Account index; -1 serves the registry only (or
-            the daemon's default operator, if configured).
+        account_index: Account index (-1: registry only / daemon
+            default operator).
     """
     return _lens_request("quests", [account_index] if account_index >= 0 else [])
 
@@ -2907,8 +2826,8 @@ def lens_market(account_index: int = -1) -> dict:
     order history.
 
     Args:
-        account_index: Account index; -1 lists the market only (or the
-            daemon's default operator, if configured).
+        account_index: Account index (-1: market only / daemon default
+            operator).
     """
     return _lens_request("market", [account_index] if account_index >= 0 else [])
 
@@ -2961,12 +2880,12 @@ def lens_chat(
     """Room chat page (player-authored messages).
 
     Disabled by default: when the chat flag is off this tool answers
-    with a CHAT_DISABLED error and contacts nothing.
+    CHAT_DISABLED and contacts nothing.
 
     Args:
         room_index: Room index.
         before_ms: Page back from this ms timestamp (-1 for latest).
-        size: Page size (-1 for the default; requires before_ms).
+        size: Page size (-1 default; requires before_ms).
         oversize: Serve message bodies withheld for size.
     """
     if not CHAT_ENABLED:
@@ -3057,19 +2976,18 @@ async def start_strategy(
 ) -> dict:
     """Start a Kamibots strategy for a kami.
 
-    Requires the account's operator key to be stored with the service
-    first (kamibots_enable_strategies); the service signs the
-    strategy's transactions server-side with that key, and the
-    account's tier tax applies to strategy proceeds.
+    Requires the account's operator key stored with the service first
+    (kamibots_enable_strategies); the service signs the strategy's
+    transactions server-side with that key, and the account's tier tax
+    applies to strategy proceeds.
 
     Args:
         strategy_type: One of harvestAndRest, harvestAndFeed, rest_v3,
             auto_v2, bodyguard, craft.
-        kami_id: Kami token index (e.g. 45). For craft strategies, pass 0.
-        node_id: Harvest node index. Must match kami's current room.
-        config: Strategy-specific config dict.
-            See integration/kamibots/README.md for schemas.
-        account: Account label.
+        kami_id: Kami token index (0 for craft strategies).
+        node_id: Harvest node index (must match the kami's room).
+        config: Strategy-specific config dict
+            (integration/kamibots/README.md).
     """
     acct = _get_account(account)
     if not acct.privy_id:
@@ -3102,16 +3020,15 @@ async def stop_strategy(
 ) -> dict:
     """Stop the running strategy for a kami.
 
-    For multi-kami strategies (auto_v2, rest_v3, bodyguard), you MUST pass
-    kami_indices[0] (or guard_kami_indices[0]) from GET /api/agent/strategies.
-    Secondary kami indices will return 404.
+    For multi-kami strategies (auto_v2, rest_v3, bodyguard) pass
+    kami_indices[0] from the strategy list; secondary indices return
+    404.
 
     Args:
-        kami_id: Primary kami token index (e.g. "45", kami_indices[0] for
-            multi-kami) or craft strategy ID (e.g. "craft_zpki5vkc").
-        permanent: If True (default), permanently deletes the strategy and
-            frees slots. If False, marks as unlaunched (paused, can relaunch).
-        account: Account label.
+        kami_id: Primary kami token index (e.g. "45") or craft
+            strategy ID (e.g. "craft_zpki5vkc").
+        permanent: True (default) deletes the strategy and frees
+            slots; False pauses (relaunchable).
     """
     acct = _get_account(account)
     if not acct.privy_id:
@@ -3236,23 +3153,18 @@ def _validate_active_harvests(
 
 @mcp.tool()
 def harvest_start(kami_ids: list[int], node_index: int, account: str = "main") -> dict:
-    """Start harvesting for one or more kamis at a node. Costs gas.
+    """Start harvesting for one or more kamis at a node.
 
-    Kamis must be in the same room as the node and not already harvesting.
-    Uses batch variant for multiple kamis (1 tx).
+    Kamis must be in the same room as the node and not already
+    harvesting; multiple kamis go in one batch transaction.
 
     Validates before signing (no gas spent on failure): kami_ids
-    non-empty, account registered, each kami owned by the account and
-    RESTING, then an eth_call dry-run (which also covers room/node
-    mismatch and cooldown). A failed validation raises an error starting
-    "validation failed; no transaction sent:"; a broadcast transaction
-    that reverts on-chain raises an error naming the tx hash and the gas
-    spent.
+    non-empty, account registered, each kami owned and RESTING, then an
+    eth_call dry-run (room/node match, cooldown).
 
     Args:
         kami_ids: List of kami token indices.
         node_index: Harvest node index (same as room index).
-        account: Account label.
     """
     if not kami_ids:
         raise PreTxValidationError(
@@ -3277,20 +3189,17 @@ def harvest_start(kami_ids: list[int], node_index: int, account: str = "main") -
 
 @mcp.tool()
 def harvest_stop(kami_ids: list[int], account: str = "main") -> dict:
-    """Stop active harvests and auto-collect rewards. Costs gas.
+    """Stop active harvests and auto-collect rewards.
 
-    Uses batch variant for multiple kamis (1 tx). Rewards + scavenge
+    Multiple kamis go in one batch transaction; rewards + scavenge
     points are distributed on stop.
 
     Validates before signing (no gas spent on failure): kami_ids
-    non-empty, account registered, each kami owned by the account with
-    an ACTIVE harvest entity, then an eth_call dry-run. A failed
-    validation raises an error starting "validation failed; no
-    transaction sent:".
+    non-empty, account registered, each kami owned with an ACTIVE
+    harvest, then an eth_call dry-run.
 
     Args:
-        kami_ids: List of kami token indices whose harvests to stop.
-        account: Account label.
+        kami_ids: Kami token indices whose harvests to stop.
     """
     _validate_active_harvests(kami_ids, account, "harvest_stop")
     h_ids = [_harvest_entity_id(k) for k in kami_ids]
@@ -3309,20 +3218,17 @@ def harvest_stop(kami_ids: list[int], account: str = "main") -> dict:
 
 @mcp.tool()
 def harvest_collect(kami_ids: list[int], account: str = "main") -> dict:
-    """Collect rewards from active harvests WITHOUT stopping them. Costs gas.
+    """Collect rewards from active harvests WITHOUT stopping them.
 
-    Partial collection — kamis keep harvesting. Rewards + scavenge points
-    are distributed.
+    Partial collection — kamis keep harvesting; rewards + scavenge
+    points are distributed. Multiple kamis go in one batch transaction.
 
     Validates before signing (no gas spent on failure): kami_ids
-    non-empty, account registered, each kami owned by the account with
-    an ACTIVE harvest entity, then an eth_call dry-run. A failed
-    validation raises an error starting "validation failed; no
-    transaction sent:".
+    non-empty, account registered, each kami owned with an ACTIVE
+    harvest, then an eth_call dry-run.
 
     Args:
-        kami_ids: List of kami token indices whose harvests to collect.
-        account: Account label.
+        kami_ids: Kami token indices whose harvests to collect.
     """
     _validate_active_harvests(kami_ids, account, "harvest_collect")
     h_ids = [_harvest_entity_id(k) for k in kami_ids]
@@ -3343,19 +3249,16 @@ def harvest_collect(kami_ids: list[int], account: str = "main") -> dict:
 def move_to_room(room_index: int, account: str = "main") -> dict:
     """Move the account to a different room. Costs stamina.
 
-    Issues a single room-change transaction. travel_to_room performs
-    multi-hop pathfinding over the room graph and manages stamina.
+    One room-change transaction (5 stamina; travel_to_room does
+    multi-hop pathfinding and stamina management).
 
     Validates before signing (no gas spent on failure): account
-    registered, target differs from the current room, current stamina
-    (regen-projected on-chain) at least 5, then an eth_call dry-run —
-    a non-adjacent target surfaces as a validation error naming the
-    current room. A failed validation raises an error starting
-    "validation failed; no transaction sent:".
+    registered, target differs from the current room, stamina at least
+    5 (regen-projected), then an eth_call dry-run — a non-adjacent
+    target surfaces as a validation error naming the current room.
 
     Args:
-        room_index: Target room number (1-70). See catalogs/rooms.csv.
-        account: Account label.
+        room_index: Target room number (1-70; catalogs/rooms.csv).
     """
     aid = _require_registered_operator(account)
     view = _account_view(aid)
@@ -3397,29 +3300,19 @@ async def travel_to_room(
     """Travel to a target room via the shortest path, consuming stamina
     and optionally using SP+ items to extend range.
 
-    Replaces manual multi-hop pathfinding. BFS runs over the static room
-    graph (catalogs/rooms.csv) and plans item inserts when stamina would
-    otherwise run out. Each hop is its own on-chain tx (no multicall).
-
-    Validates before planning: the account must be registered (error
-    starting "validation failed; no transaction sent:"). Each executed
-    hop additionally passes the per-transaction validation gates. If a
-    step transaction fails mid-path, the call raises an error listing
-    every executed step (completed hops are final — the account really
-    moved); pass allow_partial=true to receive that partial result as a
-    normal return instead. A plan that cannot reach the target on
-    stamina alone returns a partial result in both modes (no failed
-    transaction is involved).
+    BFS over the static room graph plans hops (5 stamina each) and
+    inserts item uses when stamina would run out; each hop is its own
+    transaction through the standard validation gates. A step failure
+    mid-path raises with every executed step (completed hops are final
+    — the account really moved); allow_partial=true returns that
+    partial result instead. A plan that cannot reach the target on
+    stamina alone returns a partial result in both modes (nothing
+    failed). Requires a registered account.
 
     Args:
-        target_room: Destination room index. See catalogs/rooms.csv.
-        account: Account label.
-        use_items: If True, consume SP+ items from inventory when needed
-            to reach the target. If False, stops when stamina is
-            insufficient and returns a partial result.
-        dry_run: If True, return the plan without executing any tx.
-        allow_partial: If True, a mid-path transaction failure returns
-            the partial result instead of raising an error.
+        target_room: Destination room index (catalogs/rooms.csv).
+        use_items: If True, consume SP+ items when needed.
+        dry_run: If True, return the plan without executing.
     """
     # Registration gate: an unregistered operator otherwise surfaces as
     # an opaque state-read failure. Each executed hop additionally runs
@@ -3687,14 +3580,12 @@ def listing_buy(
 
     Validates before signing (no gas spent on failure): item_indices
     non-empty and parallel to amounts, account registered, then an
-    eth_call dry-run (room, MUSU balance). A failed validation raises
-    an error starting "validation failed; no transaction sent:".
+    eth_call dry-run (room, MUSU balance).
 
     Args:
         merchant_index: NPC merchant index (1=Mina, 2=Vending Machine).
-        item_indices: List of item indices to buy (global item index, e.g. 11301).
-        amounts: List of amounts for each item (parallel to item_indices).
-        account: Account label.
+        item_indices: Item indices to buy (e.g. 11301).
+        amounts: Amounts, parallel to item_indices.
     """
     if not item_indices:
         raise PreTxValidationError(
@@ -3732,7 +3623,6 @@ def auction_buy(
     Args:
         item_index: Index of the auction item.
         amount: Amount to buy (uint32).
-        account: Account label.
     """
     return _send_tx_owner(
         account,
@@ -3748,17 +3638,13 @@ def feed_kami(kami_id: int, food_item_id: int, account: str = "main") -> dict:
     """Use a food item on a kami to restore HP. Works while harvesting.
 
     Validates before signing (no gas spent on failure): account
-    registered, kami owned by the account, inventory holds the item,
-    then an eth_call dry-run. A failed validation raises an error
-    starting "validation failed; no transaction sent:".
+    registered, kami owned, inventory holds the item, then an eth_call
+    dry-run.
 
     Args:
-        kami_id: Kami token index (e.g. 45).
-        food_item_id: Item ID for the food. Common foods:
-            11301=gum(25hp), 11302=burger(50hp), 11303=candy(50hp),
-            11304=cookies(100hp), 11311=resin(35hp), 11312=honeydew(75hp),
-            11313=golden_apple(150hp), 11314=blue_pansy(25hp).
-        account: Account label.
+        kami_id: Kami token index.
+        food_item_id: Food item ID (e.g. 11302=burger, 50hp; the
+            item registry via lens_items has the full list).
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "feed_kami")
@@ -3801,29 +3687,20 @@ def revive_kami(
 ) -> dict:
     """Revive a DEAD kami to RESTING via one of the game's revive paths.
 
-    Paths (each consumes from the account inventory):
-      onyx                — system.kami.onyx.revive; consumes 33 Onyx
-                            Shards (item 100); restores HP to 33.
-      red_ribbon_gummy    — system.kami.use.item with item 11001;
-                            consumes 1; restores 10 HP.
-      melkarth_spell_card — system.kami.use.item with item 11002
-                            (not tradable); consumes 1; restores 50 HP.
-      djed_pillar         — system.kami.use.item with item 11003;
-                            consumes 1; restores 5 HP.
-      pale_potion         — system.kami.use.item with item 11004;
-                            consumes 1; restores 75 HP.
+    Paths (each consumes from the account inventory): onyx —
+    system.kami.onyx.revive, 33 Onyx Shards (item 100), restores HP to
+    33; red_ribbon_gummy — item 11001, 10 HP; melkarth_spell_card —
+    item 11002 (not tradable), 50 HP; djed_pillar — item 11003, 5 HP;
+    pale_potion — item 11004, 75 HP (item paths consume 1 via
+    system.kami.use.item).
 
     Validates before signing (no gas spent on failure): account
-    registered, kami owned by the account and DEAD, inventory holds the
-    chosen path's cost (33 Onyx Shards, or 1 of the revive item), then
-    an eth_call dry-run. A failed validation raises an error starting
-    "validation failed; no transaction sent:".
+    registered, kami owned and DEAD, inventory holds the chosen path's
+    cost, then an eth_call dry-run.
 
     Args:
-        kami_id: Kami token index (e.g. 45).
-        method: Revive path; one of the values listed above
-            (default "onyx").
-        account: Account label.
+        kami_id: Kami token index.
+        method: Revive path (default "onyx").
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned(
@@ -3866,14 +3743,11 @@ def level_up_kami(kami_id: int, account: str = "main") -> dict:
     """Level up a kami if it has enough XP. Grants 1 skill point.
 
     Validates before signing (no gas spent on failure): account
-    registered, kami owned by the account, then an eth_call dry-run —
-    insufficient XP surfaces as a validation error carrying the chain's
-    "PetLevel: need more experience" reason. A failed validation raises
-    an error starting "validation failed; no transaction sent:".
+    registered, kami owned, then an eth_call dry-run — insufficient XP
+    surfaces as a validation error with the chain's reason.
 
     Args:
-        kami_id: Kami token index (e.g. 45).
-        account: Account label.
+        kami_id: Kami token index.
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "level_up_kami")
@@ -3886,17 +3760,14 @@ def level_up_kami(kami_id: int, account: str = "main") -> dict:
 def name_kami(kami_id: int, name: str, account: str = "main") -> dict:
     """Name or rename a kami. Costs 1 Holy Dust. Kami must be in room 11.
 
-    Validates before signing (no gas spent on failure): name length
-    1-16 bytes, account registered, kami owned by the account,
-    inventory holds 1 Holy Dust (item 11011), then an eth_call dry-run
-    (which also covers the room-11 requirement and name uniqueness). A
-    failed validation raises an error starting "validation failed; no
-    transaction sent:".
+    Validates before signing (no gas spent on failure): name 1-16
+    bytes, account registered, kami owned, 1 Holy Dust (item 11011)
+    held, then an eth_call dry-run (room-11 requirement, name
+    uniqueness).
 
     Args:
-        kami_id: Kami token index (e.g. 45).
-        name: New name (1-16 characters, globally unique).
-        account: Account label.
+        kami_id: Kami token index.
+        name: New name (1-16 bytes, globally unique).
     """
     name_bytes = len(name.encode())
     if not 1 <= name_bytes <= 16:
@@ -3916,15 +3787,12 @@ def upgrade_skill(kami_id: int, skill_index: int, account: str = "main") -> dict
     """Upgrade a skill on a kami by 1 point. Costs 1 SP. Kami must be RESTING.
 
     Validates before signing (no gas spent on failure): account
-    registered, kami owned by the account, then an eth_call dry-run
-    (state, skill points, tier gates). A failed validation raises an
-    error starting "validation failed; no transaction sent:".
+    registered, kami owned, then an eth_call dry-run (state, points,
+    tier gates).
 
     Args:
-        kami_id: Kami token index (e.g. 45).
-        skill_index: Skill index from catalogs/skills.csv (e.g. 311 for
-            Guardian Defensiveness, 212 for Enlightened Cardio).
-        account: Account label.
+        kami_id: Kami token index.
+        skill_index: Skill index from catalogs/skills.csv.
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "upgrade_skill")
@@ -3943,23 +3811,17 @@ def allocate_skills(
 ) -> dict:
     """Allocate multiple skill points in one call. Executes sequentially on-chain.
 
+    One transaction per point with nonce-retry. A mid-plan failure
+    raises with the upgrades already landed (final on-chain);
+    allow_partial=true returns that partial result instead.
+
     Validates before signing (no gas spent on failure): skill_plan
-    non-empty, account registered, kami owned by the account; each
-    upgrade transaction additionally passes an eth_call dry-run. A
-    failed validation raises an error starting "validation failed; no
-    transaction sent:". If an upgrade transaction fails mid-plan, the
-    call raises an error listing the upgrades already landed (those are
-    final on-chain); pass allow_partial=true to receive that partial
-    result as a normal return instead.
+    non-empty, account registered, kami owned, then per-tx dry-runs.
 
     Args:
         kami_id: Kami token index.
-        skill_plan: List of {"skill_index": int, "points": int} dicts.
-            Example: [{"skill_index": 311, "points": 5}, {"skill_index": 312, "points": 5}]
-            Must respect tier gate ordering — lower tiers first.
-        account: Account label.
-        allow_partial: If True, a mid-plan transaction failure returns
-            the partial result instead of raising an error.
+        skill_plan: [{"skill_index": int, "points": int}, ...];
+            lower tiers first.
     """
     if not skill_plan:
         raise PreTxValidationError(
@@ -4015,24 +3877,17 @@ async def level_to(
 ) -> dict:
     """Level up a kami repeatedly until it reaches target_level.
 
-    Queries current level from the API, then executes the exact number of
-    level-up transactions needed. Retries on transient RPC errors.
+    Sends exactly the needed level-ups sequentially with nonce-retry
+    (XP must be banked). A mid-run failure raises with the levels
+    already gained (final on-chain); allow_partial=true returns that
+    partial result instead.
 
     Validates before signing (no gas spent on failure): account
-    registered and kami owned by the account; each level transaction
-    additionally passes an eth_call dry-run. A failed validation raises
-    an error starting "validation failed; no transaction sent:". If a
-    level transaction fails mid-run, the call raises an error listing
-    the levels already gained (those are final on-chain); pass
-    allow_partial=true to receive that partial result as a normal
-    return instead.
+    registered, kami owned, then per-tx dry-runs.
 
     Args:
-        kami_id: Kami token index (e.g. 45).
-        target_level: Desired level (e.g. 32). Must have enough XP banked.
-        account: Account label.
-        allow_partial: If True, a mid-run transaction failure returns
-            the partial result instead of raising an error.
+        kami_id: Kami token index.
+        target_level: Desired level.
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "level_to")
@@ -4093,49 +3948,20 @@ async def level_and_allocate_batch(
 ) -> dict:
     """Batch level-up and skill allocation across many kamis in one call.
 
-    For each target, optionally levels the kami to `target_level`, then
-    optionally spends the given `skill_plan`, in a single MCP round-trip
-    that returns one compact result blob.
+    Per target: optionally level the kami to `target_level`, then
+    optionally spend `skill_plan` — one transaction per level/point,
+    with nonce-retry. Failures are captured per kami without aborting
+    the rest; if any plan failed, the call raises with every per-kami
+    outcome (successes are final on-chain); allow_partial=true returns
+    them without the error. Result rows carry per-tx receipts (txs).
 
     Validates before signing (no gas spent on failure): targets
-    non-empty and account registered; each transaction additionally
-    passes an eth_call dry-run. A failed validation raises an error
-    starting "validation failed; no transaction sent:".
-
-    Failures are captured per-kami: one kami's error does not abort the
-    rest of the batch. Nonce conflicts are handled by `_send_tx_retry`.
-    If any kami's plan failed, the call raises an error listing every
-    per-kami outcome (successes included — those are final on-chain);
-    pass allow_partial=true to receive the per-kami results as a normal
-    return instead.
+    non-empty, account registered, then a per-transaction eth_call
+    dry-run.
 
     Args:
-        targets: List of per-kami plans. Each item is a dict:
-            {
-                "kami_id": int,
-                "target_level": int (optional),
-                "skill_plan": [{"skill_index": int, "points": int}, ...] (optional)
-            }
-            At least one of target_level / skill_plan must be present.
-        account: Account label.
-        allow_partial: If True, per-kami failures return in the result
-            instead of raising an error.
-
-    Returns:
-        {
-            "count": N,
-            "ok": count of fully-successful kamis,
-            "results": [
-                {
-                    "kami_id": ...,
-                    "leveled": {"from": int, "to": int, "target": int} (if requested),
-                    "allocated": {"done": int, "planned": int} (if requested),
-                    "txs": [{tx_hash, status, block, gas_used}, ...],
-                    "error": str (if any phase failed),
-                },
-                ...
-            ],
-        }
+        targets: Per-kami plans: {"kami_id": int, "target_level":
+            int?, "skill_plan": [{"skill_index", "points"}, ...]?}.
     """
     if not targets:
         raise PreTxValidationError(
@@ -4215,43 +4041,23 @@ async def feed_level_allocate_batch(
 ) -> dict:
     """Per kami: FEED consumable items, then LEVEL to a target, then ALLOCATE skills.
 
-    Runs the three phases as one server-side loop per kami, in FEED →
-    LEVEL → ALLOCATE order (feeding lands XP before the level transactions
-    consume it). Every use/level/skill upgrade is its own transaction (no
-    on-chain batching), sent sequentially with nonce-retry. Kamis must be
-    RESTING.
-
-    Each target dict:
-        {"kami_id": int,
-         "feed_item_id": int   (optional; consumable to use on the kami),
-         "feed_count": int     (optional; how many feed_item_id to use),
-         "target_level": int   (optional),
-         "skill_plan": [{"skill_index": int, "points": int}, ...] (optional)}
+    Three phases per kami in FEED -> LEVEL -> ALLOCATE order (feeding
+    lands XP before levels consume it), one transaction per
+    use/level/point with nonce-retry; kamis must be RESTING. A kami's
+    failure skips its remaining phases and is captured in its row
+    without aborting the rest; if any plan failed, the call raises
+    with every per-kami outcome (successes are final on-chain);
+    allow_partial=true returns them without the error. Rows carry
+    per-tx receipts. The loop keeps running even if the MCP client
+    call times out.
 
     Validates before signing (no gas spent on failure): targets
-    non-empty and account registered; each transaction additionally
-    passes an eth_call dry-run. A failed validation raises an error
-    starting "validation failed; no transaction sent:".
-
-    Failures are captured per kami: an error is recorded in that kami's
-    result row and its remaining phases are skipped (a failed feed does not
-    level into missing XP); the loop continues with the next kami. The
-    server-side loop keeps running even if the MCP client call times
-    out; completed work is still applied on-chain. If any kami's plan
-    failed, the call raises an error listing every per-kami outcome
-    (successes included — those are final on-chain); pass
-    allow_partial=true to receive the per-kami results as a normal
-    return instead.
+    non-empty, account registered, then per-tx dry-runs.
 
     Args:
-        targets: List of per-kami target dicts (see above).
-        account: Account label.
-        allow_partial: If True, per-kami failures return in the result
-            instead of raising an error.
-
-    Returns:
-        {count, ok, results: [{kami_id, fed?, leveled?, allocated?, txs,
-        error?}]}
+        targets: Per-kami plans: {"kami_id": int, "feed_item_id":
+            int?, "feed_count": int?, "target_level": int?,
+            "skill_plan": [{"skill_index": int, "points": int}, ...]?}.
     """
     if not targets:
         raise PreTxValidationError(
@@ -4353,25 +4159,18 @@ def use_item_batch(
 ) -> dict:
     """Use the same item on a kami multiple times. Executes sequentially.
 
-    Works for any consumable: food (HP), XP potions, buff potions, etc.
-    Retries on transient RPC errors.
+    One transaction per use with nonce-retry; works for any consumable.
+    A mid-run failure raises with the uses already landed (final
+    on-chain); allow_partial=true returns that partial result instead.
 
     Validates before signing (no gas spent on failure): count at least
-    1, account registered, kami owned by the account, inventory holds
-    `count` of the item, then a per-transaction eth_call dry-run. A
-    failed validation raises an error starting "validation failed; no
-    transaction sent:". If a use transaction fails mid-run, the call
-    raises an error listing the uses already landed (those are final
-    on-chain); pass allow_partial=true to receive that partial result
-    as a normal return instead.
+    1, account registered, kami owned, `count` held, then per-tx
+    dry-runs.
 
     Args:
-        kami_id: Kami token index (e.g. 45).
-        item_id: Item ID (e.g. 11411 for Fortified XP Potion, 11302 for Burger).
-        count: Number of times to use the item.
-        account: Account label.
-        allow_partial: If True, a mid-run transaction failure returns
-            the partial result instead of raising an error.
+        kami_id: Kami token index.
+        item_id: Item ID (e.g. 11411 XP potion, 11302 Burger).
+        count: Number of uses.
     """
     if count < 1:
         raise PreTxValidationError(
@@ -4424,20 +4223,17 @@ def use_account_item(
 ) -> dict:
     """Use a consumable on the account (operator), NOT on a kami.
 
-    Intended for stamina restores (21201-21206 ice creams / paste),
-    VIPP sacrifice, and other account-level items. System is
-    `system.account.use.item` (Operator wallet). The account contract
-    syncs stamina before applying the effect.
+    For stamina restores (21201-21206), VIPP sacrifice, and other
+    account-level items (system.account.use.item; the contract syncs
+    stamina before applying the effect).
 
     Validates before signing (no gas spent on failure): amount at least
-    1, account registered, inventory holds `amount` of the item, then
-    an eth_call dry-run. A failed validation raises an error starting
-    "validation failed; no transaction sent:".
+    1, account registered, inventory holds `amount`, then an eth_call
+    dry-run.
 
     Args:
         item_id: Item index, e.g. 21201 (Ice Cream, +20 stamina).
-        account: Account label.
-        amount: Quantity to consume in this call (default 1).
+        amount: Quantity to consume (default 1).
     """
     if amount < 1:
         raise PreTxValidationError(
@@ -4458,15 +4254,12 @@ def equip_item(kami_id: int, item_index: int, account: str = "main") -> dict:
     """Equip an inventory item to a kami. Kami must be RESTING.
 
     Validates before signing (no gas spent on failure): account
-    registered, kami owned by the account, inventory holds the item,
-    then an eth_call dry-run (state, slot occupancy). A failed
-    validation raises an error starting "validation failed; no
-    transaction sent:".
+    registered, kami owned, item held, then an eth_call dry-run
+    (state, slot occupancy).
 
     Args:
-        kami_id: Kami token index (e.g. 45).
-        item_index: Item index from inventory (e.g. 1001 for Wooden Stick).
-        account: Account label.
+        kami_id: Kami token index.
+        item_index: Item index from inventory.
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "equip_item")
@@ -4484,14 +4277,12 @@ def unequip_item(kami_id: int, slot_type: str, account: str = "main") -> dict:
     """Unequip an item from a kami slot. Kami must be RESTING.
 
     Validates before signing (no gas spent on failure): account
-    registered, kami owned by the account, then an eth_call dry-run
-    (state, slot occupancy). A failed validation raises an error
-    starting "validation failed; no transaction sent:".
+    registered, kami owned, then an eth_call dry-run (state, slot
+    occupancy).
 
     Args:
-        kami_id: Kami token index (e.g. 45).
+        kami_id: Kami token index.
         slot_type: Equipment slot name (e.g. "Kami_Pet_Slot").
-        account: Account label.
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "unequip_item")
@@ -4513,35 +4304,19 @@ def equip_all_batch(
     """Equip an inventory item to many kamis (server-side loop, dry-run gated).
 
     Each entry is {"kami_id": int, "item_index": int}. Per entry: an
-    eth_call dry-run of system.kami.equip from the operator — if it would
-    revert (Kami_Pet_Slot already full, item not in inventory, kami not
-    RESTING) the entry is SKIPPED with the revert reason and no transaction
-    is sent; otherwise the equip is submitted with nonce-retry. The pet
-    slot must be empty first (unequip_all_batch clears occupied slots).
-    Kamis must be RESTING.
-
-    One item per kami (Kami_Pet_Slot is the only equipment slot). Duplicate
-    kami_ids are de-duplicated; a delay_seconds pause is inserted between
-    cycles. The server-side loop keeps running even if the MCP client call
-    times out. If any submitted equip transaction fails, the call raises
-    an error listing every per-entry outcome (successes included — those
-    are final on-chain); pass allow_partial=true to receive the
-    per-entry results as a normal return instead. Dry-run-gated skips
-    alone (no transaction sent) do not raise.
+    eth_call dry-run of system.kami.equip — an entry that would revert
+    (slot full, item missing, kami not RESTING) is SKIPPED with the
+    reason, nothing sent; otherwise the equip is submitted with
+    nonce-retry into the Kami_Pet_Slot (the only slot; one item per
+    kami; unequip_all_batch clears occupied slots). Duplicates
+    de-duplicated; the loop survives MCP client timeouts. If any
+    submitted equip fails, the call raises with every per-entry
+    outcome (successes are final); allow_partial=true returns them
+    without the error. Skips alone do not raise.
 
     Args:
-        equips: List of {"kami_id": int, "item_index": int} dicts.
-        account: Account label.
+        equips: List of {"kami_id": int, "item_index": int}.
         delay_seconds: Pause between cycles (default 2.0; 0 disables).
-        allow_partial: If True, submitted-transaction failures return in
-            the per-entry results instead of raising an error.
-
-    Returns:
-        {account, requested, equipped, skipped, errors,
-         results: [{kami_id, item_index, status, tx_hash?/reason?,
-         block?, gas_used?}]}.
-        Items are equipped from the account inventory into the
-        Kami_Pet_Slot.
     """
     src = _get_account(account)
     # Resolved before the per-item dry-run loop: a missing operator
@@ -4647,32 +4422,19 @@ def unequip_all_batch(
 ) -> dict:
     """Unequip a slot from many kamis (server-side loop, dry-run gated).
 
-    Per kami: an eth_call dry-run of system.kami.unequip(kamiID, slot_type)
-    — if the slot is EMPTY the kami is SKIPPED and no transaction is sent;
-    otherwise the unequip is submitted with nonce-retry. The freed item
-    returns to the account inventory. Kamis must be RESTING. Duplicate
-    kami_ids are de-duplicated; a delay_seconds pause is inserted between
-    cycles. The server-side loop keeps running even if the MCP client call
-    times out. If any submitted unequip transaction fails, the call
-    raises an error listing every per-kami outcome (successes included —
-    those are final on-chain); pass allow_partial=true to receive the
-    per-kami results as a normal return instead. Empty-slot skips alone
-    (no transaction sent) do not raise.
-
-    Kami_Pet_Slot is currently the only equipment slot in the game, so the
-    default slot_type unequips all equipment.
+    Per kami: an eth_call dry-run of system.kami.unequip — an EMPTY
+    slot is SKIPPED, nothing sent; otherwise the unequip is submitted
+    with nonce-retry and the freed item returns to the inventory.
+    Kamis must be RESTING; duplicates de-duplicated; Kami_Pet_Slot is
+    the only slot, so the default unequips everything. The loop
+    survives MCP client timeouts. If any submitted unequip fails, the
+    call raises with every per-kami outcome (successes are final);
+    allow_partial=true returns them without the error.
 
     Args:
         kami_ids: Kami token indices to unequip.
-        slot_type: Equipment slot name (default "Kami_Pet_Slot").
-        account: Account label.
+        slot_type: Slot name (default "Kami_Pet_Slot").
         delay_seconds: Pause between cycles (default 2.0; 0 disables).
-        allow_partial: If True, submitted-transaction failures return in
-            the per-kami results instead of raising an error.
-
-    Returns:
-        {account, slot_type, requested, unequipped, skipped_empty, errors,
-         results: [{kami_id, status, tx_hash?/reason?, block?, gas_used?}]}
     """
     src = _get_account(account)
     # Resolved before the per-item dry-run loop: a missing operator
@@ -4766,16 +4528,17 @@ _ABI_LIST_KAMI = json.loads(
 def list_kami(
     kami_id: int, price_eth: str, expiry: int = 0, account: str = "main"
 ) -> dict:
-    """List a Kami for sale on KamiSwap. Kami must be RESTING and not soulbound.
+    """List a kami for sale on KamiSwap (ETH price). Operator wallet.
 
-    The Kami stays in your wallet but enters LISTED state (can't harvest/move).
-    Uses the operator wallet.
+    The kami must be RESTING and not soulbound; it stays in the wallet
+    but enters LISTED state (no harvest/move) until bought or cancelled
+    (cancel_kami_listing frees it).
 
     Args:
-        kami_id: Kami token index (e.g. 45).
-        price_eth: Listing price as a decimal string in ETH (e.g. "0.1").
-        expiry: Expiration unix timestamp. 0 = no expiration.
-        account: Account label.
+        kami_id: Kami token index to list.
+        price_eth: Ask price as a decimal ETH string (> 0).
+        expiry: Listing expiry timestamp (0 = no expiry).
+        account: Account label (must own the kami).
     """
     price_wei = _eth_to_wei(price_eth)
     if price_wei <= 0:
@@ -4890,30 +4653,19 @@ def buy_kami(
 ) -> dict:
     """Buy one or more listed kamis on KamiSwap with ETH. Owner wallet.
 
-    Resolves each kami's active listing via the Kamiden indexer, sums the
-    live listing prices, and sends a single batch purchase transaction
-    carrying exactly that total as its value. The batch is all-or-nothing:
-    if any listing fails (expired, already sold), the whole transaction
-    reverts. Bought kamis join this account's roster and enter a 1-hour
-    purchase cooldown.
-
-    Validates before signing (no gas spent on failure): an active
-    listing exists for every kami, the live total is within
-    max_total_eth, the owner wallet balance covers total + gas
-    provision, and an eth_call dry-run passes. A failed validation
-    raises an error starting "validation failed; no transaction sent:".
+    Resolves each kami's active listing via the Kamiden indexer, sums
+    the live prices, and sends one all-or-nothing batch purchase
+    carrying exactly that total as its value (any failed listing
+    reverts the whole transaction). Aborts BEFORE sending if the live
+    total exceeds max_total_eth, so a repriced listing cannot raise
+    the spend; owner balance must cover total + gas, and an eth_call
+    dry-run passes first. Bought kamis enter a 1-hour cooldown.
 
     Args:
-        kami_ids: Kami token indices to buy (e.g. [1116, 428]). A single
-            kami is a 1-element list.
-        max_total_eth: Decimal ETH string (e.g. "0.012"). The call aborts
-            BEFORE sending if the live sum of listing prices exceeds this,
-            so a listing repriced between browsing and buying cannot raise
-            the amount spent.
-        account: Account label; pays with this account's owner wallet.
-
-    Returns the tx result (tx_hash, status, gas_used) plus per-kami
-    purchase details and the ETH total.
+        kami_ids: Kami token indices to buy (a single kami is a
+            1-element list).
+        max_total_eth: Decimal ETH cap on the live total (e.g. "0.012").
+        account: Account label; pays with its owner wallet.
     """
     ids = list(dict.fromkeys(kami_ids))
     if not ids:
@@ -5011,26 +4763,17 @@ def cancel_kami_listing(
 ) -> dict:
     """Cancel this account's KamiSwap listing(s). Operator wallet.
 
-    Returns each kami from LISTED back to RESTING. The cancel system takes
-    one order ID per transaction, so multiple kami_ids run as a server-side
-    loop (one tx each; every kami is attempted). Order IDs are resolved
-    via the Kamiden indexer; only listings made by this account are
-    matched. Expired listings can be cancelled too — cancelling is what
-    frees a kami stuck in LISTED after its listing expires. If any
-    cancel fails, the call raises an error listing every per-kami
-    outcome (successes included — those cancels are final on-chain);
-    pass allow_partial=true to receive the per-kami results as a normal
-    return instead.
+    Returns each kami from LISTED to RESTING; one transaction per
+    order ID (server-side loop, every kami attempted). Order IDs
+    resolve via the Kamiden indexer, expired listings included —
+    cancelling frees a kami stuck in LISTED after expiry. If any
+    cancel fails, the call raises with every per-kami outcome
+    (successes are final); allow_partial=true returns them without
+    the error.
 
     Args:
         kami_ids: Kami token indices whose listings to cancel.
         account: Account label (must be the seller).
-        allow_partial: If True, per-kami failures return in the result
-            instead of raising an error.
-
-    Returns:
-        {account, cancelled, failed, results: [{kami_index, listing_id,
-         price_eth, status, tx_hash?, block?, gas_used?, error?}]}
     """
     ids = list(dict.fromkeys(kami_ids))
     if not ids:
@@ -5128,17 +4871,13 @@ _ABI_TRADE_EXECUTE = json.loads(
 def take_trade(trade_id: str, account: str = "main") -> dict:
     """Take (execute) a pending trade as the taker. Owner wallet.
 
-    Pays the maker's buy items from your inventory and escrows them; the
-    trade moves to EXECUTED status until the maker calls complete().
-
-    To buy items the maker is selling for MUSU (Q29 "Buy at Marketplace"),
-    pass a trade where buy_item=1 (MUSU). Discover candidate trade IDs via
-    lens_trades / lens_market, or get_item_orderbook for one item's
-    complete book.
+    Pays the maker's buy items from your inventory and escrows them;
+    the trade moves to EXECUTED until the maker completes it. To buy
+    items sold for MUSU, take a trade whose buy_item=1. Discover trade
+    IDs via lens_trades / lens_market or get_item_orderbook.
 
     Args:
-        trade_id: Trade entity ID (decimal or hex string starting with 0x).
-        account: Account label.
+        trade_id: Trade entity ID (decimal or 0x-hex string).
     """
     trade_int = int(trade_id, 16) if trade_id.startswith("0x") else int(trade_id)
     return _send_tx_owner(
@@ -5191,7 +4930,6 @@ def get_account_trades(account: str = "main") -> dict:
     offered for items.
 
     Args:
-        account: Account label.
 
     Returns:
         {account, pending, executed, total_open, trades: [{trade_id_hex,
@@ -5409,32 +5147,20 @@ def get_item_orderbook(
 ) -> dict:
     """Order book for one item — every open trade, all makers. Read-only.
 
-    Replicates the in-game World Order Book view by reading trade entities
-    directly from chain state (event-log discovery plus batched component
-    reads). Complete: it sees every open trade regardless of maker, for
-    one item at a time. The first call in a server session scans
-    chain history (~15-30s); later calls are incremental. Requires the
-    one-time trade-ID bootstrap (executor/kwob_bootstrap.py, see SETUP.md);
-    without it the call raises instead of returning partial data.
-
-    Returned from the taker's perspective:
-      asks — makers SELLING this item for MUSU, cheapest first. Taking one
-             (take_trade) pays MUSU and receives the items.
-      bids — makers BUYING this item with MUSU, highest price first.
-             Taking one gives the items and receives MUSU (minus trade tax).
-
-    Orders made by any roster account carry an "own" tag with the account
-    label; the contract rejects taking your own trade.
+    Replicates the in-game World Order Book from chain state, complete
+    across makers for one item. First call in a session scans history
+    (~15-30s); later calls are incremental. Requires the one-time
+    trade-ID bootstrap (executor/kwob_bootstrap.py, SETUP.md) — without
+    it the call raises instead of returning partial data. Taker's
+    perspective: asks = makers SELLING for MUSU (cheapest first;
+    take_trade pays MUSU, receives items); bids = makers BUYING with
+    MUSU (highest first; taking one gives items, receives MUSU minus
+    trade tax). Own-account trades are tagged `own`.
 
     Args:
-        item_index: Item index (e.g. 1004). MUSU (index 1) is not allowed —
-            it is the quote currency.
-        side: "buy" (asks only), "sell" (bids only), or "both".
-
-    Returns:
-        {item_index, item_name, open_trades_all_items, skipped,
-         asks?/best_ask?, bids?/best_bid?} where each order is
-        {trade_id, qty, musu_total, unit_price, maker_account_id, own?}.
+        item_index: Item to book (MUSU, index 1, is the quote
+            currency and cannot be booked).
+        side: "buy", "sell", or "both" (default).
     """
     if side not in ("buy", "sell", "both"):
         raise ValueError("side must be 'buy', 'sell', or 'both'")
@@ -5587,32 +5313,20 @@ def transfer_kami(
 ) -> dict:
     """Transfer in-world kami(s) to another account via system.kami.send.
 
-    A purely in-game operator-to-operator transfer: the kamis stay staked
-    and playable; no NFT transfer or marketplace sale is involved. The
-    recipient is addressed by OPERATOR wallet — either resolved from a
-    roster account label (to_account) or given directly as a 0x address
-    (to_address); exactly one of the two must be set.
-
-    Constraints (from system.kami.send):
-      - 1..9 kamis per transaction, no duplicates.
-      - Each kami must be owned by the source account and RESTING or
-        LISTED (an active listing is auto-cancelled by the send);
-        HARVESTING or DEAD reverts.
-      - Send-to-self reverts.
-
-    Each kami's state and ownership are pre-checked on-chain, then the
-    whole batch is dry-run via eth_call. Nothing is submitted unless the
-    dry-run succeeds, so a doomed transfer spends no transaction.
+    Purely in-game operator-to-operator transfer: kamis stay staked
+    and playable, no NFT movement. Recipient addressed by OPERATOR
+    wallet from a roster label (to_account) or 0x address (to_address)
+    — exactly one. Constraints: 1..9 kamis per transaction, no
+    duplicates; each owned by the source and RESTING or LISTED (an
+    active listing auto-cancels); HARVESTING or DEAD reverts;
+    send-to-self reverts. Ownership/state pre-checked on-chain and the
+    batch dry-run via eth_call before signing.
 
     Args:
-        kami_ids: Kami token indices to send (e.g. [10021]). 1..9 entries.
+        kami_ids: Kami token indices to send (1..9).
         to_account: Destination roster account label.
-        to_address: Destination operator address (0x...); alternative to
-            to_account.
+        to_address: Destination operator address (0x...).
         account: Source account label.
-
-    Returns the tx result (tx_hash, status, gas_used) plus destination
-    and per-kami pre-check details.
     """
     src = _get_account(account)
     if bool(to_account) == bool(to_address):
@@ -5761,34 +5475,21 @@ def transfer_items(
 ) -> dict:
     """Transfer in-world items to another account via system.item.transfer.
 
-    Moves items from the source account's inventory to the destination
-    account's inventory. Signed by the source OWNER wallet. The recipient
-    is addressed by account entity ID — the uint256 of their OWNER wallet
-    address — either resolved from a roster account label (to_account) or
-    given directly as a 0x owner address (to_address); exactly one of the
-    two must be set. The destination must be a registered in-game account.
-
-    Constraints (from system.item.transfer):
-      - 1..8 DISTINCT item types per transaction; item_indices and amounts
-        are parallel arrays, all amounts > 0.
-      - Fee: 15 MUSU per item TYPE regardless of amount, deducted from the
-        source inventory (e.g. transferring 3 item types costs 45 MUSU).
-
-    The whole transfer is dry-run via eth_call before submitting; nothing
-    is sent unless the dry-run succeeds, so a doomed transfer (insufficient
-    balance, unregistered destination) spends no transaction.
+    Source OWNER wallet signs; the recipient is the destination
+    account entity (uint256 of its OWNER address), from a roster label
+    (to_account) or a 0x owner address (to_address) — exactly one, and
+    the destination must be registered. Constraints: 1..8 DISTINCT
+    item types per transaction (item_indices parallel to amounts, all
+    > 0); fee 15 MUSU per item TYPE from the source inventory. The
+    whole transfer is dry-run via eth_call before signing, so a doomed
+    transfer spends nothing.
 
     Args:
-        item_indices: Item indices to send (e.g. [30004, 30026]). 1..8
-            distinct entries.
-        amounts: Quantities, parallel to item_indices (e.g. [1, 7]). All > 0.
+        item_indices: Item indices to send (1..8 distinct).
+        amounts: Quantities, parallel to item_indices, all > 0.
         to_account: Destination roster account label.
-        to_address: Destination owner address (0x...); alternative to
-            to_account.
+        to_address: Destination owner address (0x...).
         account: Source account label.
-
-    Returns the tx result (tx_hash, status, gas_used) plus destination,
-    item, and fee details.
     """
     src = _get_account(account)
     if not src.owner_key:
@@ -5902,7 +5603,6 @@ def complete_trade(trade_id: str, account: str = "main") -> dict:
 
     Args:
         trade_id: Trade entity ID (decimal or hex string starting with 0x).
-        account: Account label.
     """
     trade_int = int(trade_id, 16) if trade_id.startswith("0x") else int(trade_id)
     return _send_tx_owner(
@@ -5916,17 +5616,12 @@ def complete_all_trades(
 ) -> dict:
     """Find and complete all EXECUTED trades for this account.
 
-    Discovers trades via on-chain components, filters for EXECUTED status,
-    and completes each one. Only trades where this account is the maker
-    can be completed. If any completion fails, the call raises an error
-    listing every per-trade outcome (successes included — those
-    completions are final on-chain); pass allow_partial=true to receive
-    the per-trade results as a normal return instead.
+    Discovers this account's maker-side trades from chain state and
+    completes each EXECUTED one. If any completion fails, the call
+    raises with every per-trade outcome (successes are final on-chain);
+    allow_partial=true returns them without the error.
 
     Args:
-        account: Account label.
-        allow_partial: If True, per-trade failures return in the result
-            instead of raising an error.
     """
     discovery = get_account_trades(account)
     trades = discovery.get("trades", [])
@@ -5988,19 +5683,16 @@ def create_trade(
 ) -> dict:
     """Create a trade offer on the in-game marketplace. Uses owner wallet.
 
-    One side must be MUSU (item index 1). Sell items are escrowed immediately.
-    The trade is open to anyone (no target restriction).
-
-    Common patterns:
-      Sell items for MUSU: sell_item=<item>, buy_item=1, buy_amount=<musu>
-      Buy items with MUSU: sell_item=1, sell_amount=<musu>, buy_item=<item>
+    One side must be MUSU (item index 1); sell items are escrowed
+    immediately and the trade is open to anyone. Sell items for MUSU:
+    sell_item=<item>, buy_item=1; buy items with MUSU: sell_item=1,
+    buy_item=<item>.
 
     Args:
-        sell_item: Item index you are offering (e.g. 1 for MUSU, 11312 for Honeydew).
-        sell_amount: Quantity to offer.
-        buy_item: Item index you want in return.
-        buy_amount: Quantity you want.
-        account: Account label.
+        sell_item: Item index offered.
+        sell_amount: Quantity offered.
+        buy_item: Item index wanted in return.
+        buy_amount: Quantity wanted.
     """
     if sell_item != 1 and buy_item != 1:
         raise ValueError(
@@ -6023,7 +5715,6 @@ def cancel_trade(trade_id: str, account: str = "main") -> dict:
 
     Args:
         trade_id: Trade entity ID (decimal or hex string starting with 0x).
-        account: Account label.
     """
     trade_int = int(trade_id, 16) if trade_id.startswith("0x") else int(trade_id)
     return _send_tx_owner(
@@ -6045,30 +5736,18 @@ def stop_harvest_batch(
     kami_ids: list[int], account: str = "main",
     allow_partial: bool = False,
 ) -> dict:
-    """Stop harvests for multiple kamis in one transaction. Collects rewards automatically.
+    """Stop harvests for multiple kamis in one transaction; collects rewards.
 
-    Uses executeBatchedAllowFailure — individual reverts skip silently
-    instead of reverting the entire batch. After the tx commits, this
-    function reads each kami's harvest entity state on-chain to detect
-    silent skips. If any harvest did not stop, the call raises an error
-    listing every per-kami outcome (stops that landed are final
-    on-chain); pass allow_partial=true to receive the per-kami results
-    as a normal return instead. The `per_kami` map carries the
-    resulting harvest state and a `stopped` boolean;
-    `stopped_count`/`failed_count` summarize.
-
-    Max ~5 per batch (eth_estimateGas cap).
-
-    Validates before signing (no gas spent on failure): kami_ids
-    non-empty and account registered. A batch transaction that reverts
-    as a whole, or times out awaiting its receipt, raises the
-    corresponding transaction error.
+    Uses executeBatchedAllowFailure: individual stops revert silently
+    without reverting the batch, so after the tx commits each kami's
+    harvest state is read back on-chain to detect silent skips. If any
+    stop did not take effect, the call raises with every per-kami
+    outcome (landed stops are final); allow_partial=true returns the
+    per_kami results instead. Max ~5 per batch. A whole-batch revert
+    or receipt timeout raises the corresponding transaction error.
 
     Args:
-        kami_ids: List of kami token indices (e.g. [45, 46, 47]).
-        account: Account label.
-        allow_partial: If True, silently-skipped per-kami stops return
-            in the result instead of raising an error.
+        kami_ids: Kami token indices.
     """
     if not kami_ids:
         raise PreTxValidationError(
@@ -6158,101 +5837,6 @@ _ABI_QUEST_COMPLETE = json.loads(
 _ABI_QUEST_DROP = _ABI_QUEST_COMPLETE  # same signature
 
 
-@mcp.tool()
-def get_active_quests(account: str = "main") -> dict:
-    """Enumerate quests owned by the account and flag which are completed.
-
-    "Owned" = `component.id.quest.owns` lists the quest entity for this account.
-    Owned quests include both truly-active (accepted but not completed) and
-    completed ones; the chain keeps the entity around. `completed` is read via
-    `component.is.complete.has(qid)`.
-
-    Args:
-        account: Account label.
-
-    Returns:
-        owned_count, completed_count, truly_active_count, plus per-quest
-        dicts with {entity_id, quest_index?, completed}. `active_quest_count`
-        is a deprecated back-compat alias for `owned_count`;
-        `truly_active_count` counts only the in-progress quests.
-    """
-    acc_id = _account_entity_id(account)
-
-    owns_addr = _resolve_component("component.id.quest.owns")
-    owns_comp = w3.eth.contract(
-        address=owns_addr, abi=_SYSTEMS_COMPONENT_ABI
-    )
-    quest_eids = owns_comp.functions.getEntitiesWithValue(acc_id).call()
-
-    is_complete_addr = _resolve_component("component.is.complete")
-    is_complete = w3.eth.contract(
-        address=is_complete_addr, abi=_BOOL_COMPONENT_ABI
-    )
-
-    known_indices = list(range(1, 109)) + list(range(2001, 2017)) + list(range(3001, 3025))
-    eid_to_index = {}
-    for idx in known_indices:
-        eid_to_index[_quest_entity_id(idx, acc_id)] = idx
-
-    quests = []
-    completed_count = 0
-    for eid in quest_eids:
-        try:
-            done = bool(is_complete.functions.has(eid).call())
-        except Exception:
-            done = False
-        if done:
-            completed_count += 1
-        q: dict = {"entity_id": hex(eid), "completed": done}
-        if eid in eid_to_index:
-            q["quest_index"] = eid_to_index[eid]
-        quests.append(q)
-
-    owned = len(quests)
-    return {
-        "account": account,
-        "owned_count": owned,
-        "completed_count": completed_count,
-        "truly_active_count": owned - completed_count,
-        "active_quest_count": owned,  # back-compat alias for owned_count
-        "quests": quests,
-    }
-
-
-@mcp.tool()
-def get_quest_status(quest_index: int, account: str = "main") -> dict:
-    """Check the on-chain state of a specific quest for the account.
-
-    Returns the quest state string if active, or indicates not accepted.
-
-    Args:
-        quest_index: Quest index (1-108 main, 2001-2016 Mina, 3001+ side).
-        account: Account label.
-    """
-    acc_id = _account_entity_id(account)
-    q_id = _quest_entity_id(quest_index, acc_id)
-
-    state_addr = _resolve_component("component.state")
-    state_comp = w3.eth.contract(address=state_addr, abi=_STRING_VALUE_ABI)
-
-    try:
-        state = state_comp.functions.safeGet(q_id).call()
-        return {
-            "quest_index": quest_index,
-            "entity_id": hex(q_id),
-            "state": state,
-            "active": bool(state),
-        }
-    except Exception as e:
-        return {
-            "quest_index": quest_index,
-            "entity_id": hex(q_id),
-            "state": None,
-            "active": False,
-            "note": f"Not accepted or already completed ({e})",
-        }
-
-
 def _quest_owned_completed(q_id: int, account_id: int) -> tuple[bool, bool]:
     """(owned, completed) for a quest instance entity, from chain state."""
     owns = w3.eth.contract(
@@ -6276,19 +5860,14 @@ def _quest_owned_completed(q_id: int, account_id: int) -> tuple[bool, bool]:
 
 @mcp.tool()
 def accept_quest(quest_index: int, account: str = "main") -> dict:
-    """Accept a quest by index. Costs gas.
-
-    Requirements are checked on-chain (previous quest completed, location, etc).
+    """Accept a quest by index.
 
     Validates before signing (no gas spent on failure): account
-    registered, quest not already accepted or completed by the account,
-    then an eth_call dry-run (prerequisites, location). A failed
-    validation raises an error starting "validation failed; no
-    transaction sent:".
+    registered, quest not already accepted or completed, then an
+    eth_call dry-run (prerequisites, location).
 
     Args:
         quest_index: Quest index to accept.
-        account: Account label.
     """
     aid = _require_registered_operator(account)
     owned, completed = _quest_owned_completed(
@@ -6311,19 +5890,15 @@ def accept_quest(quest_index: int, account: str = "main") -> dict:
 
 @mcp.tool()
 def complete_quest(quest_index: int, account: str = "main") -> dict:
-    """Complete an active quest. Costs gas. All objectives must be met.
-
-    Computes the quest entity ID from the index and account.
+    """Complete an active quest. All objectives must be met.
 
     Validates before signing (no gas spent on failure): account
     registered, quest accepted and not already completed, then an
-    eth_call dry-run — unmet objectives surface as a validation error
-    carrying the chain's revert reason. A failed validation raises an
-    error starting "validation failed; no transaction sent:".
+    eth_call dry-run — unmet objectives surface with the chain's
+    reason.
 
     Args:
-        quest_index: Quest index of the active quest to complete.
-        account: Account label.
+        quest_index: Quest index of the active quest.
     """
     aid = _require_registered_operator(account)
     q_id = _quest_entity_id(quest_index, aid)
@@ -6351,11 +5926,11 @@ def complete_quest(quest_index: int, account: str = "main") -> dict:
 def check_quest_completable(quest_index: int, account: str = "main") -> dict:
     """Check if a quest can be completed right now (free staticCall, no gas).
 
-    Returns completable=True if all objectives are met.
+    Returns completable=True when all objectives are met; otherwise the
+    chain's reason.
 
     Args:
         quest_index: Quest index to check.
-        account: Account label.
     """
     acc_id = _account_entity_id(account)
     q_id = _quest_entity_id(quest_index, acc_id)
@@ -6384,18 +5959,13 @@ def check_quest_completable(quest_index: int, account: str = "main") -> dict:
 def quest_state(quest_index: int, account: str = "main") -> dict:
     """Discriminated read of a quest's on-chain state for the account.
 
-    Replaces the older `get_quest_status` (which read only `component.state`)
-    and disambiguates `check_quest_completable` (which conflates "not
-    accepted" with "objectives not met"). Free — no gas.
-
-    Returns:
-      quest_index, entity_id, owned, completed, completable_now,
-      revert_kind ("none"|"objs_not_met"|"not_active"|"other"),
-      revert_reason, state ("not_accepted"|"active_blocked"|"active_ready"|"completed").
+    Distinguishes not-accepted / accepted-in-progress / completed from
+    chain components (ownership via component.id.quest.owns, completion
+    via component.is.complete), with the state string when present.
+    Free read, no gas.
 
     Args:
         quest_index: Quest index.
-        account: Account label.
     """
     acc_id = _account_entity_id(account)
     q_id = _quest_entity_id(quest_index, acc_id)
@@ -6462,19 +6032,15 @@ def quest_state(quest_index: int, account: str = "main") -> dict:
 
 @mcp.tool()
 def get_expected_objective(quest_index: int) -> dict:
-    """Return the catalog-expected objectives for a quest (NOT chain truth).
+    """Quest objectives from the local catalog, with per-objective mechanics.
 
-    Reads `catalogs/quests/quests.csv` + `objectives.csv` and reports what the
-    catalog *expects* the objectives to be. This is catalog data, not chain
-    truth; it is comparable against the on-chain `complete()` revert reported
-    by `quest_state`.
-
-    Returns objectives as a list of {description, type, delta_type, operator,
-    index, value}; if the catalog row or any objective description is
-    missing, returns the partial result with a `note`.
+    Documentation/expectation, NOT chain ground truth: serves the
+    catalog rows (catalogs/quests/) for a quest — objective type,
+    target index, value — so the needed actions are explicit.
+    check_quest_completable / quest_state read the chain.
 
     Args:
-        quest_index: Quest index.
+        quest_index: Quest index to look up.
     """
     _load_quest_catalog()
     quest = _QUEST_CATALOG.get(quest_index)
@@ -6529,16 +6095,14 @@ def get_expected_objective(quest_index: int) -> dict:
 
 @mcp.tool()
 def drop_quest(quest_index: int, account: str = "main") -> dict:
-    """Drop/abandon an active quest. Costs gas.
+    """Drop/abandon an active quest.
 
     Validates before signing (no gas spent on failure): account
-    registered, quest accepted and not already completed, then an
-    eth_call dry-run. A failed validation raises an error starting
-    "validation failed; no transaction sent:".
+    registered, quest accepted and not completed, then an eth_call
+    dry-run.
 
     Args:
-        quest_index: Quest index of the active quest to drop.
-        account: Account label.
+        quest_index: Quest index of the active quest.
     """
     aid = _require_registered_operator(account)
     q_id = _quest_entity_id(quest_index, aid)
@@ -6584,13 +6148,11 @@ def burn_items(
 
     Validates before signing (no gas spent on failure): item_indices
     non-empty and parallel to amounts, account registered, inventory
-    holds each amount, then an eth_call dry-run. A failed validation
-    raises an error starting "validation failed; no transaction sent:".
+    holds each amount, then an eth_call dry-run.
 
     Args:
-        item_indices: List of item indices to burn (e.g. [1005]).
-        amounts: List of amounts to burn, parallel to item_indices.
-        account: Account label.
+        item_indices: Item indices to burn.
+        amounts: Amounts to burn, parallel to item_indices.
     """
     if not item_indices:
         raise PreTxValidationError(
@@ -6640,15 +6202,13 @@ def craft_item(
 
     See catalogs/recipes.csv for recipe indices and requirements.
 
-    Validates before signing (no gas spent on failure): amount at least
-    1, account registered, then an eth_call dry-run (recipe inputs,
-    stamina). A failed validation raises an error starting "validation
-    failed; no transaction sent:".
+    Validates before signing (no gas spent on failure): amount at
+    least 1, account registered, then an eth_call dry-run (inputs,
+    stamina).
 
     Args:
-        recipe_index: Recipe index (e.g. 6 for Extract Pine Pollen).
-        amount: Number of times to craft (multiplies inputs/outputs).
-        account: Account label.
+        recipe_index: Recipe index.
+        amount: Crafts in this transaction (multiplies inputs/outputs).
     """
     if amount < 1:
         raise PreTxValidationError(
@@ -6675,40 +6235,23 @@ def speed_craft_batch(
 ) -> dict:
     """Craft a stamina-gated recipe N times, restoring stamina between crafts.
 
-    Account stamina caps at 100 and regenerates ~1/min, so a recipe costing
-    more than 50 stamina cannot be crafted back-to-back naturally, and a
-    single craft_item(amount=N) for N>1 needs N×cost ≤ 100 or it reverts.
-    This tool interleaves, per cycle:
-        1. use ONE stamina_item_id (account stamina restore) — its own tx
-        2. craft ONE unit of recipe_index                     — its own tx
-    There is no on-chain batching; transactions go out sequentially with
-    nonce-retry. Consumes `count` stamina items plus `count`× the recipe
-    inputs from the account inventory.
-
-    Stop-on-error: if a stamina-use or craft transaction fails, the loop
-    halts and the call raises an error listing the completed cycles
-    (those are final on-chain); pass allow_partial=true to receive that
-    partial progress as a normal return instead. The server-side loop
+    Per cycle: use ONE stamina_item_id, then craft ONE unit of
+    recipe_index — each its own transaction, sequential with
+    nonce-retry (stamina caps at 100, so recipes costing >50 cannot
+    craft back-to-back naturally). Consumes `count` stamina items plus
+    `count`x the recipe inputs. The loop halts on the first failed
+    transaction and raises with the completed cycles (final on-chain);
+    allow_partial=true returns the partial progress instead. The loop
     keeps running even if the MCP client call times out.
 
     Validates before signing (no gas spent on failure): count at least
-    1 and account registered; each transaction additionally passes an
-    eth_call dry-run. A failed validation raises an error starting
-    "validation failed; no transaction sent:".
+    1, account registered, then per-tx dry-runs.
 
     Args:
-        recipe_index: Recipe to craft (see catalogs/recipes.csv).
-        count: Number of crafts (one stamina item consumed per craft).
-        stamina_item_id: Account stamina-restore item index (default 21205,
-            +80 stamina; see catalogs/items.csv for alternatives).
-        account: Account label.
+        recipe_index: Recipe to craft (catalogs/recipes.csv).
+        count: Number of crafts (one stamina item each).
+        stamina_item_id: Stamina-restore item (default 21205, +80).
         delay_seconds: Pause between cycles (default 0).
-        allow_partial: If True, a mid-run transaction failure returns
-            the partial progress instead of raising an error.
-
-    Returns:
-        {account, recipe_index, stamina_item_id, requested, crafted,
-         stamina_used, txs, last_error, success}
     """
     _get_account(account)
     if count <= 0:
@@ -6817,13 +6360,12 @@ _ABI_DROPTABLE_REVEAL = json.loads(
 def get_scavenge_points(node_index: int, account: str = "main") -> dict:
     """Check accumulated scavenge points + claimable tiers for a node.
 
-    Reads the Value component on the scavenge instance entity (per-account
-    points) and the registry entity (per-node tier cost). Returns 0 points
-    if the account has never harvested at this node (instance not created).
+    Reads the per-account scavenge instance and the node's tier cost
+    from chain components; 0 points if the account never harvested
+    there.
 
     Args:
-        node_index: Harvest node index (e.g., 16 for Techno Temple).
-        account: Account label.
+        node_index: Harvest node index.
     """
     instance_id = _scavenge_instance_id(node_index, account)
     registry_id = _scavenge_registry_id(node_index)
@@ -6860,16 +6402,14 @@ async def get_scavenge_droptable(
 ) -> dict:
     """Read on-chain scavenge droptable + correctly compute drop probabilities.
 
-    The on-chain `weights` field for droptables is NOT a linear pick weight.
-    Drop probability is `prob_i = 2^weight_i / sum(2^weight_j)` — exponential
-    rarity bands. Weight 5 ≈ 4%, weight 7 ≈ 16%, weight 9 ≈ 64% in a 4-entry
-    table. Reading the raw weights as linear shares overestimates rare
-    drops by 4-5x.
+    The on-chain `weights` are NOT linear pick weights: probability is
+    2^weight / sum(2^weight) — exponential rarity bands (weight 9 is
+    common, 7 uncommon, 5 rare). Reading them as linear shares
+    overestimates rare drops 4-5x.
 
     Args:
-        node_index: Harvest node index (e.g., 16 for Techno Temple, 77 for
-            Thriving Mushrooms).
-        account: Account label (used for the API auth header).
+        node_index: Harvest node index.
+        account: Account label (API auth header).
     """
     nodes = await _api_get("/api/playwright/nodes", account)
     node = next((n for n in nodes if n.get("index") == node_index), None)
@@ -7009,24 +6549,20 @@ def _send_reveal_tx(account: str, ids: list[int]) -> dict:
 
 @mcp.tool()
 def scavenge_claim(node_index: int, account: str = "main") -> dict:
-    """Claim scavenge rewards for a node. Costs gas.
+    """Claim scavenge rewards for a node.
 
     Triggers droptable commit(s) that must be revealed in a later block
-    than the claim and within 256 blocks (~6 min) of it — the reveal
-    seed is the claim block's blockhash, which stops being available
-    after 256 blocks; a commit past that window cannot be revealed by
-    any player action. Returns commit_ids for droptable_reveal as
-    decimal strings (uint256 values exceed IEEE-754 float precision and
-    do not survive JSON as numbers).
+    and within 256 blocks (~6 min) — the reveal seed is the claim
+    block's blockhash, unavailable after that; an expired commit cannot
+    be revealed by any player action. Returns commit_ids for
+    droptable_reveal as decimal strings.
 
     Validates before signing (no gas spent on failure): account
-    registered, accumulated scavenge points cover at least one tier at
-    the node, then an eth_call dry-run. A failed validation raises an
-    error starting "validation failed; no transaction sent:".
+    registered, accumulated points cover at least one tier at the node,
+    then an eth_call dry-run.
 
     Args:
         node_index: Harvest node index.
-        account: Account label.
     """
     _require_registered_operator(account)
     points_info = get_scavenge_points(node_index, account)
@@ -7053,25 +6589,21 @@ def scavenge_claim(node_index: int, account: str = "main") -> dict:
 
 @mcp.tool()
 def droptable_reveal(commit_ids: list[str], account: str = "main") -> dict:
-    """Reveal droptable commits to receive items. Costs gas.
+    """Reveal droptable commits to receive items.
 
-    Must be called in a later block than the claim that created the
-    commits and within 256 blocks (~6 min) of it — the reveal seed is
-    the claim block's blockhash, which stops being available after 256
-    blocks; a commit past that window cannot be revealed by any player
-    action. Gas is estimated per call with a 1.5x buffer (reveal cost
-    scales with the number of rolls in the commits).
+    Must run in a later block than the claim that created the commits
+    and within 256 blocks (~6 min) of it — the reveal seed is the claim
+    block's blockhash, unavailable after that window; an expired commit
+    cannot be revealed by any player action. Gas is estimated per call
+    with a 1.5x buffer (cost scales with the roll count).
 
     Validates before signing (no gas spent on failure): commit_ids
     non-empty, account registered, an eth_estimateGas preflight of the
-    exact calldata, then an eth_call dry-run. A failed validation
-    raises an error starting "validation failed; no transaction sent:".
+    exact calldata, then an eth_call dry-run.
 
     Args:
         commit_ids: Commit entity IDs from scavenge claims, as decimal
-            or 0x-hex strings (uint256 values exceed IEEE-754 float
-            precision and do not survive JSON as numbers).
-        account: Account label.
+            or 0x-hex strings (uint256 exceeds JSON float precision).
     """
     if not commit_ids:
         raise PreTxValidationError(
@@ -7087,22 +6619,14 @@ def droptable_reveal(commit_ids: list[str], account: str = "main") -> dict:
 def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
     """Claim scavenge rewards AND reveal droptable items in one call.
 
-    Combines scavenge_claim + droptable_reveal: waits for the next
-    block after the claim (the reveal must land in a later block), then
-    reveals with estimated gas (1.5x buffer; cost scales with the roll
-    count), retrying up to 3 times, 3 seconds apart. The commits expire
-    256 blocks (~6 min) after the claim block — the reveal seed is the
-    claim block's blockhash, which stops being available after 256
-    blocks; an expired commit cannot be revealed by any player action.
-    The call returns normally only when both the claim and the reveal
-    confirmed on-chain. If the reveal does not succeed, the call raises
-    an error carrying the claim result and the commit_ids (decimal
-    strings) for a later droptable_reveal; the claim itself is already
-    final on-chain either way.
+    Waits for the next block after the claim, then reveals with
+    estimated gas (3 attempts). Commits expire 256 blocks (~6 min)
+    after the claim block; the call returns normally only when both
+    confirmed. A reveal failure raises with the claim result and
+    commit_ids for droptable_reveal; the claim is final either way.
 
     Args:
         node_index: Harvest node index.
-        account: Account label.
     """
     # Step 1: Claim (scavenge_claim's own validation gates apply; a
     # claim that reverts on-chain raises from scavenge_claim itself).
@@ -7224,25 +6748,15 @@ def _extract_sacrifice_commit_ids(receipt) -> list[int]:
 def sacrifice_kami(kami_id: int, account: str = "main") -> dict:
     """PERMANENTLY sacrifice a kami at the Temple of the Wheel (room 19).
 
-    Burns the kami forever in exchange for an equipment item ("microkami").
-    IRREVERSIBLE — the kami is destroyed. This single call is the whole
-    action: it commits the sacrifice, and the item reveal fires
-    automatically on-chain a few blocks later; the equipment lands in the
-    account inventory. Operator wallet.
-
-    Preconditions (enforced on-chain; verified here by an eth_call dry-run
-    before any transaction is sent, so a doomed sacrifice spends nothing):
-      - The account's operator must be located in room 19 (Temple of the
-        Wheel).
-      - The kami must be owned by `account` and RESTING.
+    IRREVERSIBLE — burns the kami forever for an equipment item; the
+    reveal fires automatically on-chain and the item lands in the
+    inventory. Operator wallet. Preconditions (checked by an eth_call
+    dry-run before anything is sent): operator in room 19, kami owned
+    and RESTING. Returns commit entity IDs (input for sacrifice_reveal
+    if the auto-reveal ever fails).
 
     Args:
-        kami_id: Kami token index to sacrifice (e.g. 16403).
-        account: Account label.
-
-    Returns the tx result (tx_hash, status, gas_used) plus the kami's
-    pre-send state and the commit entity IDs extracted from the receipt
-    (input for sacrifice_reveal if the auto-reveal ever fails).
+        kami_id: Kami token index to sacrifice.
     """
     src = _get_account(account)
     # Resolved before the dry-run try below: a missing operator wallet
@@ -7308,35 +6822,21 @@ def sacrifice_kami_batch(
 ) -> dict:
     """PERMANENTLY sacrifice many kamis at the Temple of the Wheel (room 19).
 
-    IRREVERSIBLE — each sacrificed kami is destroyed. Server-side
-    sequential loop of single-kami sacrifice commits (there is no on-chain
-    batch commit). Per kami: an eth_call dry-run gates the commit — a
-    doomed one is skipped with its revert reason and no transaction —
-    then the commit is submitted with nonce-retry. Each kami's equipment
-    reveal fires automatically on-chain; the items land in the account
-    inventory. Duplicate kami_ids are de-duplicated. If any submitted
-    commit fails, the call raises an error listing every per-kami
-    outcome (successes included — those sacrifices are final on-chain);
-    pass allow_partial=true to receive the per-kami results as a normal
-    return instead. Dry-run-gated skips alone (no transaction sent) do
-    not raise.
-
-    A delay_seconds pause is inserted between cycles. The server-side loop
-    keeps running even if the MCP client call times out.
-
-    Preconditions per kami (enforced on-chain, checked by the dry-run):
-    operator in room 19, kami owned by `account`, kami RESTING.
+    IRREVERSIBLE — each sacrificed kami is destroyed. Sequential loop
+    of single-kami commits (no on-chain batch): per kami, an eth_call
+    dry-run gates the commit (a doomed one is skipped with its reason,
+    nothing sent), then the commit is submitted with nonce-retry; each
+    equipment reveal fires automatically on-chain into the inventory.
+    Preconditions per kami (checked by the dry-run): operator in room
+    19, kami owned and RESTING. Duplicates de-duplicated; the loop
+    keeps running even if the MCP client call times out. If any
+    submitted commit fails, the call raises with every per-kami
+    outcome (successes are final); allow_partial=true returns them
+    without the error. Dry-run skips alone do not raise.
 
     Args:
         kami_ids: Kami token indices to sacrifice.
-        account: Account label.
         delay_seconds: Pause between cycles (default 3.0; 0 disables).
-        allow_partial: If True, submitted-transaction failures return in
-            the per-kami results instead of raising an error.
-
-    Returns:
-        {account, requested, submitted, skipped, errors,
-         results: [{kami_id, status, tx_hash?/reason?, block?, gas_used?}]}
     """
     src = _get_account(account)
     # Resolved before the per-item dry-run loop: a missing operator
@@ -7413,19 +6913,14 @@ def sacrifice_kami_batch(
 def sacrifice_reveal(commit_ids: list[str], account: str = "main") -> dict:
     """Manually reveal sacrifice commit(s) — recovery path only.
 
-    The sacrifice reveal fires automatically on-chain after sacrifice_kami;
-    this tool exists to recover a commit whose auto-reveal failed to fire.
-    Takes the commit_ids returned by sacrifice_kami. The reveal must run in
-    a later block than the commit. Operator wallet.
+    The sacrifice reveal fires automatically on-chain after
+    sacrifice_kami; this recovers a commit whose auto-reveal failed,
+    taking the commit_ids from sacrifice_kami. Must run in a later
+    block than the commit. Operator wallet.
 
     Args:
-        commit_ids: Commit entity IDs from sacrifice_kami, as decimal
-            or 0x-hex strings (uint256 values exceed IEEE-754 float
-            precision and do not survive JSON as numbers).
-        account: Account label.
-
-    Returns the batch tx result (tx_hash, status, gas_used) plus the
-    commit IDs revealed (decimal strings).
+        commit_ids: Commit entity IDs as decimal or 0x-hex strings
+            (uint256 exceeds JSON float precision).
     """
     if not commit_ids:
         raise PreTxValidationError(
@@ -7489,34 +6984,30 @@ def liquidate_kami(
     """Liquidate another player's harvesting kami (system.harvest.liquidate).
 
     Mechanics: attacker and victim must both be HARVESTING on the same
-    node, the attacker's account must be in that node's room, the
-    attacker must be off liquidation cooldown and above 0 HP, and the
-    victim's current HP must be below the kill threshold — computed
-    on-chain from attacker violence vs victim harmony, the attacker
-    hand vs victim body affinity matchup, and skill modifiers. On
-    success the victim kami dies and its harvest stops; part of the
-    victim's harvest bounty returns to the victim as salvage (scaled by
-    victim power), part of the remainder is added to the attacker's own
-    harvest bounty as spoils (scaled by attacker power), and the rest
-    is destroyed. The attacker takes recoil damage (scaled by victim
-    violence and the attacker's accumulated harvest strain), the
-    attacker's liquidation cooldown resets, and the attacker's account
-    receives 1 Obol (item 1015). lens_node with with_vitals=true and
-    attacker_kami_index previews eligibility, threshold, spoils,
-    salvage, and recoil per occupant.
+    node, the attacker's account in that node's room, the attacker off
+    liquidation cooldown and above 0 HP, and the victim's current HP
+    below the kill threshold — computed on-chain from attacker violence
+    vs victim harmony, the attacker-hand vs victim-body affinity
+    matchup, and skill modifiers. On success the victim kami dies and
+    its harvest stops; part of the victim's harvest bounty returns to
+    the victim as salvage (scaled by victim power), part of the
+    remainder joins the attacker's own harvest bounty as spoils (scaled
+    by attacker power), and the rest is destroyed. The attacker takes
+    recoil damage (scaled by victim violence and the attacker's
+    accumulated harvest strain), the attacker's liquidation cooldown
+    resets, and the attacker's account receives 1 Obol (item 1015).
+    lens_node with with_vitals=true and attacker_kami_index previews
+    eligibility, threshold, spoils, salvage, and recoil per occupant.
 
     Validates before signing (no gas spent on failure): account
-    registered, attacker kami owned by the account and HARVESTING,
-    victim kami's harvest ACTIVE, then an eth_call dry-run (which also
-    covers cooldown, HP, same-node, room, and threshold). A failed
-    validation raises an error starting "validation failed; no
-    transaction sent:".
+    registered, attacker owned and HARVESTING, victim harvest ACTIVE,
+    then an eth_call dry-run (cooldown, HP, same-node, room,
+    threshold).
 
     Args:
         victim_kami_id: Token index of the kami to liquidate.
         killer_kami_id: Token index of the attacking kami (must be
             owned by `account`).
-        account: Account label.
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned(
@@ -7652,22 +7143,21 @@ def gacha_use(amount: int = 1, account: str = "main") -> dict:
     """Spend Gacha Tickets to mint new kamis (commit + reveal in one call).
 
     Spends `amount` Gacha Tickets (item 10) via system.kami.gacha.mint
-    (owner wallet; max 5 per transaction). The mint commits random
-    draws and adds `amount` newly created kamis to the shared gacha
-    pool; the kamis received are drawn at random from the whole pool —
-    not necessarily the ones just created. The reveal is a second
-    transaction in a later block: this call waits for the next block
-    and reveals automatically, retrying up to 3 times. Commits expire
-    256 blocks (~4 min) after the commit block (the draw seed is the
-    commit block's blockhash); the call returns normally only when both
-    commit and reveal confirmed. If the reveal does not succeed, the
-    call raises an error carrying the commit result and the commit_ids
-    for gacha_reveal; the ticket spend is already final on-chain.
-    New kamis arrive RESTING at level 1 with random traits.
+    (owner wallet; max 5 per transaction): the mint commits random
+    draws and adds `amount` newly created kamis to the shared pool —
+    the kamis received are drawn at random from the whole pool, not
+    necessarily the ones just created. The reveal is a second transaction
+    in a later block: the call waits and reveals automatically (3
+    attempts). Commits expire 256 blocks
+    (~4 min) after the commit block (the draw seed is its blockhash);
+    the call returns normally only when both confirmed. A reveal
+    failure raises with the commit result and commit_ids for
+    gacha_reveal; the ticket spend is final either way. New kamis
+    arrive RESTING at level 1 with random traits.
 
     Validates before signing (no gas spent on failure): amount 1-5,
-    account registered for the owner wallet, inventory holds `amount`
-    Gacha Tickets, then an eth_call dry-run.
+    owner-wallet account registered, inventory holds `amount` tickets,
+    then an eth_call dry-run.
 
     Args:
         amount: Number of mints (1-5); spends this many Gacha Tickets.
@@ -7703,21 +7193,18 @@ def gacha_reroll(kami_ids: list[int], account: str = "main") -> dict:
 
     Spends one Reroll Ticket (item 11) per kami via
     system.kami.gacha.reroll (owner wallet). Each deposited kami must
-    be RESTING and owned by the account; it is unequipped
-    automatically, loses its progress (level, XP, skills), and enters
-    the shared pool. The reveal draws the same number of random kamis
-    from the pool in a later block; this call waits and reveals
-    automatically, retrying up to 3 times. Commits expire 256 blocks
-    (~4 min) after the commit block; the call returns normally only
-    when both commit and reveal confirmed. If the reveal does not
-    succeed, the call raises an error carrying the commit result and
-    the commit_ids for gacha_reveal; the deposit and ticket spend are
-    already final on-chain.
+    be RESTING and owned; it is unequipped automatically, loses its
+    progress (level, XP, skills), and enters the shared pool; the
+    reveal draws the same number of random kamis in a later block. The
+    call waits and reveals automatically (3 attempts); commits expire
+    256 blocks (~4 min) after the commit block, and the call returns
+    normally only when both confirmed. A reveal failure raises with the
+    commit result and commit_ids for gacha_reveal; the deposit and
+    ticket spend are final either way.
 
     Validates before signing (no gas spent on failure): kami_ids
-    non-empty, account registered for the owner wallet, each kami owned
-    and RESTING, inventory holds one Reroll Ticket per kami, then an
-    eth_call dry-run.
+    non-empty, owner-wallet account registered, each kami owned and
+    RESTING, one Reroll Ticket per kami, then an eth_call dry-run.
 
     Args:
         kami_ids: Token indices of the kamis to reroll.
@@ -7756,16 +7243,15 @@ def gacha_reveal(commit_ids: list[str], account: str = "main") -> dict:
     """Manually reveal gacha commit(s) — recovery path.
 
     gacha_use and gacha_reroll reveal automatically in the same call;
-    this tool recovers commits whose in-call reveal failed, taking the
+    this recovers commits whose in-call reveal failed, taking their
     commit_ids from those tools' results or error text. The reveal must
     run in a later block than the commit and within 256 blocks (~4 min)
-    of it; past that window no player transaction can reveal the
-    commit. Owner wallet.
+    of it; past the window no player transaction can reveal it. Owner
+    wallet.
 
     Args:
-        commit_ids: Commit entity IDs from gacha_use / gacha_reroll, as
-            decimal or 0x-hex strings (uint256 values exceed IEEE-754
-            float precision and do not survive JSON as numbers).
+        commit_ids: Commit entity IDs as decimal or 0x-hex strings
+            (uint256 exceeds JSON float precision).
         account: Account label; its owner wallet signs.
     """
     if not commit_ids:
@@ -7784,20 +7270,16 @@ def chat_send(message: str, account: str = "main") -> dict:
     """Send a chat message to the account's current room (system.chat).
 
     The message posts to whatever room the account is currently in and
-    is public and permanent: it is indexed by the game's chat service,
-    shown to players in the room by the game client, and readable back
-    through lens_chat. There is no on-chain length limit. Operator
-    wallet.
-
-    Disabled by default: when the chat flag is off this tool answers
-    with a CHAT_DISABLED error and signs nothing.
+    is public and permanent: indexed by the game's chat service, shown
+    to players in the room, readable back via lens_chat. No on-chain
+    length limit. Operator wallet. Disabled by default: when the chat
+    flag is off this tool answers CHAT_DISABLED and signs nothing.
 
     Validates before signing (no gas spent on failure): message
     non-empty, account registered, then an eth_call dry-run.
 
     Args:
         message: Message text to post to the current room.
-        account: Account label.
     """
     if not CHAT_ENABLED:
         raise LensQueryError(
@@ -7845,18 +7327,16 @@ def skill_respec(kami_id: int, account: str = "main") -> dict:
     (system.skill.respec).
 
     Consumes 1 Respec Potion (item 11403) from the account inventory.
-    Every upgraded skill on the kami is reset and the spent points are
-    refunded for reallocation via upgrade_skill / allocate_skills; tier
-    choices are cleared with them. Operator wallet.
+    Every upgraded skill is reset and the spent points are refunded for
+    reallocation via upgrade_skill / allocate_skills; tier choices are
+    cleared with them. Operator wallet.
 
     Validates before signing (no gas spent on failure): account
-    registered, kami owned by the account, inventory holds 1 Respec
-    Potion, then an eth_call dry-run. A failed validation raises an
-    error starting "validation failed; no transaction sent:".
+    registered, kami owned, 1 Respec Potion held, then an eth_call
+    dry-run.
 
     Args:
         kami_id: Kami token index whose skills are reset.
-        account: Account label.
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "skill_respec")
@@ -7885,23 +7365,19 @@ def cast_item(
     """Use an ENEMY_KAMI-shape item on another player's kami in the
     account's room (system.kami.cast.item).
 
-    The target is any kami located in the same room as the account —
-    ownership is not required. Costs 10 account stamina and consumes 1
-    of the item from the account inventory; the item's effect applies
-    to the target kami. Only items with the ENEMY_KAMI use shape can be
-    cast. Operator wallet.
+    The target is any kami in the same room as the account — ownership
+    is not required. Costs 10 account stamina and consumes 1 of the
+    item; the item's effect applies to the target kami. Only
+    ENEMY_KAMI-shape items can be cast. Operator wallet.
 
     Validates before signing (no gas spent on failure): account
-    registered, inventory holds the item, account stamina at least 10
-    (when readable), then an eth_call dry-run (which also covers the
-    item shape, item requirements, and the same-room check). A failed
-    validation raises an error starting "validation failed; no
-    transaction sent:".
+    registered, inventory holds the item, stamina at least 10 (when
+    readable), then an eth_call dry-run (item shape and requirements,
+    same-room).
 
     Args:
         target_kami_id: Token index of the kami the item is cast on.
-        item_index: Item index of the ENEMY_KAMI-shape item to use.
-        account: Account label.
+        item_index: Item index of the ENEMY_KAMI-shape item.
     """
     aid = _require_registered_operator(account)
     _require_item_balance(account, aid, item_index, 1, "cast_item")
@@ -7934,31 +7410,25 @@ def newbie_vendor_buy(
     """Buy one kami from the newbie vendor with ETH
     (system.newbievendor.buy). One purchase per account, ever.
 
-    Only an account created within the last 24 hours can buy, and only
-    while the vendor is enabled. The vendor displays 3 kamis from a
-    rotating pool (the display advances on a configured cycle); the
-    chosen kami must be on display. Price is the live vendor price —
-    a marketplace time-weighted average with a configured minimum —
-    read on-chain immediately before sending; the call aborts before
-    signing if it exceeds max_price_eth. The transaction carries
-    exactly that price as its value (the contract refunds any excess).
-    The purchased kami joins the account RESTING and is soulbound for
-    3 days: it cannot be listed, unstaked, or accept offers, while
-    harvesting, equipping, and other play are unaffected. Owner
-    wallet.
+    Only an account created within the last 24 hours can buy, while the
+    vendor is enabled; the chosen kami must be one of the 3 on display
+    from the rotating pool. Price is the live vendor price (marketplace
+    time-weighted average with a configured minimum), read on-chain
+    immediately before sending; the call aborts before signing if it
+    exceeds max_price_eth, and the transaction carries exactly that
+    price as its value (the contract refunds any excess). The purchased
+    kami joins the account RESTING and is soulbound for 3 days (no
+    listing, unstaking, or offers; play is unaffected). Owner wallet.
 
-    Validates before signing (no gas spent on failure): account
-    registered for the owner wallet, live price within max_price_eth,
-    owner balance covers price + gas provision, then an eth_call
-    dry-run (which also covers the 24-hour window, the one-purchase
-    flag, and the display check). A failed validation raises an error
-    starting "validation failed; no transaction sent:".
+    Validates before signing (no gas spent on failure): owner-wallet
+    account registered, live price within max_price_eth, owner balance
+    covers price + gas, then an eth_call dry-run (24h window,
+    one-purchase flag, display check).
 
     Args:
         kami_index: Token index of the displayed kami to buy.
-        max_price_eth: Decimal ETH string (e.g. "0.006"); aborts
-            before sending if the live price exceeds this.
-        account: Account label; pays with this account's owner wallet.
+        max_price_eth: Decimal ETH cap on the live price.
+        account: Account label; pays with its owner wallet.
     """
     _require_registered_owner(account)
     cap_wei = _eth_to_wei(max_price_eth)
@@ -8041,8 +7511,8 @@ _PERCEIVE_TOOLS = {
     "lens_phase", "lens_portal", "lens_quests", "lens_room",
     "lens_status", "lens_trades", "lens_transfers",
     # native holdouts (see EXPOSURE.md for serving path + migration note)
-    "check_quest_completable", "get_active_quests",
-    "get_expected_objective", "get_item_orderbook", "get_quest_status",
+    "check_quest_completable", "get_expected_objective",
+    "get_item_orderbook",
     "get_scavenge_droptable", "get_scavenge_points", "quest_state",
 }
 
@@ -8084,10 +7554,23 @@ _UNTRUSTED_STANDING_SENTENCE = (
     "instructions."
 )
 _LENS_SERVING_SENTENCE = (
-    "Served by the local kami-lens daemon as its envelope "
-    "{data, untrusted, meta}, values verbatim; meta.stale=true marks an "
-    "answer served from last-synced state."
+    "Served by the local kami-lens daemon; envelope "
+    "{data, untrusted, meta} verbatim (meta.stale = last-synced)."
 )
+
+
+def _strip_schema_titles(obj):
+    """Remove pydantic auto-generated "title" annotations from a served
+    schema. Pure cosmetic noise on the agent-visible surface (the
+    property names are the identifiers); validation is unaffected (it
+    runs on the compiled model, not this dict)."""
+    if isinstance(obj, dict):
+        return {
+            k: _strip_schema_titles(v) for k, v in obj.items() if k != "title"
+        }
+    if isinstance(obj, list):
+        return [_strip_schema_titles(v) for v in obj]
+    return obj
 
 
 def _finalize_descriptions() -> None:
@@ -8099,9 +7582,47 @@ def _finalize_descriptions() -> None:
             extra.append(_UNTRUSTED_STANDING_SENTENCE)
         if extra:
             t.description = (t.description or "").rstrip() + "\n\n" + " ".join(extra)
+        t.parameters = _strip_schema_titles(t.parameters)
 
 
 _finalize_descriptions()
+
+
+# ---------------------------------------------------------------------------
+# Registry budget + tools_hash (D62 / D63)
+# ---------------------------------------------------------------------------
+
+# Hard ceiling on the agent-visible registry mass (name + description +
+# inputSchema per tool), CI-enforced from the live registry.
+REGISTRY_MASS_BUDGET = 66_000
+
+
+def registry_mass() -> int:
+    """Agent-visible registry mass in characters, from the live registry."""
+    return sum(
+        len(t.name) + len(t.description or "") + len(json.dumps(t.parameters))
+        for t in mcp._tool_manager.list_tools()
+    )
+
+
+def compute_tools_hash() -> str:
+    """sha256 over the sorted registry: (name, description, inputSchema)
+    per tool, canonical JSON. Deterministic for a given surface; any
+    tool add/remove/reword changes it."""
+    surface = sorted(
+        (t.name, t.description or "", t.parameters)
+        for t in mcp._tool_manager.list_tools()
+    )
+    blob = json.dumps(surface, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+TOOLS_HASH = compute_tools_hash()
+
+# Surfaced in the MCP initialize handshake: serverInfo.version carries
+# SCHEMA_VERSION (set above); the instructions field carries the
+# registry fingerprint so the client can record it.
+mcp._mcp_server.instructions = f"tools_hash={TOOLS_HASH}"
 
 
 # ---------------------------------------------------------------------------

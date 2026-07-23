@@ -133,7 +133,7 @@ Sources:
 
 ### Mint
 
-**Commit** — `system.kami.gacha.mint` (Operator wallet)
+**Commit** — `system.kami.gacha.mint` (Owner wallet)
 ```
 executeTyped(uint256 amount)
 ```
@@ -142,14 +142,14 @@ executeTyped(uint256 amount)
 
 **Reveal** — `system.kami.gacha.reveal` (anyone can call)
 ```
-reveal(uint256[] commitIDs)
+reveal(uint256[] commitIDs)   // NOT executeTyped; execute() reverts
 ```
 - Must be in a different block than commit
 - Reveal within 256 blocks
 
 ### Reroll
 
-**Commit** — `system.kami.gacha.reroll` (Operator wallet)
+**Commit** — `system.kami.gacha.reroll` (Owner wallet)
 ```
 reroll(uint256[] kamiIDs)
 ```

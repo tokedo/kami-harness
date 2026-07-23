@@ -22,6 +22,52 @@ marks the tool contract.
 - **PATCH** — non-semantic changes: documentation fixes, wording, catalog
   data refreshes, internal refactors that do not change the tool contract.
 
+## [2.0.0] — release candidate: budget, tools_hash, final surface
+
+MAJOR. Consolidates the [2.0.0-dev] train below (ACT reporting
+fidelity; kami-lens READ wrappers + strategy-service demotion; ACT
+additions) into the 2.0.0 contract. Final surface: **99 tools** — ACT
+54 / PERCEIVE 29 / OUTSOURCE 9 / META 7.
+
+### Added — D64-a coverage additions (post-sweep ruling)
+
+skill_respec (`system.skill.respec`: reset all skills for 1 Respec
+Potion 11403, points refunded), cast_item (`system.kami.cast.item`:
+ENEMY_KAMI-shape item on any same-room kami, 10 stamina), and
+newbie_vendor_buy (`system.newbievendor.buy`: one-time <24h-account
+kami purchase; live calcPrice() read pre-send with a max_price_eth
+cap, exact-price value, excess refunded by the contract, 3-day
+soulbind). Neutral-mechanic docstrings, pre-tx gates, H1 semantics.
+
+### Changed — registry mass ≤ 66,000 (D62)
+
+Registry mass 98,876 → **65,830** chars, CI-enforced from the live
+registry (`test_registry_mass_within_budget`). The trim: pydantic
+auto-`title` noise stripped from served schemas (−8.7k, no semantics);
+the two pre-approved quest-native reads removed (get_active_quests,
+get_quest_status — superseded by lens_quests / quest_state; recorded
+visibly in EXPOSURE.md); the per-tool restatement of the validation
+error prefix dropped (31×; the error carries its own prefix at
+runtime); duplicated `allow_partial` Args entries and bare
+"account: Account label." lines removed; docstring narratives
+consolidated across ~70 tools (validation semantics and mechanics
+kept; catalog data deduplicated toward lens_items). No load-bearing
+mechanics documentation was deleted.
+
+### Added — tools_hash (D63) + SCHEMA_VERSION 2.0.0
+
+`TOOLS_HASH` = sha256 over the sorted registry (name, description,
+inputSchema per tool, canonical JSON), surfaced in the MCP initialize
+handshake (serverInfo.version = SCHEMA_VERSION; instructions =
+`tools_hash=<sha256>`) and as server metadata. CI asserts presence and
+determinism, not a fixed value.
+
+### Fixed — systems/gacha.md upstream corrections (approved)
+
+Mint/reroll are owner-signed (`getByOwner` at upstream `ef898fc`; the
+doc said operator), and the reveal entrypoint is `reveal(uint256[])`
+(`execute()` reverts "not implemented").
+
 ## [2.0.0-dev] — ACT additions: liquidation, gacha, chat send (H3)
 
 MAJOR train continues. Surface: **98 tools** (+5 ACT → ACT 51 /
