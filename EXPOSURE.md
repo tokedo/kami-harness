@@ -72,14 +72,15 @@ deliberately visible gaps, never silent ones. Quest-completion
 sufficiency does NOT depend on any row below: no quest objective or
 requirement references them.
 
-Documented in the game-mechanics docs (systems/*.md) — sufficiency
-exceptions pending a ruling:
+The three documented-mechanic gaps found by the sweep (skill-respec,
+cast-item, newbie-vendor-buy) were resolved by ruling D64-a
+(2026-07-23): all three are now served by the `skill_respec`,
+`cast_item`, and `newbie_vendor_buy` tools.
+
+Documented in the game-mechanics docs (systems/*.md):
 
 | Action | System | Status | Note |
 |---|---|---|---|
-| skill-respec | `system.skill.respec` | deferred | resets a kami's skills for 1 Respec Potion (item 11403); documented in systems/leveling.md |
-| cast-item | `system.kami.cast.item` | deferred | use an ENEMY_KAMI-shape item on another player's kami in the room (10 stamina); documented in systems/crafting.md |
-| newbie-vendor-buy | `system.newbievendor.buy` | deferred | one-time kami purchase for accounts younger than 24h; documented in systems/npc-shops.md |
 | set-operator | `system.account.set.operator` | deferred | operator rebind; the operator lifecycle is otherwise served by create_operator_wallet + register_account |
 
 Not documented in the game-mechanics docs:

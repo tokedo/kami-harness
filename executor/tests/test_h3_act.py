@@ -252,6 +252,120 @@ class TestGachaReveal:
         assert est_calls[0][1] == {"from": owner}
 
 
+class TestSkillRespec:
+    def test_happy(self, accounts, validation_ok, sent):
+        r = server.skill_respec(45, account="testa")
+        assert r["status"] == "success"
+        assert r["kami_id"] == 45
+        assert "11403" in r["consumed"]
+        call = sent[0]
+        assert call["system"] == "system.skill.respec"
+        assert call["args"] == [server._kami_entity_id(45)]
+
+    def test_requires_potion(self, accounts, validation_ok, sent,
+                             monkeypatch):
+        monkeypatch.setattr(server, "_inventory_balance", lambda h, i: 0)
+        with pytest.raises(server.PreTxValidationError) as ei:
+            server.skill_respec(45, account="testa")
+        assert "item 11403" in str(ei.value)
+        assert sent == []
+
+    def test_requires_ownership(self, accounts, validation_ok, sent,
+                                monkeypatch):
+        monkeypatch.setattr(server, "_kami_owner_id", lambda k: 0xDEAD)
+        with pytest.raises(server.PreTxValidationError, match="not owned"):
+            server.skill_respec(45, account="testa")
+        assert sent == []
+
+
+class TestCastItem:
+    def test_happy_no_ownership_requirement(self, accounts, validation_ok,
+                                            sent, monkeypatch):
+        # Target owned by someone else — casting is still valid.
+        monkeypatch.setattr(server, "_kami_owner_id", lambda k: 0xDEAD)
+        r = server.cast_item(777, 11501, account="testa")
+        assert r["status"] == "success"
+        assert r["target_kami_id"] == 777 and r["stamina_cost"] == 10
+        call = sent[0]
+        assert call["system"] == "system.kami.cast.item"
+        assert call["args"] == [server._kami_entity_id(777), 11501]
+
+    def test_requires_item(self, accounts, validation_ok, sent, monkeypatch):
+        monkeypatch.setattr(server, "_inventory_balance", lambda h, i: 0)
+        with pytest.raises(server.PreTxValidationError, match="cast_item"):
+            server.cast_item(777, 11501, account="testa")
+        assert sent == []
+
+    def test_requires_stamina(self, accounts, validation_ok, sent,
+                              monkeypatch):
+        monkeypatch.setattr(
+            server, "_account_view",
+            lambda aid: {"index": 1, "name": "t", "stamina": 4, "room": 1},
+        )
+        with pytest.raises(server.PreTxValidationError) as ei:
+            server.cast_item(777, 11501, account="testa")
+        assert "stamina is 4" in str(ei.value) and "requires 10" in str(ei.value)
+        assert sent == []
+
+
+class TestNewbieVendorBuy:
+    def _vendor(self, monkeypatch, price_wei, balance=10**18):
+        from conftest import FakeContract
+        from types import SimpleNamespace as NS
+        vendor = FakeContract({"calcPrice": lambda: price_wei})
+        eth = NS(
+            contract=lambda address=None, abi=None: vendor,
+            get_balance=lambda a: balance,
+        )
+        monkeypatch.setattr(
+            server, "w3",
+            NS(eth=eth, from_wei=server.Web3.from_wei,
+               to_wei=server.Web3.to_wei),
+        )
+        monkeypatch.setattr(server, "_resolve_system", lambda sid: sid)
+        monkeypatch.setattr(
+            server, "_require_registered_owner", lambda a: 0x7777
+        )
+
+    def test_happy_sends_exact_price(self, accounts, monkeypatch):
+        self._vendor(monkeypatch, price_wei=6 * 10**15)  # 0.006 ETH
+        calls = []
+
+        def owner_send(account, system_id, abi, args, gas_limit=None,
+                       value_wei=0, return_receipt=False):
+            calls.append({"system": system_id, "args": args,
+                          "value_wei": value_wei})
+            return {"tx_hash": "0xbuy", "status": "success", "block": 5,
+                    "gas_used": 1, "account": account}
+
+        monkeypatch.setattr(server, "_send_tx_owner", owner_send)
+        r = server.newbie_vendor_buy(1234, "0.01", account="testa")
+        assert r["status"] == "success"
+        assert r["price_eth"] == "0.006"
+        assert calls[0]["system"] == "system.newbievendor.buy"
+        assert calls[0]["args"] == [1234]
+        assert calls[0]["value_wei"] == 6 * 10**15
+
+    def test_price_above_cap_aborts(self, accounts, monkeypatch, sent):
+        self._vendor(monkeypatch, price_wei=2 * 10**16)  # 0.02 ETH
+        with pytest.raises(server.PreTxValidationError) as ei:
+            server.newbie_vendor_buy(1234, "0.01", account="testa")
+        assert "above max_price_eth 0.01" in str(ei.value)
+        assert sent == []
+
+    def test_balance_gate(self, accounts, monkeypatch, sent):
+        self._vendor(monkeypatch, price_wei=6 * 10**15, balance=10**15)
+        with pytest.raises(server.PreTxValidationError) as ei:
+            server.newbie_vendor_buy(1234, "0.01", account="testa")
+        assert "gas provision" in str(ei.value)
+        assert sent == []
+
+    def test_zero_cap_rejected(self, accounts, monkeypatch):
+        self._vendor(monkeypatch, price_wei=1)
+        with pytest.raises(ValueError, match="> 0"):
+            server.newbie_vendor_buy(1234, "0", account="testa")
+
+
 class TestChatSend:
     def test_disabled_by_default(self, accounts, validation_ok, sent,
                                  monkeypatch):

@@ -7817,6 +7817,191 @@ def chat_send(message: str, account: str = "main") -> dict:
     return result
 
 
+_ABI_SKILL_RESPEC = json.loads(
+    '[{"type":"function","name":"executeTyped",'
+    '"inputs":[{"name":"targetID","type":"uint256"}],'
+    '"outputs":[{"type":"bytes"}],"stateMutability":"nonpayable"}]'
+)
+_ABI_CAST_ITEM = json.loads(
+    '[{"type":"function","name":"executeTyped",'
+    '"inputs":[{"name":"targetID","type":"uint256"},'
+    '{"name":"itemIndex","type":"uint32"}],'
+    '"outputs":[{"type":"bytes"}],"stateMutability":"nonpayable"}]'
+)
+_ABI_NEWBIE_VENDOR = json.loads(
+    '[{"type":"function","name":"executeTyped",'
+    '"inputs":[{"name":"kamiIndex","type":"uint32"}],'
+    '"outputs":[{"type":"bytes"}],"stateMutability":"payable"},'
+    '{"type":"function","name":"calcPrice","inputs":[],'
+    '"outputs":[{"type":"uint256"}],"stateMutability":"view"}]'
+)
+
+_RESPEC_POTION_INDEX = 11403
+
+
+@mcp.tool()
+def skill_respec(kami_id: int, account: str = "main") -> dict:
+    """Reset all of a kami's skills, refunding its skill points
+    (system.skill.respec).
+
+    Consumes 1 Respec Potion (item 11403) from the account inventory.
+    Every upgraded skill on the kami is reset and the spent points are
+    refunded for reallocation via upgrade_skill / allocate_skills; tier
+    choices are cleared with them. Operator wallet.
+
+    Validates before signing (no gas spent on failure): account
+    registered, kami owned by the account, inventory holds 1 Respec
+    Potion, then an eth_call dry-run. A failed validation raises an
+    error starting "validation failed; no transaction sent:".
+
+    Args:
+        kami_id: Kami token index whose skills are reset.
+        account: Account label.
+    """
+    aid = _require_registered_operator(account)
+    _require_kamis_owned([kami_id], account, aid, "skill_respec")
+    _require_item_balance(
+        account, aid, _RESPEC_POTION_INDEX, 1, "skill_respec"
+    )
+    result = _send_tx(
+        account,
+        "system.skill.respec",
+        _ABI_SKILL_RESPEC,
+        [_kami_entity_id(kami_id)],
+        gas_limit=2_000_000,
+    )
+    result.update({
+        "kami_id": kami_id,
+        "consumed": f"1x item {_RESPEC_POTION_INDEX} "
+                    f"({_get_item_name(_RESPEC_POTION_INDEX)})",
+    })
+    return result
+
+
+@mcp.tool()
+def cast_item(
+    target_kami_id: int, item_index: int, account: str = "main"
+) -> dict:
+    """Use an ENEMY_KAMI-shape item on another player's kami in the
+    account's room (system.kami.cast.item).
+
+    The target is any kami located in the same room as the account —
+    ownership is not required. Costs 10 account stamina and consumes 1
+    of the item from the account inventory; the item's effect applies
+    to the target kami. Only items with the ENEMY_KAMI use shape can be
+    cast. Operator wallet.
+
+    Validates before signing (no gas spent on failure): account
+    registered, inventory holds the item, account stamina at least 10
+    (when readable), then an eth_call dry-run (which also covers the
+    item shape, item requirements, and the same-room check). A failed
+    validation raises an error starting "validation failed; no
+    transaction sent:".
+
+    Args:
+        target_kami_id: Token index of the kami the item is cast on.
+        item_index: Item index of the ENEMY_KAMI-shape item to use.
+        account: Account label.
+    """
+    aid = _require_registered_operator(account)
+    _require_item_balance(account, aid, item_index, 1, "cast_item")
+    view = _account_view(aid)
+    if view is not None and view["stamina"] < 10:
+        raise PreTxValidationError(
+            f"account stamina is {view['stamina']}; casting an item "
+            f"requires 10"
+        )
+    result = _send_tx(
+        account,
+        "system.kami.cast.item",
+        _ABI_CAST_ITEM,
+        [_kami_entity_id(target_kami_id), item_index],
+        gas_limit=2_000_000,
+    )
+    result.update({
+        "target_kami_id": target_kami_id,
+        "item_index": item_index,
+        "consumed": f"1x item {item_index} ({_get_item_name(item_index)})",
+        "stamina_cost": 10,
+    })
+    return result
+
+
+@mcp.tool()
+def newbie_vendor_buy(
+    kami_index: int, max_price_eth: str, account: str = "main"
+) -> dict:
+    """Buy one kami from the newbie vendor with ETH
+    (system.newbievendor.buy). One purchase per account, ever.
+
+    Only an account created within the last 24 hours can buy, and only
+    while the vendor is enabled. The vendor displays 3 kamis from a
+    rotating pool (the display advances on a configured cycle); the
+    chosen kami must be on display. Price is the live vendor price —
+    a marketplace time-weighted average with a configured minimum —
+    read on-chain immediately before sending; the call aborts before
+    signing if it exceeds max_price_eth. The transaction carries
+    exactly that price as its value (the contract refunds any excess).
+    The purchased kami joins the account RESTING and is soulbound for
+    3 days: it cannot be listed, unstaked, or accept offers, while
+    harvesting, equipping, and other play are unaffected. Owner
+    wallet.
+
+    Validates before signing (no gas spent on failure): account
+    registered for the owner wallet, live price within max_price_eth,
+    owner balance covers price + gas provision, then an eth_call
+    dry-run (which also covers the 24-hour window, the one-purchase
+    flag, and the display check). A failed validation raises an error
+    starting "validation failed; no transaction sent:".
+
+    Args:
+        kami_index: Token index of the displayed kami to buy.
+        max_price_eth: Decimal ETH string (e.g. "0.006"); aborts
+            before sending if the live price exceeds this.
+        account: Account label; pays with this account's owner wallet.
+    """
+    _require_registered_owner(account)
+    cap_wei = _eth_to_wei(max_price_eth)
+    if cap_wei <= 0:
+        raise ValueError("max_price_eth must be > 0")
+    vendor = w3.eth.contract(
+        address=_resolve_system("system.newbievendor.buy"),
+        abi=_ABI_NEWBIE_VENDOR,
+    )
+    price_wei = vendor.functions.calcPrice().call()
+    if price_wei > cap_wei:
+        raise PreTxValidationError(
+            f"the live vendor price is {w3.from_wei(price_wei, 'ether')} "
+            f"ETH, above max_price_eth {max_price_eth}"
+        )
+    gas_limit = 2_000_000
+    acct = _get_account(account)
+    balance = w3.eth.get_balance(acct.owner_addr)
+    gas_provision = gas_limit * _GAS_PRICE["maxFeePerGas"]
+    if balance < price_wei + gas_provision:
+        raise PreTxValidationError(
+            f"owner wallet {acct.owner_addr} holds "
+            f"{w3.from_wei(balance, 'ether')} ETH; this purchase requires "
+            f"{w3.from_wei(price_wei, 'ether')} ETH (live vendor price) + "
+            f"{w3.from_wei(gas_provision, 'ether')} ETH gas provision"
+        )
+    result = _send_tx_owner(
+        account,
+        "system.newbievendor.buy",
+        _ABI_NEWBIE_VENDOR,
+        [kami_index],
+        gas_limit=gas_limit,
+        value_wei=price_wei,
+    )
+    result.update({
+        "kami_index": kami_index,
+        "price_eth": str(w3.from_wei(price_wei, "ether")),
+        "note": "The purchased kami is soulbound for 3 days (no listing, "
+                "unstaking, or offers).",
+    })
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Surface taxonomy — registry metadata (one class per tool)
 #
@@ -7828,7 +8013,8 @@ def chat_send(message: str, account: str = "main") -> dict:
 
 _ACT_TOOLS = {
     "accept_quest", "allocate_skills", "auction_buy", "burn_items",
-    "buy_kami", "cancel_kami_listing", "cancel_trade", "chat_send",
+    "buy_kami", "cancel_kami_listing", "cancel_trade", "cast_item",
+    "chat_send",
     "complete_all_trades", "complete_quest", "complete_trade",
     "craft_item", "create_trade", "drop_quest", "droptable_reveal",
     "equip_all_batch", "equip_item", "feed_kami",
@@ -7836,9 +8022,11 @@ _ACT_TOOLS = {
     "gacha_use", "harvest_collect", "harvest_start",
     "harvest_stop", "level_and_allocate_batch", "level_to",
     "level_up_kami", "liquidate_kami", "list_kami", "listing_buy",
-    "move_to_room", "name_kami", "register_account", "revive_kami",
+    "move_to_room", "name_kami", "newbie_vendor_buy",
+    "register_account", "revive_kami",
     "sacrifice_kami", "sacrifice_kami_batch", "sacrifice_reveal",
-    "scavenge_claim", "scavenge_claim_and_reveal", "speed_craft_batch",
+    "scavenge_claim", "scavenge_claim_and_reveal", "skill_respec",
+    "speed_craft_batch",
     "stop_harvest_batch", "take_trade", "transfer_items",
     "transfer_kami", "travel_to_room", "unequip_all_batch",
     "unequip_item", "upgrade_skill", "use_account_item",

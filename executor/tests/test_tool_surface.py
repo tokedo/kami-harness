@@ -59,10 +59,11 @@ LENS_TOOLS = {
     "lens_chat", "lens_status",
 }
 
-# H3: new ACT tools (liquidation, gacha, chat send).
+# H3/H3.1: new ACT tools (liquidation, gacha, chat send; the D64-a
+# ruling added skill_respec, cast_item, newbie_vendor_buy).
 H3_ACT_TOOLS = {
     "liquidate_kami", "gacha_use", "gacha_reroll", "gacha_reveal",
-    "chat_send",
+    "chat_send", "skill_respec", "cast_item", "newbie_vendor_buy",
 }
 
 # H2: removed from the registry (12 Kamibots world-state reads + 3
@@ -91,7 +92,7 @@ def test_tool_surface_count():
     assert V150_TOOLS <= names
     assert H3_ACT_TOOLS <= names
     assert "store_operator_key" not in names
-    assert len(names) == 98
+    assert len(names) == 101
 
 
 def test_removed_tools_absent():
@@ -112,7 +113,7 @@ def test_taxonomy_covers_registry_exactly():
     counts = {}
     for cls in server.TOOL_CLASSES.values():
         counts[cls] = counts.get(cls, 0) + 1
-    assert counts == {"ACT": 51, "PERCEIVE": 31, "OUTSOURCE": 9, "META": 7}
+    assert counts == {"ACT": 54, "PERCEIVE": 31, "OUTSOURCE": 9, "META": 7}
     assert server.READ_TOOLS <= names
     # every lens wrapper is PERCEIVE
     for n in LENS_TOOLS:
@@ -154,8 +155,9 @@ def test_exposure_rows():
             f"deferred row missing: {deferred}"
         )
     # H3 sweep: unserved game actions stay visible, never silent.
-    for action in ("skill-respec", "cast-item", "newbie-vendor-buy",
-                   "set-operator", "friends", "goals", "npc-sell",
+    # (skill-respec / cast-item / newbie-vendor-buy left this list when
+    # ruling D64-a added their tools.)
+    for action in ("set-operator", "friends", "goals", "npc-sell",
                    "token-portal", "npc-relationships"):
         assert re.search(rf"^\| {re.escape(action)} \|", text, re.M), (
             f"ACT-coverage row missing: {action}"
