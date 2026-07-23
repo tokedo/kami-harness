@@ -759,12 +759,16 @@ def _send_batch_tx(
     fn_name: str,
     args: list,
     gas_per_item: int,
+    use_owner: bool = False,
+    return_receipt: bool = False,
 ) -> dict:
-    """Build, sign, send a batch transaction.
+    """Build, sign, send a batch/named-function transaction.
 
+    Signs with the operator key by default; use_owner=True signs with
+    the owner key (for systems that authenticate the owner wallet).
     Validates before signing (PreTxValidationError, no gas spent):
     non-empty target array (an empty batch executes as an on-chain
-    status=1 no-op), registered account, operator gas balance, and an
+    status=1 no-op), registered account, signer gas balance, and an
     eth_call dry-run. The batch call is atomic on-chain; a confirmed
     revert raises OnChainRevertError, a receipt timeout raises
     TxUnconfirmedError.
@@ -775,35 +779,52 @@ def _send_batch_tx(
             "execute as an on-chain no-op"
         )
     acct = _get_account(account)
+    if use_owner:
+        if not acct.owner_key:
+            raise ValueError(
+                f"Account '{account}' has no owner key. "
+                f"Set {account.upper()}_OWNER_KEY in .env."
+            )
+        signer_addr, signer_key, role = acct.owner_addr, acct.owner_key, "owner"
+    else:
+        signer_addr, signer_key, role = (
+            acct.operator_addr, acct.operator_key, "operator",
+        )
     addr = _resolve_system(system_id)
     contract = w3.eth.contract(address=addr, abi=abi)
     fn = getattr(contract.functions, fn_name)(*args)
     gas = gas_per_item * max(len(args[0]) if isinstance(args[0], list) else 1, 1)
 
-    _require_registered_operator(account)
-    _require_gas_balance(acct.operator_addr, gas, 0, "operator")
-    _dry_run(fn, acct.operator_addr)
+    if use_owner:
+        _require_registered_owner(account)
+    else:
+        _require_registered_operator(account)
+    _require_gas_balance(signer_addr, gas, 0, role)
+    _dry_run(fn, signer_addr)
 
     tx_params = {
-        "from": acct.operator_addr,
+        "from": signer_addr,
         "chainId": CHAIN_ID,
-        "nonce": w3.eth.get_transaction_count(acct.operator_addr),
+        "nonce": w3.eth.get_transaction_count(signer_addr),
         "gas": gas,
         **_GAS_PRICE,
     }
     try:
         built = fn.build_transaction(tx_params)
-        signed = w3.eth.account.sign_transaction(built, private_key=acct.operator_key)
+        signed = w3.eth.account.sign_transaction(built, private_key=signer_key)
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     except Exception as e:
-        raise _wrap_send_error(e, acct.operator_addr, "operator", account)
+        raise _wrap_send_error(e, signer_addr, role, account)
     receipt = _await_receipt(tx_hash, built, timeout=180)
-    return {
+    result = {
         "tx_hash": _hex_hash(receipt.transactionHash),
         "status": "success",
         "block": receipt.blockNumber,
         "gas_used": receipt.gasUsed,
     }
+    if return_receipt:
+        result["_receipt"] = receipt
+    return result
 
 
 def _send_tx_retry(
@@ -837,6 +858,7 @@ def _send_tx_owner(
     args: list,
     gas_limit: int | None = None,
     value_wei: int = 0,
+    return_receipt: bool = False,
 ) -> dict:
     """Build, sign, send a transaction with the account's owner key.
 
@@ -879,13 +901,16 @@ def _send_tx_owner(
         raise _wrap_send_error(e, acct.owner_addr, "owner", account)
     receipt = _await_receipt(tx_hash, built, timeout=120)
 
-    return {
+    result = {
         "tx_hash": _hex_hash(receipt.transactionHash),
         "status": "success",
         "block": receipt.blockNumber,
         "gas_used": receipt.gasUsed,
         "account": account,
     }
+    if return_receipt:
+        result["_receipt"] = receipt
+    return result
 
 
 # A plain ETH value transfer burns ~113k gas on Yominet (Initia MiniEVM),
@@ -7169,24 +7194,30 @@ _STORE_SET_RECORD_EVENT = (
 _SAC_COMMIT_MARKER = b"KAMI_SACRIFICE_COMMIT"
 
 
-def _extract_sacrifice_commit_ids(receipt) -> list[int]:
-    """Extract sacrifice commit entity IDs from a sacrifice.commit receipt.
+def _extract_typed_commit_ids(receipt, marker: bytes) -> list[int]:
+    """Extract commit entity IDs from a commit receipt by type marker.
 
-    The commit entity's type component is written to the ASCII string
-    "KAMI_SACRIFICE_COMMIT"; that StoreSetRecord log carries the commit
-    entity ID in topic[3]. Returns the distinct commit IDs found (usually 1).
+    A commit entity's type component is written to an ASCII marker
+    string (e.g. "KAMI_SACRIFICE_COMMIT", "GACHA_COMMIT"); the
+    StoreSetRecord log carrying it holds the commit entity ID in
+    topic[3]. Returns the distinct commit IDs found, in log order.
     """
     commit_ids: list[int] = []
     for log in receipt.logs:
         if not log.topics or log.topics[0].hex() != _STORE_SET_RECORD_EVENT:
             continue
-        if _SAC_COMMIT_MARKER not in bytes(log.data):
+        if marker not in bytes(log.data):
             continue
         if len(log.topics) >= 4:
             cid = int.from_bytes(bytes(log.topics[3]), "big")
             if cid not in commit_ids:
                 commit_ids.append(cid)
     return commit_ids
+
+
+def _extract_sacrifice_commit_ids(receipt) -> list[int]:
+    """Sacrifice commit entity IDs from a sacrifice.commit receipt."""
+    return _extract_typed_commit_ids(receipt, _SAC_COMMIT_MARKER)
 
 
 @mcp.tool()
@@ -7416,6 +7447,377 @@ def sacrifice_reveal(commit_ids: list[str], account: str = "main") -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Liquidation (PvP), gacha (mint/reroll/reveal), chat send
+# ---------------------------------------------------------------------------
+
+_ABI_LIQUIDATE = json.loads(
+    '[{"type":"function","name":"executeTyped",'
+    '"inputs":[{"name":"victimHarvID","type":"uint256"},'
+    '{"name":"killerID","type":"uint256"}],'
+    '"outputs":[{"type":"bytes"}],"stateMutability":"nonpayable"}]'
+)
+_ABI_GACHA_MINT = json.loads(
+    '[{"type":"function","name":"executeTyped",'
+    '"inputs":[{"name":"amount","type":"uint256"}],'
+    '"outputs":[{"type":"bytes"}],"stateMutability":"nonpayable"}]'
+)
+_ABI_GACHA_REVEAL = json.loads(
+    '[{"type":"function","name":"reveal",'
+    '"inputs":[{"name":"rawCommitIDs","type":"uint256[]"}],'
+    '"outputs":[{"type":"uint256[]"}],"stateMutability":"nonpayable"}]'
+)
+_ABI_GACHA_REROLL = json.loads(
+    '[{"type":"function","name":"reroll",'
+    '"inputs":[{"name":"kamiIDs","type":"uint256[]"}],'
+    '"outputs":[{"type":"uint256[]"}],"stateMutability":"nonpayable"}]'
+)
+_ABI_CHAT = json.loads(
+    '[{"type":"function","name":"executeTyped",'
+    '"inputs":[{"name":"message","type":"string"}],'
+    '"outputs":[{"type":"bytes"}],"stateMutability":"nonpayable"}]'
+)
+
+_GACHA_TICKET_INDEX = 10
+_REROLL_TICKET_INDEX = 11
+_GACHA_COMMIT_MARKER = b"GACHA_COMMIT"
+
+
+@mcp.tool()
+def liquidate_kami(
+    victim_kami_id: int, killer_kami_id: int, account: str = "main"
+) -> dict:
+    """Liquidate another player's harvesting kami (system.harvest.liquidate).
+
+    Mechanics: attacker and victim must both be HARVESTING on the same
+    node, the attacker's account must be in that node's room, the
+    attacker must be off liquidation cooldown and above 0 HP, and the
+    victim's current HP must be below the kill threshold — computed
+    on-chain from attacker violence vs victim harmony, the attacker
+    hand vs victim body affinity matchup, and skill modifiers. On
+    success the victim kami dies and its harvest stops; part of the
+    victim's harvest bounty returns to the victim as salvage (scaled by
+    victim power), part of the remainder is added to the attacker's own
+    harvest bounty as spoils (scaled by attacker power), and the rest
+    is destroyed. The attacker takes recoil damage (scaled by victim
+    violence and the attacker's accumulated harvest strain), the
+    attacker's liquidation cooldown resets, and the attacker's account
+    receives 1 Obol (item 1015). lens_node with with_vitals=true and
+    attacker_kami_index previews eligibility, threshold, spoils,
+    salvage, and recoil per occupant.
+
+    Validates before signing (no gas spent on failure): account
+    registered, attacker kami owned by the account and HARVESTING,
+    victim kami's harvest ACTIVE, then an eth_call dry-run (which also
+    covers cooldown, HP, same-node, room, and threshold). A failed
+    validation raises an error starting "validation failed; no
+    transaction sent:".
+
+    Args:
+        victim_kami_id: Token index of the kami to liquidate.
+        killer_kami_id: Token index of the attacking kami (must be
+            owned by `account`).
+        account: Account label.
+    """
+    aid = _require_registered_operator(account)
+    _require_kamis_owned(
+        [killer_kami_id], account, aid, "liquidate_kami",
+        required_state="HARVESTING",
+    )
+    victim_hstate = _harvest_state(victim_kami_id)
+    if victim_hstate != "ACTIVE":
+        raise PreTxValidationError(
+            f"kami #{victim_kami_id} has no ACTIVE harvest (state "
+            f"{victim_hstate!r}); only a harvesting kami can be liquidated"
+        )
+    result = _send_tx(
+        account,
+        "system.harvest.liquidate",
+        _ABI_LIQUIDATE,
+        [_harvest_entity_id(victim_kami_id), _kami_entity_id(killer_kami_id)],
+        gas_limit=7_500_000,
+    )
+    result.update(
+        {"victim_kami_id": victim_kami_id, "killer_kami_id": killer_kami_id}
+    )
+    return result
+
+
+def _send_gacha_reveal_tx(account: str, ids: list[int]) -> dict:
+    """Estimate-gas preflight + send for a gacha reveal (owner wallet).
+
+    Reveal gas scales with the commit count (each reveal withdraws a
+    kami from the pool). The estimate doubles as a preflight: a doomed
+    reveal (same-block call, unknown or expired commit) raises
+    PreTxValidationError here and nothing is signed or broadcast.
+    """
+    acct = _get_account(account)
+    if not acct.owner_addr:
+        raise ValueError(
+            f"Account '{account}' has no owner key. "
+            f"Set {account.upper()}_OWNER_KEY in .env."
+        )
+    contract = w3.eth.contract(
+        address=_resolve_system("system.kami.gacha.reveal"),
+        abi=_ABI_GACHA_REVEAL,
+    )
+    try:
+        est = contract.functions.reveal(ids).estimate_gas(
+            {"from": acct.owner_addr}
+        )
+    except Exception as e:
+        raise PreTxValidationError(
+            f"gacha reveal gas estimation reverted: {_revert_text(e)}. A "
+            f"gacha commit is revealable only in a later block than its "
+            f"commit and within 256 blocks (~4 min) of it; after that the "
+            f"commit block's blockhash is unavailable and the commit "
+            f"cannot be revealed by a player transaction."
+        )
+    return _send_batch_tx(
+        account,
+        "system.kami.gacha.reveal",
+        _ABI_GACHA_REVEAL,
+        "reveal",
+        [ids],
+        gas_per_item=int(est * 3 // 2) // len(ids) + 1,
+        use_owner=True,
+    )
+
+
+def _gacha_commit_and_reveal(
+    account: str, commit_result: dict, tool: str
+) -> dict:
+    """Shared reveal-after-commit flow for gacha_use / gacha_reroll.
+
+    Extracts the GACHA_COMMIT ids from the commit receipt, waits for a
+    later block, reveals (retrying twice on preflight/revert failures),
+    and returns {commit, reveal, commit_ids}. Any reveal failure raises
+    with the commit result and commit_ids in the error text —
+    gacha_reveal is the recovery path; the commit is final on-chain
+    either way.
+    """
+    receipt = commit_result.pop("_receipt", None)
+    commit_ids = [
+        str(c) for c in _extract_typed_commit_ids(receipt, _GACHA_COMMIT_MARKER)
+    ] if receipt else []
+    if not commit_ids:
+        raise BatchTxError(
+            tool,
+            "the commit landed and succeeded, but no commit IDs could be "
+            "extracted from its receipt, so no reveal was attempted.",
+            {"commit": commit_result},
+        )
+    ids = [_parse_commit_id(c) for c in commit_ids]
+
+    commit_block = commit_result["block"]
+    for _ in range(30):
+        time.sleep(2)
+        if w3.eth.block_number > commit_block:
+            break
+
+    reveal_result = None
+    last_failure = None
+    for attempt in range(3):
+        if attempt:
+            time.sleep(3)
+        try:
+            reveal_result = _send_gacha_reveal_tx(account, ids)
+            break
+        except (PreTxValidationError, OnChainRevertError) as e:
+            last_failure = str(e)
+
+    if reveal_result is None:
+        raise BatchTxError(
+            tool,
+            f"the commit landed and succeeded, but the reveal failed "
+            f"after 3 attempts (most recent failure: {last_failure}). "
+            f"The commits expire 256 blocks (~4 min) after commit block "
+            f"{commit_block}; run gacha_reveal with the commit_ids below "
+            f"before then, or the commits cannot be revealed by a player "
+            f"transaction.",
+            {
+                "commit": commit_result,
+                "commit_ids": commit_ids,
+                "last_failure": last_failure,
+            },
+        )
+    return {
+        "commit": commit_result,
+        "reveal": reveal_result,
+        "commit_ids": commit_ids,
+    }
+
+
+@mcp.tool()
+def gacha_use(amount: int = 1, account: str = "main") -> dict:
+    """Spend Gacha Tickets to mint new kamis (commit + reveal in one call).
+
+    Spends `amount` Gacha Tickets (item 10) via system.kami.gacha.mint
+    (owner wallet; max 5 per transaction). The mint commits random
+    draws and adds `amount` newly created kamis to the shared gacha
+    pool; the kamis received are drawn at random from the whole pool —
+    not necessarily the ones just created. The reveal is a second
+    transaction in a later block: this call waits for the next block
+    and reveals automatically, retrying up to 3 times. Commits expire
+    256 blocks (~4 min) after the commit block (the draw seed is the
+    commit block's blockhash); the call returns normally only when both
+    commit and reveal confirmed. If the reveal does not succeed, the
+    call raises an error carrying the commit result and the commit_ids
+    for gacha_reveal; the ticket spend is already final on-chain.
+    New kamis arrive RESTING at level 1 with random traits.
+
+    Validates before signing (no gas spent on failure): amount 1-5,
+    account registered for the owner wallet, inventory holds `amount`
+    Gacha Tickets, then an eth_call dry-run.
+
+    Args:
+        amount: Number of mints (1-5); spends this many Gacha Tickets.
+        account: Account label; its owner wallet signs.
+    """
+    if not 1 <= amount <= 5:
+        raise PreTxValidationError(
+            f"amount is {amount}; system.kami.gacha.mint takes 1-5 mints "
+            f"per transaction"
+        )
+    _require_registered_owner(account)
+    _require_item_balance(
+        account, _account_entity_id(account), _GACHA_TICKET_INDEX, amount,
+        "gacha_use",
+    )
+    commit_result = _send_tx_owner(
+        account,
+        "system.kami.gacha.mint",
+        _ABI_GACHA_MINT,
+        [amount],
+        gas_limit=2_000_000 + 1_500_000 * amount,
+        return_receipt=True,
+    )
+    result = _gacha_commit_and_reveal(account, commit_result, "gacha_use")
+    result["amount"] = amount
+    return result
+
+
+@mcp.tool()
+def gacha_reroll(kami_ids: list[int], account: str = "main") -> dict:
+    """Reroll kamis: deposit owned kamis into the gacha pool for random
+    replacements (commit + reveal in one call).
+
+    Spends one Reroll Ticket (item 11) per kami via
+    system.kami.gacha.reroll (owner wallet). Each deposited kami must
+    be RESTING and owned by the account; it is unequipped
+    automatically, loses its progress (level, XP, skills), and enters
+    the shared pool. The reveal draws the same number of random kamis
+    from the pool in a later block; this call waits and reveals
+    automatically, retrying up to 3 times. Commits expire 256 blocks
+    (~4 min) after the commit block; the call returns normally only
+    when both commit and reveal confirmed. If the reveal does not
+    succeed, the call raises an error carrying the commit result and
+    the commit_ids for gacha_reveal; the deposit and ticket spend are
+    already final on-chain.
+
+    Validates before signing (no gas spent on failure): kami_ids
+    non-empty, account registered for the owner wallet, each kami owned
+    and RESTING, inventory holds one Reroll Ticket per kami, then an
+    eth_call dry-run.
+
+    Args:
+        kami_ids: Token indices of the kamis to reroll.
+        account: Account label; its owner wallet signs.
+    """
+    if not kami_ids:
+        raise PreTxValidationError(
+            "kami_ids is empty; gacha_reroll requires at least one kami"
+        )
+    _require_registered_owner(account)
+    aid = _account_entity_id(account)
+    _require_kamis_owned(
+        kami_ids, account, aid, "gacha_reroll", required_state="RESTING"
+    )
+    _require_item_balance(
+        account, aid, _REROLL_TICKET_INDEX, len(kami_ids), "gacha_reroll"
+    )
+    entity_ids = [_kami_entity_id(k) for k in kami_ids]
+    commit_result = _send_batch_tx(
+        account,
+        "system.kami.gacha.reroll",
+        _ABI_GACHA_REROLL,
+        "reroll",
+        [entity_ids],
+        gas_per_item=3_000_000,
+        use_owner=True,
+        return_receipt=True,
+    )
+    result = _gacha_commit_and_reveal(account, commit_result, "gacha_reroll")
+    result["kami_ids"] = kami_ids
+    return result
+
+
+@mcp.tool()
+def gacha_reveal(commit_ids: list[str], account: str = "main") -> dict:
+    """Manually reveal gacha commit(s) — recovery path.
+
+    gacha_use and gacha_reroll reveal automatically in the same call;
+    this tool recovers commits whose in-call reveal failed, taking the
+    commit_ids from those tools' results or error text. The reveal must
+    run in a later block than the commit and within 256 blocks (~4 min)
+    of it; past that window no player transaction can reveal the
+    commit. Owner wallet.
+
+    Args:
+        commit_ids: Commit entity IDs from gacha_use / gacha_reroll, as
+            decimal or 0x-hex strings (uint256 values exceed IEEE-754
+            float precision and do not survive JSON as numbers).
+        account: Account label; its owner wallet signs.
+    """
+    if not commit_ids:
+        raise PreTxValidationError(
+            "commit_ids is empty; pass the ids returned by gacha_use or "
+            "gacha_reroll"
+        )
+    ids = [_parse_commit_id(c) for c in commit_ids]
+    result = _send_gacha_reveal_tx(account, ids)
+    result.update({"commit_ids": [str(c) for c in ids], "account": account})
+    return result
+
+
+@mcp.tool()
+def chat_send(message: str, account: str = "main") -> dict:
+    """Send a chat message to the account's current room (system.chat).
+
+    The message posts to whatever room the account is currently in and
+    is public and permanent: it is indexed by the game's chat service,
+    shown to players in the room by the game client, and readable back
+    through lens_chat. There is no on-chain length limit. Operator
+    wallet.
+
+    Disabled by default: when the chat flag is off this tool answers
+    with a CHAT_DISABLED error and signs nothing.
+
+    Validates before signing (no gas spent on failure): message
+    non-empty, account registered, then an eth_call dry-run.
+
+    Args:
+        message: Message text to post to the current room.
+        account: Account label.
+    """
+    if not CHAT_ENABLED:
+        raise LensQueryError(
+            "CHAT_DISABLED", "chat tools are disabled by configuration"
+        )
+    if not message:
+        raise PreTxValidationError("message is empty; nothing to send")
+    _require_registered_operator(account)
+    result = _send_tx(
+        account,
+        "system.chat",
+        _ABI_CHAT,
+        [message],
+        gas_limit=1_000_000,
+    )
+    result["message_bytes"] = len(message.encode())
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Surface taxonomy — registry metadata (one class per tool)
 #
 # ACT       signed game transactions (operator or owner wallet)
@@ -7426,16 +7828,17 @@ def sacrifice_reveal(commit_ids: list[str], account: str = "main") -> dict:
 
 _ACT_TOOLS = {
     "accept_quest", "allocate_skills", "auction_buy", "burn_items",
-    "buy_kami", "cancel_kami_listing", "cancel_trade",
+    "buy_kami", "cancel_kami_listing", "cancel_trade", "chat_send",
     "complete_all_trades", "complete_quest", "complete_trade",
     "craft_item", "create_trade", "drop_quest", "droptable_reveal",
     "equip_all_batch", "equip_item", "feed_kami",
-    "feed_level_allocate_batch", "harvest_collect", "harvest_start",
+    "feed_level_allocate_batch", "gacha_reroll", "gacha_reveal",
+    "gacha_use", "harvest_collect", "harvest_start",
     "harvest_stop", "level_and_allocate_batch", "level_to",
-    "level_up_kami", "list_kami", "listing_buy", "move_to_room",
-    "name_kami", "register_account", "revive_kami", "sacrifice_kami",
-    "sacrifice_kami_batch", "sacrifice_reveal", "scavenge_claim",
-    "scavenge_claim_and_reveal", "speed_craft_batch",
+    "level_up_kami", "liquidate_kami", "list_kami", "listing_buy",
+    "move_to_room", "name_kami", "register_account", "revive_kami",
+    "sacrifice_kami", "sacrifice_kami_batch", "sacrifice_reveal",
+    "scavenge_claim", "scavenge_claim_and_reveal", "speed_craft_batch",
     "stop_harvest_batch", "take_trade", "transfer_items",
     "transfer_kami", "travel_to_room", "unequip_all_batch",
     "unequip_item", "upgrade_skill", "use_account_item",

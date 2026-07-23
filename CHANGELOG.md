@@ -22,6 +22,64 @@ marks the tool contract.
 - **PATCH** — non-semantic changes: documentation fixes, wording, catalog
   data refreshes, internal refactors that do not change the tool contract.
 
+## [2.0.0-dev] — ACT additions: liquidation, gacha, chat send (H3)
+
+MAJOR train continues. Surface: **98 tools** (+5 ACT → ACT 51 /
+PERCEIVE 31 / OUTSOURCE 9 / META 7). System IDs and signatures
+verified against upstream Asphodel-OS/kamigotchi @ `ef898fc` (the
+kami-lens 0.2.0 upstream pin).
+
+### Added — five ACT tools
+
+- **liquidate_kami** — `system.harvest.liquidate` (operator; gas
+  7.5M). Pre-tx gates mirror on-chain eligibility (attacker owned +
+  HARVESTING, victim harvest ACTIVE) with the eth_call dry-run
+  covering cooldown, HP, same-node, room, and threshold; H1 terminal
+  states apply. The docstring is mechanism-only (threshold inputs,
+  salvage/spoils/destroyed split, recoil, cooldown reset, 1 Obol) and
+  points to the lens_node liquidation preview.
+- **gacha_use** — `system.kami.gacha.mint` is OWNER-signed upstream
+  (`getByOwner`; systems/gacha.md said operator — upstream wins).
+  Commit + reveal in one call: spends 1-5 Gacha Tickets (item 10),
+  extracts the `GACHA_COMMIT` ids from the receipt, waits a block,
+  reveals (`system.kami.gacha.reveal.reveal(uint256[])`, owner,
+  estimate-gas preflight, 3 attempts). Returns normally only when both
+  confirmed; a reveal failure raises with the commit result +
+  commit_ids for gacha_reveal (the ticket spend is final either way).
+- **gacha_reroll** — `system.kami.gacha.reroll.reroll(uint256[])`
+  (owner): deposits RESTING owned kamis (1 Reroll Ticket each, item
+  11), same commit+reveal flow. Quest-required (`KAMI_GACHA_REROLL`
+  objective) — added under the gacha scope so quest sufficiency holds.
+- **gacha_reveal** — recovery path for failed in-call reveals
+  (256-block window; the admin forceReveal past the window is not a
+  player action).
+- **chat_send** — `system.chat.executeTyped(string)` (operator; posts
+  to the account's current room; no on-chain length cap; public and
+  indexed by the chat service). Behind the SAME single chat flag as
+  lens_chat: present in the registry, answers CHAT_DISABLED when off,
+  default off.
+
+Sender layer: `_send_batch_tx` gains `use_owner`/`return_receipt`
+(owner-signed named-function transactions); `_send_tx_owner` gains
+`return_receipt`; the sacrifice commit-ID extractor is generalized to
+any type marker.
+
+### ACT coverage sweep (upstream pin `ef898fc`)
+
+All 26 quest objective types and all quest requirements (MSQ chains)
+map to served tools — quest-completion sufficiency holds with
+liquidate_kami and gacha_reroll added (`LIQUIDATED_VICTIM` is satisfied
+by another player's action, as for any player). Player-facing systems
+not served are recorded as visible rows in EXPOSURE.md "ACT coverage":
+three of them are documented game mechanics (skill-respec, cast-item,
+newbie-vendor-buy) and are flagged as sufficiency exceptions pending a
+ruling; the remainder (profile, friends, goals, ETH ticket mint,
+npc-sell, onyx utilities, 721 bridge, token portal, NPC relationships)
+are not in the mechanics docs and not quest-gated. CI enforces the
+rows' presence.
+
+Registry mass after H3: 95,016 chars (the ≤66k budget trim is H4).
+
 ## [2.0.0-dev] — world-state reads move to kami-lens; strategy service demoted to strategies-only (H2)
 
 MAJOR (in progress; ships as 2.0.0). Surface: **93 tools** (84 at

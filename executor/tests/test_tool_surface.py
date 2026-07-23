@@ -59,6 +59,12 @@ LENS_TOOLS = {
     "lens_chat", "lens_status",
 }
 
+# H3: new ACT tools (liquidation, gacha, chat send).
+H3_ACT_TOOLS = {
+    "liquidate_kami", "gacha_use", "gacha_reroll", "gacha_reveal",
+    "chat_send",
+}
+
 # H2: removed from the registry (12 Kamibots world-state reads + 3
 # Kamiden/native reads the lens supersedes).
 REMOVED_TOOLS = {
@@ -83,8 +89,9 @@ def test_tool_surface_count():
     names = set(_tools())
     assert V130_TOOLS <= names
     assert V150_TOOLS <= names
+    assert H3_ACT_TOOLS <= names
     assert "store_operator_key" not in names
-    assert len(names) == 93
+    assert len(names) == 98
 
 
 def test_removed_tools_absent():
@@ -105,11 +112,13 @@ def test_taxonomy_covers_registry_exactly():
     counts = {}
     for cls in server.TOOL_CLASSES.values():
         counts[cls] = counts.get(cls, 0) + 1
-    assert counts == {"ACT": 46, "PERCEIVE": 31, "OUTSOURCE": 9, "META": 7}
+    assert counts == {"ACT": 51, "PERCEIVE": 31, "OUTSOURCE": 9, "META": 7}
     assert server.READ_TOOLS <= names
     # every lens wrapper is PERCEIVE
     for n in LENS_TOOLS:
         assert server.TOOL_CLASSES[n] == "PERCEIVE"
+    for n in H3_ACT_TOOLS:
+        assert server.TOOL_CLASSES[n] == "ACT"
 
 
 def test_read_descriptions_carry_standing_sentence():
@@ -144,6 +153,25 @@ def test_exposure_rows():
         assert re.search(rf"^\| {deferred} \| deferred \|", text, re.M), (
             f"deferred row missing: {deferred}"
         )
+    # H3 sweep: unserved game actions stay visible, never silent.
+    for action in ("skill-respec", "cast-item", "newbie-vendor-buy",
+                   "set-operator", "friends", "goals", "npc-sell",
+                   "token-portal", "npc-relationships"):
+        assert re.search(rf"^\| {re.escape(action)} \|", text, re.M), (
+            f"ACT-coverage row missing: {action}"
+        )
+
+
+def test_h3_docstrings_stay_mechanical():
+    """The PvP/gacha/chat docstrings describe mechanisms only: no
+    advisory or endorsement phrasing in either direction."""
+    tools = _tools()
+    banned = ("griefing", "recommended", "you should", "consider ",
+              "be careful", "beware", "warning", "aggressive", "ethical")
+    for name in H3_ACT_TOOLS:
+        d = (tools[name].description or "").lower()
+        for phrase in banned:
+            assert phrase not in d, (name, phrase)
 
 
 def test_allow_partial_surface():

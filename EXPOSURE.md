@@ -63,3 +63,35 @@ rows below go missing.
 | guild-members | deferred | the Kamibots guild-members read left the surface with the world-state read removal (2026-07-23); no lens guild query exists at pin `a0a3e1e` |
 | general-leaderboards | deferred | the Kamibots `/api/leaderboards/{harvest,kill}` read left the surface (2026-07-23; upstream answered 500s in 2026-07); `lens_leaderboard` serves mirror Score components only |
 | windowed-killers | deferred | `lens_killers` is the all-time ranking; the time-windowed variant is upstream ApiKey-gated at lens pin `a0a3e1e` and is not served |
+
+## ACT coverage — game actions not served at this version
+
+Sweep of every player-facing system at upstream pin `ef898fc`
+(2026-07-23) against the ACT surface. Actions listed here are
+deliberately visible gaps, never silent ones. Quest-completion
+sufficiency does NOT depend on any row below: no quest objective or
+requirement references them.
+
+Documented in the game-mechanics docs (systems/*.md) — sufficiency
+exceptions pending a ruling:
+
+| Action | System | Status | Note |
+|---|---|---|---|
+| skill-respec | `system.skill.respec` | deferred | resets a kami's skills for 1 Respec Potion (item 11403); documented in systems/leveling.md |
+| cast-item | `system.kami.cast.item` | deferred | use an ENEMY_KAMI-shape item on another player's kami in the room (10 stamina); documented in systems/crafting.md |
+| newbie-vendor-buy | `system.newbievendor.buy` | deferred | one-time kami purchase for accounts younger than 24h; documented in systems/npc-shops.md |
+| set-operator | `system.account.set.operator` | deferred | operator rebind; the operator lifecycle is otherwise served by create_operator_wallet + register_account |
+
+Not documented in the game-mechanics docs:
+
+| Action | System | Status | Note |
+|---|---|---|---|
+| account-bio / account-pfp / account-rename | `system.account.set.bio` / `.set.pfp` / `.set.name` | deferred | profile management |
+| friends | `system.friend.request/accept/cancel/block` | deferred | social graph |
+| goals | `system.goal.contribute` / `system.goal.claim` | deferred | community goals |
+| gacha-ticket-eth-mint | `system.buy.gacha.ticket` | deferred | ETH purchase path; tickets are served via auction_buy / listing_buy / trading |
+| npc-sell | `system.listing.sell` | deferred | selling items to NPC merchants |
+| onyx-rename / onyx-respec | `system.kami.onyx.rename` / `system.kami.onyx.respec` | deferred | onyx-paid alternatives to name_kami / skill-respec |
+| kami-721-bridge | `system.kami721.stake` / `.unstake` + 721 transfer | deferred | moving kamis across the world/ERC-721 boundary |
+| token-portal | `system.erc20.portal` | deferred | token deposits/withdrawals (history readable via lens_portal) |
+| npc-relationships | `system.relationship.advance` | deferred | NPC dialogue advancement |
