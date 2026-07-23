@@ -1,9 +1,8 @@
 """Offline tests for the batch-wrapper tools and Kamibots status read.
 
 Covers feed_level_allocate_batch, equip_all_batch, unequip_all_batch,
-speed_craft_batch, get_all_strategy_statuses, and the
-get_kamis_progress_batch field additions. No network, keys, or chain
-access.
+speed_craft_batch, and get_all_strategy_statuses. No network, keys, or
+chain access.
 """
 
 import asyncio
@@ -229,54 +228,20 @@ class TestGetAllStrategyStatuses:
     def test_happy_path_endpoint(self, accounts, monkeypatch):
         seen = {}
 
-        async def fake_api(path, account):
+        async def fake_api(method, path, body, account):
+            seen["method"] = method
             seen["path"] = path
             seen["account"] = account
             return {"strategies": []}
 
-        monkeypatch.setattr(server, "_api_get", fake_api)
+        monkeypatch.setattr(server, "_strategy_api", fake_api)
         r = asyncio.run(server.get_all_strategy_statuses(account="testa"))
+        assert seen["method"] == "GET"
         assert seen["path"] == "/api/strategies/status/all"
         assert r == {"strategies": []}
 
     def test_unregistered_account_raises(self, accounts):
-        # Fabricated accounts have no Kamibots API key; the real _api_get
-        # must raise before any network access.
+        # Fabricated accounts have no Kamibots API key; the real
+        # _strategy_api must raise before any network access.
         with pytest.raises(ValueError, match="No Kamibots API key"):
             asyncio.run(server.get_all_strategy_statuses(account="testa"))
-
-
-class TestGetKamisProgressBatchFields:
-    def test_harvest_and_hp_fields(self, accounts, monkeypatch):
-        async def fake_api(path, account):
-            return {
-                "name": "Kami5",
-                "state": "HARVESTING",
-                "progress": {"level": 2, "experience": 10},
-                "skills": {"points": 1, "investments": [{"index": 3, "points": 2}]},
-                "stats": {
-                    "health": {"base": 10, "total": 12, "sync": 8, "rate": -0.5},
-                    "harmony": {"base": 4}, "violence": {"base": 5},
-                    "power": {"base": 6}, "slots": {"base": 1, "total": 1},
-                },
-                "traits": {
-                    "body": {"name": "B", "affinity": "EERIE"},
-                    "hand": {"name": "H", "affinity": "SCRAP"},
-                },
-                "harvest": {"state": "ACTIVE", "balance": 55},
-            }
-
-        monkeypatch.setattr(server, "_api_get", fake_api)
-        r = asyncio.run(server.get_kamis_progress_batch([5], account="testa"))
-        k = r["kamis"][0]
-        assert k["hp_sync"] == 8 and k["hp_rate"] == -0.5
-        assert k["harvest_state"] == "ACTIVE" and k["harvest_balance"] == 55
-        assert k["level"] == 2 and k["investments"] == [{"index": 3, "points": 2}]
-
-    def test_per_kami_error_capture(self, accounts, monkeypatch):
-        async def fake_api(path, account):
-            raise RuntimeError("api down")
-
-        monkeypatch.setattr(server, "_api_get", fake_api)
-        r = asyncio.run(server.get_kamis_progress_batch([5], account="testa"))
-        assert r["kamis"][0] == {"index": 5, "error": "api down"}

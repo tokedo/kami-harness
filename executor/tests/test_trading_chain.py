@@ -1,6 +1,6 @@
 """Offline tests for chain-state trading reads.
 
-Covers the get_account_trades chain-truth rewrite, get_item_orderbook
+Covers the get_account_trades chain-truth helper, get_item_orderbook
 (including the bootstrap-cache and staleness guards), and the
 list_open_sell_offers coverage note. No network, keys, or chain access.
 """
@@ -186,9 +186,6 @@ class TestGetItemOrderbook:
         assert "asks" in buy_only and "bids" not in buy_only
 
 
-class TestListOpenSellOffersNote:
-    def test_note_points_to_orderbook(self, accounts, monkeypatch):
-        monkeypatch.setattr(server, "_kamiden_grpc_call", lambda m, b=b"": b"")
-        r = server.list_open_sell_offers(seed_account="testa")
-        assert r["offers"] == []
-        assert "get_item_orderbook" in r["note"]
+# list_open_sell_offers left the surface in 2.0.0-dev (H2): lens_trades /
+# lens_market serve open-offer discovery; get_item_orderbook remains the
+# complete per-item book.
