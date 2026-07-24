@@ -17,7 +17,7 @@ server process and are never exposed to the connected client.
 > the environment-interface refactor was relocated to a private experiment
 > repo; [`CHANGELOG.md`](CHANGELOG.md) records what was removed and why.
 >
-> For the KamiBench project story, see **[kamibench.xyz](https://kamibench.xyz)**.
+> For the KamiBench project story, see **[kamibench.ai](https://kamibench.ai)**.
 
 ## The interface contract
 

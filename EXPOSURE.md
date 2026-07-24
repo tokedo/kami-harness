@@ -72,9 +72,9 @@ sufficiency does NOT depend on any row below: no quest objective or
 requirement references them.
 
 The three documented-mechanic gaps found by the sweep (skill-respec,
-cast-item, newbie-vendor-buy) were resolved by ruling D64-a
-(2026-07-23): all three are now served by the `skill_respec`,
-`cast_item`, and `newbie_vendor_buy` tools.
+cast-item, newbie-vendor-buy) were resolved post-sweep (2026-07-23):
+all three are now served by the `skill_respec`, `cast_item`, and
+`newbie_vendor_buy` tools.
 
 Documented in the game-mechanics docs (systems/*.md):
 

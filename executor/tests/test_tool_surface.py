@@ -5,8 +5,8 @@ reads + 23 kami-lens wrappers + kamibots_enable_strategies + 8 ACT
 additions), the surface taxonomy (ACT/PERCEIVE/OUTSOURCE/META), the
 EXPOSURE.md row coverage for READ tools (with the deferred rows), the
 shared standing sentences on READ descriptions, schema portability
-(SPEC §5.1: no anyOf/oneOf/allOf/$ref), the D62 registry-mass budget,
-the D63 tools_hash, and the earlier per-release schema pins.
+(SPEC §5.1: no anyOf/oneOf/allOf/$ref), the registry-mass budget, the
+tools_hash, and the earlier per-release schema pins.
 """
 
 import json
@@ -59,7 +59,7 @@ LENS_TOOLS = {
     "lens_chat", "lens_status",
 }
 
-# H3/H3.1: new ACT tools (liquidation, gacha, chat send; the D64-a
+# H3/H3.1: new ACT tools (liquidation, gacha, chat send; the post-sweep
 # ruling added skill_respec, cast_item, newbie_vendor_buy).
 H3_ACT_TOOLS = {
     "liquidate_kami", "gacha_use", "gacha_reroll", "gacha_reveal",
@@ -154,8 +154,8 @@ def test_read_descriptions_carry_standing_sentence():
 
 
 def test_exposure_rows():
-    """EXPOSURE.md (D59): one row per READ tool on the live registry,
-    plus the visible deferred rows."""
+    """EXPOSURE.md: one row per READ tool on the live registry, plus
+    the visible deferred rows."""
     text = (Path(server._REPO) / "EXPOSURE.md").read_text()
     rows = set(re.findall(r"^\| `([a-z0-9_]+)` \|", text, re.M))
     missing = server.READ_TOOLS - rows
@@ -169,7 +169,7 @@ def test_exposure_rows():
         )
     # H3 sweep: unserved game actions stay visible, never silent.
     # (skill-respec / cast-item / newbie-vendor-buy left this list when
-    # ruling D64-a added their tools.)
+    # the post-sweep ruling added their tools.)
     for action in ("set-operator", "friends", "goals", "npc-sell",
                    "token-portal", "npc-relationships"):
         assert re.search(rf"^\| {re.escape(action)} \|", text, re.M), (
@@ -225,7 +225,7 @@ def test_lens_wrapper_schema_shapes():
 def test_enable_strategies_docstring_facts():
     """The operator-key tool states the grant and the counterparty
     identity as facts, names the hard line, and carries no endorsement
-    language (D61 neutral framing)."""
+    language (neutral framing: facts, no endorsement)."""
     d = _tools()["kamibots_enable_strategies"].description
     assert "operator" in d.lower()
     assert "signs operator-wallet transactions server-side" in d
@@ -291,8 +291,8 @@ def test_onboarding_schema_shapes():
 
 
 def test_registry_mass_within_budget():
-    """D62: the agent-visible registry mass, computed from the live
-    FastMCP registry, stays within the hard budget."""
+    """The agent-visible registry mass, computed from the live FastMCP
+    registry, stays within the hard budget."""
     mass = server.registry_mass()
     assert mass <= server.REGISTRY_MASS_BUDGET, (
         f"registry mass {mass} exceeds budget {server.REGISTRY_MASS_BUDGET}"
@@ -300,8 +300,8 @@ def test_registry_mass_within_budget():
 
 
 def test_tools_hash_present_and_deterministic():
-    """D63: tools_hash is a sha256 over the sorted registry, surfaced
-    in the initialize handshake, and deterministic (no fixed value
+    """tools_hash is a sha256 over the sorted registry, surfaced in the
+    initialize handshake, and deterministic (no fixed value
     asserted)."""
     h = server.TOOLS_HASH
     assert re.fullmatch(r"[0-9a-f]{64}", h)

@@ -7591,7 +7591,8 @@ _finalize_descriptions()
 
 
 # ---------------------------------------------------------------------------
-# Registry budget + tools_hash (D62 / D63)
+# Registry budget + tools_hash — the mass ceiling and the
+# surface-identity hash are contract rows in SPEC.md.
 # ---------------------------------------------------------------------------
 
 # Hard ceiling on the agent-visible registry mass (name + description +

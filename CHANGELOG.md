@@ -67,7 +67,7 @@ Two further candidate sentences (on `sacrifice_kami_batch` and
 remaining, either would have breached the mass budget. No
 compensating trim was taken.
 
-### Added — D64-a coverage additions (post-sweep ruling)
+### Added — coverage for the three ACT-sweep gaps (post-sweep ruling)
 
 skill_respec (`system.skill.respec`: reset all skills for 1 Respec
 Potion 11403, points refunded), cast_item (`system.kami.cast.item`:
@@ -77,7 +77,7 @@ kami purchase; live calcPrice() read pre-send with a max_price_eth
 cap, exact-price value, excess refunded by the contract, 3-day
 soulbind). Neutral-mechanic docstrings, pre-tx gates, H1 semantics.
 
-### Changed — registry mass ≤ 66,000 (D62)
+### Changed — registry mass ≤ 66,000
 
 Registry mass 98,876 → **65,830** chars, CI-enforced from the live
 registry (`test_registry_mass_within_budget`). The trim: pydantic
@@ -92,7 +92,7 @@ consolidated across ~70 tools (validation semantics and mechanics
 kept; catalog data deduplicated toward lens_items). No load-bearing
 mechanics documentation was deleted.
 
-### Added — tools_hash (D63) + SCHEMA_VERSION 2.0.0
+### Added — tools_hash + SCHEMA_VERSION 2.0.0
 
 `TOOLS_HASH` = sha256 over the sorted registry (name, description,
 inputSchema per tool, canonical JSON), surfaced in the MCP initialize
@@ -313,14 +313,13 @@ returns `status="submitted"` without awaiting a receipt (kami-lab M1;
 PATCH: description-only. No tool added or removed (**84 tools**,
 unchanged), no schema delta, no behavior change.
 
-### Fixed — D12: apparatus framing in agent-visible descriptions
+### Fixed — apparatus framing in agent-visible descriptions
 
 - The `get_inventory` and `get_guild_members` docstrings dated their
   observed-availability notes as "during experiment 001" — apparatus
-  vocabulary that must not appear on the agent-visible surface
-  (D12/D13). Both now read "in 2026-07". The mechanics content of both
-  notes (the HTTP 400 history and its resolution; the tier-gated 403s)
-  is unchanged.
+  vocabulary that must not appear on the agent-visible surface. Both
+  now read "in 2026-07". The mechanics content of both notes (the HTTP
+  400 history and its resolution; the tier-gated 403s) is unchanged.
 - Found by the experiment 002 pre-flight forbidden-word scan
   (kami-lab tri-provider smoke, 2026-07-19), which failed against
   v1.5.0 on all three providers.
