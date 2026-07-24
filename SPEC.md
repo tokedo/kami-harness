@@ -1,7 +1,7 @@
 ---
 module: kami-harness
-version: 1
-describes: v2.0.0-rc1 (a65e22f)
+version: 2
+describes: 48bd154
 ---
 
 # SPEC — contract registry
@@ -43,7 +43,7 @@ this registry says *what holds*, not *how it is built*.
   carries `server._LENS_SERVING_SENTENCE`. Non-read tools carry neither.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **65,830 characters** at this ref.
+  **65,942 characters** at this ref.
 
 ### P2 — tools_hash
 
@@ -57,7 +57,7 @@ this registry says *what holds*, not *how it is built*.
 - The MCP `initialize` handshake carries it in the `instructions` field
   as the exact string `tools_hash=<64 hex chars>`.
 - Value at this ref:
-  `b952adf89f22a831ca8f02dca0ede7381a2f0d228e18ca71128e56b36b44bb43`.
+  `9e236f902fe169aea73fe32d7ca3c1f1e8c683d4d27e6f6a313aba4b5083ada8`.
 
 ### P3 — SCHEMA_VERSION
 
@@ -274,7 +274,7 @@ ever reported as another:
 
 | claim | enforcement |
 |---|---|
-| Registry description mass ≤ 66,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget` (65,830 at this ref) |
+| Registry description mass ≤ 66,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget` (65,942 at this ref) |
 | The registry advertises exactly 99 tools | `test_tool_surface.py::test_tool_surface_count` |
 | Every registered tool is class-tagged, and no tag names an absent tool | `test_tool_surface.py::test_taxonomy_covers_registry_exactly` (also pins ACT 54 / PERCEIVE 29 / OUTSOURCE 9 / META 7) |
 | Tools removed at this version stay absent | `test_tool_surface.py::test_removed_tools_absent` |
@@ -408,3 +408,4 @@ mode name stays in `_PRESENTATION_MODES` so the gap is visible.
 | spec version | date | change |
 |---|---|---|
 | 1 | 2026-07-24 | Initial contract registry, describing `v2.0.0-rc1` (`a65e22f`). |
+| 2 | 2026-07-24 | Re-pinned to `48bd154`, which adds one sentence to the `sacrifice_kami` description ("sacrifice is not liquidation"). P1 registry mass 65,830 → 65,942; P2 `tools_hash` `b952adf8…bb43` → `9e236f90…ada8`; mass invariant row updated. Tool count, classes, and schemas unchanged. |
