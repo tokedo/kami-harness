@@ -89,6 +89,16 @@ def test_schema_version():
     assert SCHEMA_VERSION == "2.0.0"
 
 
+def test_readme_current_version_matches_schema_version():
+    """The hand-maintained "Current:" line in README.md names the live
+    SCHEMA_VERSION — it has no other check and drifts silently without
+    one."""
+    readme = (Path(server._REPO) / "README.md").read_text()
+    m = re.search(r"^Current: \*\*`([^`]+)`\*\*", readme, re.M)
+    assert m, "README.md has no 'Current:' version line"
+    assert m.group(1) == SCHEMA_VERSION
+
+
 def test_tool_surface_count():
     names = set(_tools())
     assert V130_TOOLS <= names

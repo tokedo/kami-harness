@@ -227,13 +227,13 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`1.4.0`** — adds pre-transaction validation on game-system
-writes (preconditions checked against chain state before signing; a
-failed check returns an error starting `validation failed; no
-transaction sent:` and spends no gas, distinguishable from an on-chain
-revert of a broadcast transaction), a `revive_kami` revive-path
-parameter, an estimate-based gas reserve for `withdraw_operator`, and
-empty-batch rejection on every batch write.
+Current: **`2.0.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
+reads served as thin `kami-lens` wrappers with verbatim envelope
+pass-through; every tool class-tagged ACT / PERCEIVE / OUTSOURCE /
+META; three non-conflatable transaction terminal states (a confirmed
+revert raises, never returns as success); a CI-enforced registry
+description-mass budget with `tools_hash` surface fingerprinting; and
+the contract registry in [`SPEC.md`](SPEC.md).
 
 ## No agent policy
 
