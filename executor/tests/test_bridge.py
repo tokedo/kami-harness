@@ -2,8 +2,8 @@
 
 The Initia router is faked at the _router_post/httpx level and mainnet
 access via a fake Web3 namespace; nothing here touches the network,
-signs with real funds, or needs keys. The M2 startup requirement is
-exercised in a keyless subprocess.
+signs with real funds, or needs keys. The no-default-endpoint startup
+requirement is exercised in a keyless subprocess.
 """
 
 import inspect
@@ -88,8 +88,9 @@ def bridge_env(monkeypatch, accounts):
 
     def forbid_wait(*a, **kw):
         raise AssertionError(
-            "M1: wait_for_transaction_receipt must not be called — the "
-            "tool returns right after broadcast; bridge_status polls."
+            "fire-and-forget: wait_for_transaction_receipt must not be "
+            "called — the tool returns right after broadcast; "
+            "bridge_status polls."
         )
 
     w3m = SimpleNamespace(eth=SimpleNamespace(
@@ -273,8 +274,8 @@ class TestM1Broadcast:
         assert "next" not in r
 
     def test_tracker_failure_after_send_does_not_raise(self, bridge_env):
-        # M1: after the tx is broadcast nothing may raise, or the hash is
-        # lost and a same-nonce retry invited.
+        # fire-and-forget: after the tx is broadcast nothing may raise,
+        # or the hash is lost and a same-nonce retry invited.
         owner = bridge_env.accounts["testa"].owner_addr
         bridge_env.mainnet_balances[owner] = ETH
         bridge_env.track_error = True
@@ -343,7 +344,7 @@ class TestBridgeStatus:
 
 class TestMainnetRpcRequired:
     def test_startup_fails_loudly_without_mainnet_rpc_url(self, tmp_path):
-        """M2: no default public endpoint — import refuses keyless."""
+        """No default public endpoint — import refuses keyless."""
         env = {k: v for k, v in os.environ.items()
                if k != "MAINNET_RPC_URL"}
         env["HOME"] = str(tmp_path)  # no ~/.blocklife-keys/.env

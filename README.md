@@ -14,7 +14,7 @@ server process and are never exposed to the connected client.
 > **This repo contains no agent policy** — no strategy, no decision
 > procedures, no memory schema. Those live in the separate **`kami-agent`**
 > repo (the reference agent scaffold). The policy content removed during
-> the environment-interface refactor was relocated to a private experiment
+> the environment-interface refactor was relocated to a private companion
 > repo; [`CHANGELOG.md`](CHANGELOG.md) records what was removed and why.
 >
 > For the KamiBench project story, see **[kamibench.ai](https://kamibench.ai)**.
@@ -241,7 +241,7 @@ This repo is deliberately policy-free. It documents *what the world is and
 what you can do to it*, never *what an agent should do*. Strategy, memory,
 and decision procedures are the agent's concern — see the `kami-agent`
 reference scaffold. The policy content removed during the refactor was
-relocated to a private experiment repo; [`CHANGELOG.md`](CHANGELOG.md)
+relocated to a private companion repo; [`CHANGELOG.md`](CHANGELOG.md)
 records everything that was removed.
 
 ## File map

@@ -2245,7 +2245,7 @@ ROUTER_API = "https://router-api.initia.xyz"
 
 # The mainnet RPC endpoint is part of the environment definition and is
 # recorded in run manifests: required explicit configuration, with no
-# public-endpoint fallback (kami-lab review, M2).
+# public-endpoint fallback.
 MAINNET_RPC_URL = os.environ.get("MAINNET_RPC_URL")
 if not MAINNET_RPC_URL:
     raise RuntimeError(
@@ -2489,7 +2489,7 @@ def bridge_eth_from_mainnet(
     signed = w3m.eth.account.sign_transaction(tx, private_key=acct.owner_key)
     tx_hash = "0x" + w3m.eth.send_raw_transaction(signed.raw_transaction).hex()
     # The tx is broadcast: from here on nothing may raise, or the hash
-    # would be lost and a same-nonce retry invited (kami-lab review, M1).
+    # would be lost and a same-nonce retry invited.
     # The receipt is deliberately not awaited; bridge_status carries all
     # subsequent polling.
     try:  # register with the router's tracker (best-effort)

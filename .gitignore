@@ -10,5 +10,6 @@ executor/.cache/
 
 # Per-deployment account roster (public addresses + operational notes;
 # created from accounts/roster.yaml.template, updated by
-# create_operator_wallet) — kami-lab audit F1
+# create_operator_wallet) — carries live account identity injected at
+# provision time, so it never belongs in the repo.
 accounts/roster.yaml

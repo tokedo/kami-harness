@@ -47,12 +47,13 @@ change, `SCHEMA_VERSION` stays 2.0.0. Registry mass 65,830 →
 changes as any reword does:
 `b952adf89f22a831ca8f02dca0ede7381a2f0d228e18ca71128e56b36b44bb43` →
 `9e236f902fe169aea73fe32d7ca3c1f1e8c683d4d27e6f6a313aba4b5083ada8`
-(kami-lab re-derives it at the 003 pins step). The live surface diff
+(re-derived downstream at the next pin step). The live surface diff
 against the pre-patch registry shows exactly one delta, this
 description.
 
-Cause, from experiment 002: an agent holding quest 6 (LIQUIDATE_TOTAL)
-executed `sacrifice_kami` on its own healthy kami and then failed
+Cause, observed in production: an agent holding quest 6
+(LIQUIDATE_TOTAL) executed `sacrifice_kami` on its own healthy kami
+and then failed
 `complete_quest` twice without diagnosing the verb error; a second
 model's terminal notes had inverted the pair the other way, defining
 the quest as "Liquidate (sacrifice/burn) another Kamigotchi". The
@@ -305,8 +306,10 @@ carry `block`/`gas_used` alongside the existing `tx_hash`/`status`.
 count instead of folding them into `skipped`.
 
 Out of scope, unchanged by design: `bridge_eth_from_mainnet` still
-returns `status="submitted"` without awaiting a receipt (kami-lab M1;
-`bridge_status` carries all subsequent polling).
+returns `status="submitted"` without awaiting a receipt. It is
+fire-and-forget: nothing may raise after broadcast, or the hash is
+lost and a same-nonce retry invited; `bridge_status` carries all
+subsequent polling.
 
 ## [1.5.1] — Apparatus vocabulary scrubbed from two tool docstrings
 
@@ -316,13 +319,12 @@ unchanged), no schema delta, no behavior change.
 ### Fixed — apparatus framing in agent-visible descriptions
 
 - The `get_inventory` and `get_guild_members` docstrings dated their
-  observed-availability notes as "during experiment 001" — apparatus
+  observed-availability notes with run-specific apparatus framing —
   vocabulary that must not appear on the agent-visible surface. Both
   now read "in 2026-07". The mechanics content of both notes (the HTTP
   400 history and its resolution; the tier-gated 403s) is unchanged.
-- Found by the experiment 002 pre-flight forbidden-word scan
-  (kami-lab tri-provider smoke, 2026-07-19), which failed against
-  v1.5.0 on all three providers.
+- Found by a pre-deployment forbidden-word scan (tri-provider smoke,
+  2026-07-19), which failed against v1.5.0 on all three providers.
 
 Non-agent-visible occurrences retained by design: the
 `"experimental_features"` bridge-router request-payload key (a wire
@@ -439,8 +441,9 @@ Sender-level gates (all operator- and owner-signed system writes):
   reverts surface pre-broadcast carrying the chain's revert string.
 - **Empty-batch rejection** — a batch write whose target array is empty
   is a validation error (`executeBatched` over an empty array was
-  observed in experiment 001 to execute as an on-chain status=1 no-op
-  "success"). Enforced per-tool with named messages and again in the
+  observed in an earlier deployment to execute as an on-chain
+  status=1 no-op "success"). Enforced per-tool with named messages and
+  again in the
   batch sender as a backstop; the existing empty-array guards on
   transfer/marketplace/sacrifice/equip tools were reclassified to the
   same validation-error type.
@@ -507,13 +510,13 @@ paid in ETH from this wallet. Raw RPC error: ...".
 
 The full-balance sweep's gas reserve was a constant
 (250k gas x flat price) that underestimated MiniEVM's actual
-requirement — two sweeps reverted during experiment 001 cleanup while
-explicit smaller amounts succeeded. The reserve is now
+requirement — two sweeps reverted during an earlier deployment's
+cleanup while explicit smaller amounts succeeded. The reserve is now
 `eth_estimateGas x2` (observed MiniEVM transfer costs vary: ~21.1k gas
 to an EIP-7702 delegated EOA, where a bare 21k limit runs out of gas;
 ~113k for a plain transfer; ~174k on first touch of the recipient;
 full-balance sends observed to need ~2x the gas-fee reserve to clear —
-measurements from kami-lab's provisioning/sweep_funds.py). The exact
+measurements from the provisioning sweep tooling). The exact
 sweep value is re-verified with a second `eth_estimateGas` before
 signing, and the transaction is sent with the estimate-based gas
 limit. Explicit-amount withdrawals get the same estimate-based
@@ -521,9 +524,10 @@ provision. Parameters unchanged.
 
 ### Changed — Kamibots API observed-behavior notes (investigation)
 
-- `get_inventory` — the HTTP 400s recorded on every arm of experiment
-  001 are not reproducible: the identical request (same route, params,
-  header) returns 200 for every registered account as of 2026-07-18.
+- `get_inventory` — the HTTP 400s recorded on every arm of an earlier
+  deployment are not reproducible: the identical request (same route,
+  params, header) returns 200 for every registered account as of
+  2026-07-18.
   Upstream state, not request shape; docstring records both
   observations.
 - `get_leaderboard` — upstream returns
@@ -611,9 +615,10 @@ it produced an empty registry and made every tool unusable.
   schema changed.
 
 ### Config
-- `accounts/roster.yaml` is now gitignored (kami-lab audit F1): it is
-  per-deployment state (public addresses plus operational notes), not
-  part of the interface. Created from `accounts/roster.yaml.template`.
+- `accounts/roster.yaml` is now gitignored: it carries live account
+  identity injected at provision time (public addresses plus
+  operational notes), which is per-deployment state, not part of the
+  interface. Created from `accounts/roster.yaml.template`.
 
 ### Tests
 - Offline regression for the exact broken reproduction (owner-only
@@ -798,7 +803,7 @@ KamiBench. Establishes the versioned tool contract.
 - Rewrote `README.md` as an interface specification.
 - Reworked `SETUP.md` to cover only environment setup (server + client).
 
-### Removed (policy content — extracted to a private experiment repo)
+### Removed (policy content — extracted to a private companion repo)
 - `strategies/` — calibrated decision heuristics.
 - `CLAUDE.md` — playing-agent instructions and per-tick decision priorities.
 - `systems/memory.md` — agent memory schema and templates.
@@ -808,7 +813,7 @@ KamiBench. Establishes the versioned tool contract.
 
 The extracted policy content, and a `judgment-sweep` audit record of every
 judgment sentence removed and its source location, were relocated to a
-private experiment repo — they are not part of this environment interface.
+private companion repo — they are not part of this environment interface.
 
 ### Added
 - `SCHEMA_VERSION` (`executor/schema_version.py`), surfaced via MCP
