@@ -6750,10 +6750,12 @@ def sacrifice_kami(kami_id: int, account: str = "main") -> dict:
 
     IRREVERSIBLE — burns the kami forever for an equipment item; the
     reveal fires automatically on-chain and the item lands in the
-    inventory. Operator wallet. Preconditions (checked by an eth_call
-    dry-run before anything is sent): operator in room 19, kami owned
-    and RESTING. Returns commit entity IDs (input for sacrifice_reveal
-    if the auto-reveal ever fails).
+    inventory. Sacrifice is NOT liquidation — it never counts toward
+    LIQUIDATE quest objectives (that verb is liquidate_kami). Operator
+    wallet. Preconditions (checked by an eth_call dry-run before
+    anything is sent): operator in room 19, kami owned and RESTING.
+    Returns commit entity IDs (input for sacrifice_reveal if the
+    auto-reveal ever fails).
 
     Args:
         kami_id: Kami token index to sacrifice.

@@ -29,6 +29,44 @@ fidelity; kami-lens READ wrappers + strategy-service demotion; ACT
 additions) into the 2.0.0 contract. Final surface: **99 tools** — ACT
 54 / PERCEIVE 29 / OUTSOURCE 9 / META 7.
 
+### Fixed — sacrifice is not liquidation (stated where the error happens)
+
+The `sacrifice_kami` docstring now says so outright: "Sacrifice is NOT
+liquidation — it never counts toward LIQUIDATE quest objectives (that
+verb is liquidate_kami)." One sentence, inserted in the first
+paragraph after the auto-reveal clause; the paragraph is re-wrapped
+and nothing else in it changed.
+
+Mechanics legibility (which on-chain counter a verb increments), not
+judgment or strategy — the same class as the [1.4.0] legible-validation
+investment. The new text carries no advisory or apparatus vocabulary.
+
+Description-only: **99 tools** unchanged, no schema delta, no behavior
+change, `SCHEMA_VERSION` stays 2.0.0. Registry mass 65,830 →
+**65,942** chars (budget 66,000; 58 chars headroom left). `tools_hash`
+changes as any reword does:
+`b952adf89f22a831ca8f02dca0ede7381a2f0d228e18ca71128e56b36b44bb43` →
+`9e236f902fe169aea73fe32d7ca3c1f1e8c683d4d27e6f6a313aba4b5083ada8`
+(kami-lab re-derives it at the 003 pins step). The live surface diff
+against the pre-patch registry shows exactly one delta, this
+description.
+
+Cause, from experiment 002: an agent holding quest 6 (LIQUIDATE_TOTAL)
+executed `sacrifice_kami` on its own healthy kami and then failed
+`complete_quest` twice without diagnosing the verb error; a second
+model's terminal notes had inverted the pair the other way, defining
+the quest as "Liquidate (sacrifice/burn) another Kamigotchi". The
+structural half was already fixed in the 2.0.0 train, where
+`liquidate_kami` was added — v1.5.1 had no liquidate verb at all,
+which left sacrifice as the nearest-sounding tool. This fixes the
+semantic half, at the docstring an agent reads while holding the
+quest.
+
+Two further candidate sentences (on `sacrifice_kami_batch` and
+`liquidate_kami`) were dropped: at ~68 and ~74 chars against 58
+remaining, either would have breached the mass budget. No
+compensating trim was taken.
+
 ### Added — D64-a coverage additions (post-sweep ruling)
 
 skill_respec (`system.skill.respec`: reset all skills for 1 Respec
