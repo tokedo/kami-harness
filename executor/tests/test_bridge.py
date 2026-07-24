@@ -249,7 +249,7 @@ class TestFeeBalanceArithmetic:
         assert bridge_env.raw_sent == []
 
 
-class TestM1Broadcast:
+class TestBroadcastIsFireAndForget:
     def test_returns_submitted_immediately_with_hash(self, bridge_env):
         owner = bridge_env.accounts["testa"].owner_addr
         bridge_env.mainnet_balances[owner] = ETH
