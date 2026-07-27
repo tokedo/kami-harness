@@ -22,7 +22,7 @@ marks the tool contract.
 - **PATCH** — non-semantic changes: documentation fixes, wording, catalog
   data refreshes, internal refactors that do not change the tool contract.
 
-## [2.0.0] — release candidate: budget, tools_hash, final surface
+## [2.0.0] — budget, tools_hash, final surface
 
 MAJOR. Consolidates the [2.0.0-dev] train below (ACT reporting
 fidelity; kami-lens READ wrappers + strategy-service demotion; ACT

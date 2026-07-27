@@ -1,9 +1,15 @@
 """Smoke tests for quest_state — uses chain reads against bpeon's known state.
 
-These assertions match the state observed in session 70 (2026-04-30):
+These assertions match the state observed 2026-07-27 (re-recorded from
+the 2026-04-30 session-70 snapshot after bpeon's live state advanced —
+Q49 was completed in play, unlocking Q50):
 - Q48 ("Pipe Dream") completed
-- Q49 ("Community Service") owned but blocked on objs_not_met
-- Q50 ("You Smelt It…") not yet accepted (gated behind Q49)
+- Q49 ("Community Service") completed
+- Q50 ("You Smelt It…") owned but blocked on objs_not_met
+
+These are live-state snapshots: they fail when the account is played
+past the recorded state. On failure, verify the progression is
+monotonic (quest_state reads coherently) and re-record.
 
 Run from the executor/ directory:
     .venv/bin/python -m unittest tests.test_quest_state
@@ -36,19 +42,18 @@ class TestQuestState(unittest.TestCase):
         self.assertTrue(r["completed"])
         self.assertTrue(r["owned"])
 
-    def test_q49_active_blocked_objs_not_met(self):
+    def test_q49_completed(self):
         r = server.quest_state(49, account=self.ACCOUNT)
+        self.assertEqual(r["state"], "completed")
+        self.assertTrue(r["completed"])
+        self.assertTrue(r["owned"])
+
+    def test_q50_active_blocked_objs_not_met(self):
+        r = server.quest_state(50, account=self.ACCOUNT)
         self.assertEqual(r["state"], "active_blocked")
         self.assertTrue(r["owned"])
         self.assertFalse(r["completed"])
         self.assertEqual(r["revert_kind"], "objs_not_met")
-
-    def test_q50_not_accepted(self):
-        r = server.quest_state(50, account=self.ACCOUNT)
-        self.assertEqual(r["state"], "not_accepted")
-        self.assertFalse(r["owned"])
-        self.assertFalse(r["completed"])
-        self.assertEqual(r["revert_kind"], "not_active")
 
 
 if __name__ == "__main__":
