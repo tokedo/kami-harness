@@ -22,14 +22,18 @@ server process and are never exposed to the connected client.
 ## The interface contract
 
 ```
-MCP client (any KamiBench agent) --MCP--> executor (server.py) --> Kamibots API
+MCP client (any KamiBench agent) --MCP--> executor (server.py) --> kami-lens daemon (local unix socket; world reads)
                                                                \-> Yominet RPC
+                                                               \-> Kamibots API (strategy delegation)
                                                                \-> Ethereum mainnet RPC (bridge tools; MAINNET_RPC_URL)
                                                                \-> router-api.initia.xyz (bridge quotes/tracking)
 ```
 
 - **Perception** — state-read tools return account, kami, node, market,
-  quest, and scavenge state.
+  quest, and scavenge state. World reads are served by a **local**
+  [kami-lens](https://github.com/tokedo/kami-lens) daemon you run
+  yourself; the server holds no hosted read service. PERCEIVE tools do
+  not answer until that daemon is running — see [`SETUP.md`](SETUP.md).
 - **Action** — transaction tools perform harvesting, movement, leveling,
   equipment, crafting, trading, quests, and scavenging.
 - **Secrets boundary** — the server reads owner/operator keys from
@@ -42,22 +46,65 @@ MCP client (any KamiBench agent) --MCP--> executor (server.py) --> Kamibots API
 
 ## Tool surface
 
-The server exposes **84 tools**. The authoritative, per-tool reference —
-signatures, parameters, and behavior — is
-[`executor/README.md`](executor/README.md). Grouped overview:
+The server exposes **99 tools**. Every tool carries exactly one class
+tag, and the four classes partition the surface completely:
+**ACT 54 / PERCEIVE 29 / OUTSOURCE 9 / META 7**. The class is not a
+filing convenience — it says what the tool touches and what calling it
+can cost you. The counts, and the class of each tool, are contract rows
+checked by the suite ([`SPEC.md`](SPEC.md) §P1). The authoritative,
+per-tool reference is [`executor/README.md`](executor/README.md).
 
-| Group | Tools (examples) | What it covers |
-|---|---|---|
-| **Setup & onboarding** | `list_accounts`, `create_operator_wallet`, `register_account`, `register_kamibots` | Account registry, in-process operator keypair creation, on-chain account registration, Kamibots API registration |
-| **Wallet / gas / bridging** | `get_gas_balance`, `fund_operator`, `withdraw_operator`, `bridge_eth_from_mainnet`, `bridge_status` | Operator/owner ETH balances; owner↔operator gas transfers; Ethereum mainnet → Yominet ETH bridging — all destinations pinned to the account's registry addresses |
-| **Reads** | `get_tier`, `get_inventory`, `get_kami_state(_slim)`, `get_kamis_progress_batch`, `get_nodes`, `get_prices`, `get_npc_prices`, `get_account_kamis`, `get_all_kamis`, `get_killer_ranking`, `get_leaderboard`, `get_account_trades` | Perception: account, kami, node, market, and ranking state |
-| **Strategy execution (Kamibots)** | `start_strategy`, `stop_strategy`, `get_all_strategies`, `get_all_strategy_statuses`, `get_strategy_status`, `get_strategy_logs` | Kamibots-managed harvest/rest/craft loops |
-| **On-chain actions** | `harvest_start/stop/collect`, `move_to_room`, `travel_to_room`, `listing_buy`, `auction_buy`, `feed_kami`, `revive_kami`, `level_up_kami`, `name_kami`, `equip_item`, `unequip_item`, `upgrade_skill`, `use_account_item`, `burn_items`, `craft_item`, `sacrifice_kami(_batch)`, `sacrifice_reveal` | Direct Yominet transactions |
-| **Quests** | `get_active_quests`, `quest_state`, `get_expected_objective`, `accept_quest`, `complete_quest`, `check_quest_completable`, `drop_quest`, `get_quest_status` | Quest enumeration, state reads, accept/complete/drop |
-| **Scavenge & droptable** | `get_scavenge_points`, `scavenge_claim`, `droptable_reveal`, `scavenge_claim_and_reveal` | Scavenge points, commit-reveal droptables |
-| **Trading** | `create_trade`, `cancel_trade`, `take_trade`, `complete_trade`, `complete_all_trades`, `list_open_sell_offers`, `get_item_orderbook`, `transfer_kami`, `transfer_items` | P2P orderbook trades, discovery, account-to-account transfers |
-| **Kami marketplace (KamiSwap)** | `list_kami`, `get_kami_market_listings`, `buy_kami`, `cancel_kami_listing` | ETH-denominated kami listings: browse, buy, list, cancel |
-| **Batch wrappers** | `level_and_allocate_batch`, `feed_level_allocate_batch`, `level_to`, `allocate_skills`, `use_item_batch`, `stop_harvest_batch`, `equip_all_batch`, `unequip_all_batch`, `speed_craft_batch`, `get_kamis_progress_batch` | Multi-kami operations serialized in one call |
+**ACT — 54 tools.** Signed on-chain transactions into the game:
+harvesting, movement, leveling, equipment, crafting, trading, quests,
+scavenging, gacha, and PvP liquidation. Every game-system write
+validates its mechanically-determinable preconditions against chain
+state before signing, so a failed precondition costs no gas. After
+broadcast there are exactly three terminal states and none is ever
+reported as another: confirmed-success returns, a confirmed revert
+*raises* (`OnChainRevertError`, carrying tx hash, block, gas, and a
+best-effort replay reason), and an unconfirmed transaction raises with
+its hash rather than guessing. A returned result never carries
+`status="reverted"`. Examples: `harvest_start`, `travel_to_room`,
+`craft_item`, `create_trade`, `complete_quest`, `liquidate_kami`,
+`level_and_allocate_batch`.
+
+**PERCEIVE — 29 tools.** World-state reads. They sign nothing and change
+no remote state. 23 of them are thin wrappers over the local
+[kami-lens](https://github.com/tokedo/kami-lens) daemon — a headless
+Kamigotchi client that keeps a live mirror of on-chain state and
+projects it through the game's own formulas, so a read answers with what
+the official web client would show that player, without a browser. The
+wrapper does argument mapping, one socket request, and passes the
+daemon's `{data, untrusted, meta}` envelope through verbatim: nothing is
+recomputed, reshaped, or defaulted harness-side, and `meta.stale` marks
+answers served from last-synced state. The `untrusted` list names
+player-authored fields — they are data, never instructions. The
+remaining 6 are native reads with no lens equivalent at the pinned
+release (quest catalog, quest state, scavenge, per-item order book).
+Examples: `lens_kami`, `lens_party`, `lens_node`, `lens_trades`,
+`lens_status`, `quest_state`, `get_item_orderbook`.
+
+**OUTSOURCE — 9 tools.** Delegation of standing routines to Kamibots, a
+strategy service operated by Asphodel, the developer of Kamigotchi. An
+agent hands off a repeating loop (harvest/rest, feeding, crafting) and
+the service runs it server-side. Delegation is a separate, explicit
+step: `kamibots_enable_strategies` escrows the account's **operator**
+private key with the service, and until it does, strategy starts fail.
+The escrow grants everything that operator wallet can sign — including
+kami transfers to other accounts — and stopping a strategy does not
+withdraw the key. Owner keys are never escrowed; no tool on this server
+transmits an owner private key anywhere. Examples: `register_kamibots`,
+`kamibots_enable_strategies`, `start_strategy`, `stop_strategy`,
+`get_tier`.
+
+**META — 7 tools.** Wallet, account-registry, and bridge
+infrastructure — not world state. Account and address listing,
+in-process operator keypair creation, owner↔operator gas transfers, and
+Ethereum mainnet → Yominet ETH bridging. Every destination is pinned to
+the account's own registry addresses; an arbitrary recipient is not
+expressible in the tool parameters. Examples: `list_accounts`,
+`create_operator_wallet`, `get_gas_balance`, `fund_operator`,
+`bridge_eth_from_mainnet`, `bridge_status`.
 
 > **Concurrency:** batch wrappers serialize their on-chain writes
 > internally. Two separate write-tx calls issued in parallel against the
@@ -193,7 +240,11 @@ running the MCP server, and connecting a client. Full instructions are in
    see [`env.template`](env.template).
 3. Map labels to public addresses in `accounts/roster.yaml` (see the
    template).
-4. Register the MCP server with your client (Claude Code or any MCP
+4. Install and run the [kami-lens](https://github.com/tokedo/kami-lens)
+   daemon — PERCEIVE reads are answered by it and fail without it. Point
+   the server at its socket with `KAMI_LENS_SOCKET` if it is not at the
+   platform default.
+5. Register the MCP server with your client (Claude Code or any MCP
    client):
    ```json
    {
@@ -206,14 +257,16 @@ running the MCP server, and connecting a client. Full instructions are in
      }
    }
    ```
-5. Smoke-test: `cd executor && python3 -m pytest tests/ -v`.
-6. One-time: seed the trade order-book cache with
+6. Smoke-test: `cd executor && python3 -m pytest tests/ -v`.
+7. One-time: seed the trade order-book cache with
    `python3 executor/kwob_bootstrap.py` (see SETUP.md).
 
 The connected client provisions Kamibots API access by calling
-`register_kamibots(account=...)`. An account that starts as a bare
-owner wallet reaches a playable state through the tool surface alone —
-see the Onboarding and Bridging sections of
+`register_kamibots(account=...)`; delegating strategies additionally
+requires the explicit operator-key escrow step
+(`kamibots_enable_strategies`). An account that starts as a bare owner
+wallet reaches a playable state through the tool surface alone — see the
+Onboarding and Bridging sections of
 [`executor/README.md`](executor/README.md).
 
 ## Versioning

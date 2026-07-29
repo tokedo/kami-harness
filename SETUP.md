@@ -33,10 +33,20 @@ Kamigotchi perception and action as tools; any MCP client can drive it.
   transactions through the `MAINNET_RPC_URL` endpoint; it is part of the
   environment definition and is recorded in run manifests, and the
   server fails at startup when it is unset.
-- **Kamibots account**: the server uses Kamibots' Playwright API for state
-  reads and strategy execution. The first session calls
-  `register_kamibots(account=...)`, which signs with the owner key and
-  provisions an API key automatically.
+- **kami-lens**: world-state reads (the 29 PERCEIVE tools) are answered
+  by a **local** [kami-lens](https://github.com/tokedo/kami-lens)
+  daemon that you run yourself — there is no hosted read service. It is
+  a Node.js daemon and ships a Docker Compose sample; you need one of
+  Node.js 20+ or Docker. Set it up in step 7. Without it, PERCEIVE
+  tools raise `LensUnavailableError` and the rest of the surface is
+  unaffected.
+- **Kamibots account** (optional): needed only to delegate standing
+  strategies to the Kamibots service (the 9 OUTSOURCE tools). The
+  client calls `register_kamibots(account=...)`, which signs with the
+  owner key and provisions an API key automatically; starting a
+  strategy additionally requires the explicit operator-key escrow step
+  `kamibots_enable_strategies`. World-state reads do **not** go through
+  this service — they come from kami-lens.
 
 ## 2. Clone the repo
 
@@ -95,7 +105,82 @@ cp .claude/settings.json.template .claude/settings.json
 The keys are only ever needed by the server process, which loads them
 outside the client's tool surface.
 
-## 7. Register the MCP server with your client
+## 7. Install and run kami-lens (required for world-state reads)
+
+The 29 PERCEIVE tools are thin wrappers over a **local** kami-lens
+daemon: 23 of them are one socket request each, passed straight back to
+the caller. Until the daemon is running, those tools raise
+`LensUnavailableError` — they never fall back to a hosted service and
+never return an empty result in its place. ACT, OUTSOURCE, and META
+tools do not depend on it.
+
+This server version is built against kami-lens release **0.2.0**, pinned
+at commit `a0a3e1e` and recorded as `KAMI_LENS_PIN` in
+[`executor/server.py`](executor/server.py). kami-lens is not published
+to npm or a container registry, so build it from the repository:
+
+```bash
+git clone https://github.com/tokedo/kami-lens
+cd kami-lens
+git checkout a0a3e1e        # the pin this server version is built against
+npm install && npm run build
+node dist/cli.js daemon      # long-running: sync daemon + query socket
+```
+
+Or run it with the committed Compose sample
+([`docker-compose.sample.yml`](https://github.com/tokedo/kami-lens/blob/main/docker-compose.sample.yml)),
+which needs no configuration — the baked Yominet defaults reach a live
+mirror on their own:
+
+```bash
+cp docker-compose.sample.yml docker-compose.yml
+docker compose up -d
+```
+
+Cold start pulls a state snapshot and then follows the chain; give it a
+minute before expecting complete answers.
+
+### Point the server at the socket
+
+The daemon serves one newline-delimited JSON request per connection over
+an AF_UNIX socket at `<data dir>/kami-lens.sock`. The server looks for
+it at the daemon's own platform default:
+
+| Platform | Default socket path |
+|---|---|
+| macOS | `~/Library/Application Support/kami-lens/kami-lens.sock` |
+| Linux | `${XDG_DATA_HOME:-~/.local/share}/kami-lens/kami-lens.sock` |
+| Windows | `%LOCALAPPDATA%\kami-lens\kami-lens.sock` |
+
+A daemon started with the defaults needs no configuration here. If you
+moved its data directory (`--data-dir`) or run it in Docker — where the
+socket lives on the container's `/data` volume and must be bind-mounted
+out to the host — set the path explicitly in
+`~/.blocklife-keys/.env` (keys documented in
+[`env.template`](env.template)):
+
+```bash
+KAMI_LENS_SOCKET=/absolute/path/to/kami-lens.sock
+
+# Optional, same file:
+# PRESENTATION_MODE=envelope   # or name-free (daemon withholds
+#                              # player-authored names, with receipt)
+# KAMI_CHAT_ENABLED=false      # lens_chat/chat_send answer
+#                              # CHAT_DISABLED while off
+```
+
+Verify the daemon before moving on — it exits 0 only when the daemon is
+LIVE:
+
+```bash
+node dist/cli.js health     # or: docker compose exec kami-lens kami-lens health
+```
+
+Once the MCP server is connected (step 8), `lens_status()` reports the
+same thing through the tool surface: sync state, live block, stream
+health, and the daemon's own version.
+
+## 8. Register the MCP server with your client
 
 Point your client at the executor. For Claude Code, add it at the project
 level (`./.mcp.json`, committed) or user-global:
@@ -116,7 +201,7 @@ The server runs as a stdio MCP server. On connect it reports its
 `server_version` (the interface `SCHEMA_VERSION`; see
 [`CHANGELOG.md`](CHANGELOG.md)) in the initialize handshake.
 
-## 8. Smoke-test the server
+## 9. Smoke-test the server
 
 ```bash
 cd executor
@@ -124,10 +209,11 @@ python3 -m pytest tests/ -v
 ```
 
 The suite runs against committed catalog and quest-state fixtures — expect
-all tests to pass without a live account. Import errors here mean the
-Python environment from step 3 isn't set up correctly.
+all tests to pass without a live account, and without the kami-lens
+daemon running (lens behavior is covered by fixtures). Import errors here
+mean the Python environment from step 3 isn't set up correctly.
 
-## 9. Seed the trade order-book cache (one-time)
+## 10. Seed the trade order-book cache (one-time)
 
 `get_item_orderbook` discovers trade entities from World event logs, but
 the public Yominet RPC is a pruned node (~1M blocks of history): trades
@@ -155,16 +241,31 @@ Staleness behavior after the one-time bootstrap:
   deployments, treat the bootstrap as a provisioning step: run it once
   per host as part of deployment.
 
-## 10. Bootstrap an account (from a connected client)
+## 11. Bootstrap an account (from a connected client)
 
 With the server connected, initialize an account by calling:
 
 ```
-list_accounts()                       # see what's configured
-register_kamibots(account="main")     # owner-signed, provisions API key
-get_tier(account="main")              # confirms API access
-get_account_kamis(account="main")     # discover your kamis
+list_accounts()                       # META: see what's configured
+lens_status()                         # PERCEIVE: daemon LIVE + synced?
+lens_account(account_key="main")      # PERCEIVE: identity, room, stamina, roster
+lens_party(account_index=<index>)     # PERCEIVE: your kamis with full vitals
 ```
+
+If `lens_status()` errors instead of answering, the daemon from step 7
+is not reachable — no other read will work until it is.
+
+Only if you intend to delegate standing strategies to Kamibots:
+
+```
+register_kamibots(account="main")          # OUTSOURCE: owner-signed, provisions API key
+kamibots_enable_strategies(account="main") # OUTSOURCE: escrows the OPERATOR key
+get_tier(account="main")                   # OUTSOURCE: tier, tax rate, slots
+```
+
+The escrow step hands the operator private key to a third-party service
+that then signs with it; read `kamibots_enable_strategies`'s description
+before calling it. Owner keys are never sent.
 
 After that, every other tool is available. An account that exists only
 as an owner key (no operator, no on-chain registration, funds still on
@@ -182,6 +283,20 @@ The server scanned `~/.blocklife-keys/.env` for `*_OPERATOR_KEY` /
 `*_OWNER_KEY` pairs. The label you passed (e.g. `main`) didn't match.
 Check that `MAIN_OPERATOR_KEY=…` (uppercased) is set in
 `~/.blocklife-keys/.env`.
+
+### PERCEIVE reads fail with `LensUnavailableError`
+The kami-lens daemon from step 7 is not running, or the server is
+looking at the wrong socket. Confirm the daemon is LIVE
+(`node dist/cli.js health`, exit 0), then check that the socket it
+created matches what the server expects — the platform default in the
+table above, or whatever `KAMI_LENS_SOCKET` is set to in
+`~/.blocklife-keys/.env`. A daemon in Docker needs its `/data` socket
+bind-mounted to a host path and `KAMI_LENS_SOCKET` pointed there.
+
+### A lens read answers, but `meta.stale` is `true`
+The daemon is degraded or still catching up and is serving from
+last-synced state. This is reported, not hidden: the flag reaches you
+untouched. `lens_status()` says why. A cold start needs a minute.
 
 ### Tests fail with `no row in catalogs/quests/quests.csv`
 The quest catalogs are committed in `catalogs/quests/`. If they're
@@ -205,7 +320,7 @@ out-of-gas on node-change waves).
 - [`README.md`](README.md) — the environment interface specification:
   tool surface, world-knowledge docs, and world model.
 - [`executor/README.md`](executor/README.md) — the full MCP tool
-  reference (84 tools).
+  reference (99 tools, by class).
 - [`integration/system-ids.md`](integration/system-ids.md) and
   [`integration/entity-ids.md`](integration/entity-ids.md) — if you want
   to extend the interface with new tools.
