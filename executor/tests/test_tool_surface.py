@@ -1,8 +1,8 @@
 """Tool-contract surface checks for the 2.0.0 interface.
 
-Verifies the advertised tool count (99 = 84 at v1.5.1 − 17 removed
+Verifies the advertised tool count (101 = 84 at v1.5.1 − 17 removed
 reads + 23 kami-lens wrappers + kamibots_enable_strategies + 8 ACT
-additions), the surface taxonomy (ACT/PERCEIVE/OUTSOURCE/META), the
+additions + the 2 pool swap tools), the surface taxonomy (ACT/PERCEIVE/OUTSOURCE/META), the
 EXPOSURE.md row coverage for READ tools (with the deferred rows), the
 shared standing sentences on READ descriptions, schema portability
 (SPEC §5.1: no anyOf/oneOf/allOf/$ref), the registry-mass budget, the
@@ -86,7 +86,7 @@ def _tools():
 
 
 def test_schema_version():
-    assert SCHEMA_VERSION == "2.0.0"
+    assert SCHEMA_VERSION == "2.1.0"
 
 
 def test_readme_current_version_matches_schema_version():
@@ -105,7 +105,7 @@ def test_tool_surface_count():
     assert V150_TOOLS <= names
     assert H3_ACT_TOOLS <= names
     assert "store_operator_key" not in names
-    assert len(names) == 99
+    assert len(names) == 101
 
 
 def test_removed_tools_absent():
@@ -126,7 +126,7 @@ def test_taxonomy_covers_registry_exactly():
     counts = {}
     for cls in server.TOOL_CLASSES.values():
         counts[cls] = counts.get(cls, 0) + 1
-    assert counts == {"ACT": 54, "PERCEIVE": 29, "OUTSOURCE": 9, "META": 7}
+    assert counts == {"ACT": 55, "PERCEIVE": 30, "OUTSOURCE": 9, "META": 7}
     assert server.READ_TOOLS <= names
     # every lens wrapper is PERCEIVE
     for n in LENS_TOOLS:

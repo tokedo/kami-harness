@@ -96,10 +96,10 @@ Example config (Claude Code's `.mcp.json` shown):
 
 ## Available tools
 
-The registry advertises **99 tools**. Every tool carries exactly
+The registry advertises **101 tools**. Every tool carries exactly
 one class tag — `ACT` / `PERCEIVE` / `OUTSOURCE` / `META` — and the four
 classes partition the surface completely:
-**ACT 54 / PERCEIVE 29 / OUTSOURCE 9 / META 7**.
+**ACT 55 / PERCEIVE 30 / OUTSOURCE 9 / META 7**.
 The tags live in `server.TOOL_CLASSES`; the counts are contract rows
 checked by the suite ([SPEC.md](../SPEC.md) §P1).
 

@@ -209,3 +209,55 @@ class TestListKamiWeiPrecision:
         with pytest.raises(ValueError, match="> 0"):
             server.list_kami(45, "0", account="testa")
         assert sent == []
+
+
+class TestListingDescriptionMatchesTheSurface:
+    """The list_kami description makes checkable claims. Verify them.
+
+    Basis for these checks, stated explicitly: the ABI shipped in this
+    repo and the tool registry it builds — NOT a comparison against
+    world documentation, which this repo does not pin and therefore
+    cannot be diffed against here.
+    """
+
+    def _description(self) -> str:
+        tools = {t.name: t for t in server.mcp._tool_manager.list_tools()}
+        return tools["list_kami"].description or ""
+
+    def test_described_arguments_match_the_abi(self):
+        """The description promises a kami, an ETH price and an expiry;
+        the ABI must take exactly those three, in that order."""
+        inputs = server._ABI_LIST_KAMI[0]["inputs"]
+        assert [i["name"] for i in inputs] == ["kamiIndex", "price", "expiry"]
+        assert [i["type"] for i in inputs] == ["uint32", "uint256", "uint256"]
+        desc = self._description()
+        for claim in ("price_eth", "expiry", "kami_id"):
+            assert claim in desc
+
+    def test_named_cancel_tool_exists_and_targets_the_cancel_system(self):
+        """The description routes the reader to cancel_kami_listing. A
+        description pointing at a tool that does not exist, or at one
+        that does something else, is worse than no pointer."""
+        assert "cancel_kami_listing" in self._description()
+        names = {t.name for t in server.mcp._tool_manager.list_tools()}
+        assert "cancel_kami_listing" in names
+        src = server.cancel_kami_listing.__doc__ or ""
+        assert "cancel" in src.lower()
+
+    def test_listing_is_an_act_on_the_market_system(self):
+        assert server.TOOL_CLASSES["list_kami"] == "ACT"
+        assert server.TOOL_CLASSES["cancel_kami_listing"] == "ACT"
+
+    def test_zero_and_negative_prices_refused_as_described(self, accounts):
+        """The description says the ask must be > 0."""
+        for bad in ("0", "-1", "0.0"):
+            with pytest.raises(ValueError, match="Price must be > 0"):
+                server.list_kami(45, bad, account="testa")
+
+    def test_state_claims_are_stated_for_the_reader(self):
+        """The preconditions an agent needs BEFORE calling: which state
+        a kami must be in, and what listing does to it."""
+        desc = self._description()
+        assert "RESTING" in desc
+        assert "LISTED" in desc
+        assert "soulbound" in desc

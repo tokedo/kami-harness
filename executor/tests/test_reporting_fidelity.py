@@ -12,6 +12,7 @@ or chain access.
 import asyncio
 from types import SimpleNamespace
 
+import eth_abi
 import pytest
 from web3 import Web3
 from web3.exceptions import TimeExhausted
@@ -181,7 +182,13 @@ class TestSenderTerminalStates:
                 "testa", "system.account.move", server._ABI_MOVE, [4],
                 gas_limit=100_000,
             )
-        assert "unavailable (the replay did not revert)" in str(ei.value)
+        # The fallback states that the replay was inconclusive, and does
+        # NOT claim to know why. The old wording asserted "the replay did
+        # not revert", which is false whenever the replay itself failed —
+        # e.g. when it raced the RPC head and never ran at all.
+        msg = str(ei.value)
+        assert server.REPLAY_UNAVAILABLE in msg
+        assert "did not revert" not in msg
 
     def test_unconfirmed_raises_distinct_error(self, accounts, txchain):
         txchain.wait_error = TimeExhausted("no receipt after 120s")
@@ -628,7 +635,12 @@ class TestSequentialLoopsMatrix:
         )
         assert r["reached_target"] is False
         assert r["final_room"] == 2 and r["moves_executed"] == 1
-        assert len(r["txs"]) == 1
+        # Two hops reached the chain: one succeeded, one landed and
+        # reverted. Both spent gas and both are reported, so a consumer
+        # keyed on tx hashes counts what the chain actually holds.
+        assert len(r["txs"]) == 2
+        assert [t["status"] for t in r["txs"]] == ["success", "reverted"]
+        assert all(t.get("tx_hash") for t in r["txs"])
 
     def test_level_and_allocate_mixed_default_raises(
         self, accounts, validation_ok, monkeypatch
@@ -860,3 +872,143 @@ class TestRevertInvariant:
             with pytest.raises(server.OnChainRevertError):
                 call()
                 pytest.fail(f"{name} returned normally on revert")
+
+
+# ---------------------------------------------------------------------------
+# Revert-reason channel
+#
+# A landed-and-reverted transaction is diagnosed by replaying its exact
+# calldata through eth_call. Three things broke that diagnosis in
+# production, and all three are pinned here.
+# ---------------------------------------------------------------------------
+
+
+class _RpcRaced(Exception):
+    """The replay racing the node's head — not a revert."""
+
+    def __init__(self):
+        super().__init__(
+            "requested height is greater than the latest block height"
+        )
+
+
+class TestGasCappedReplay:
+    """The replay must carry the gas limit the transaction carried."""
+
+    def test_replay_reproduces_under_the_original_ceiling(
+        self, accounts, txchain
+    ):
+        """An out-of-gas revert reproduces ONLY under the real ceiling.
+        Replayed without one it runs clean, which is exactly why 12
+        out-of-gas harvest collects were each recorded as an
+        unexplained empty revert."""
+        _revert_receipt(txchain)
+        txchain.call_error = Exception("out of gas")
+        with pytest.raises(server.OnChainRevertError):
+            server._send_tx(
+                "testa", "system.account.move", server._ABI_MOVE, [4],
+                gas_limit=123_456,
+            )
+        replay_params = [p for p, _ in txchain.call_log if "gas" in p]
+        assert replay_params, (
+            "no replay carried a gas field; an out-of-gas revert cannot "
+            "reproduce without the ceiling the tx actually used"
+        )
+        assert replay_params[-1]["gas"] == 123_456
+
+    def test_replay_targets_the_landed_block(self, accounts, txchain):
+        _revert_receipt(txchain, block=77)
+        txchain.call_error = Exception("execution reverted: not enough MUSU")
+        with pytest.raises(server.OnChainRevertError) as ei:
+            server._send_tx(
+                "testa", "system.account.move", server._ABI_MOVE, [4],
+                gas_limit=100_000,
+            )
+        assert 77 in [b for _, b in txchain.call_log]
+        assert "not enough MUSU" in str(ei.value)
+
+
+class TestHonestFallback:
+    """A failed replay never masquerades as a revert reason."""
+
+    def test_raced_rpc_error_is_not_surfaced_as_a_reason(
+        self, accounts, txchain
+    ):
+        """The observed mode: the replay races the head, and that raw RPC
+        error gets reported as if the chain had said it."""
+        _revert_receipt(txchain)
+        txchain.call_error = _RpcRaced()
+        with pytest.raises(server.OnChainRevertError) as ei:
+            server._send_tx(
+                "testa", "system.account.move", server._ABI_MOVE, [4],
+                gas_limit=100_000,
+            )
+        msg = str(ei.value)
+        assert "requested height" not in msg
+        assert "latest block height" not in msg
+        assert server.REPLAY_UNAVAILABLE in msg
+
+    def test_fallback_never_asserts_why_the_replay_failed(
+        self, accounts, txchain
+    ):
+        _revert_receipt(txchain)
+        txchain.call_error = None  # replay runs clean everywhere
+        with pytest.raises(server.OnChainRevertError) as ei:
+            server._send_tx(
+                "testa", "system.account.move", server._ABI_MOVE, [4],
+                gas_limit=100_000,
+            )
+        msg = str(ei.value)
+        assert server.REPLAY_UNAVAILABLE in msg
+        # The old wording claimed the replay ran and did not revert,
+        # which is false whenever the replay never ran at all.
+        assert "did not revert" not in msg
+
+    def test_reverted_transaction_still_reports_its_evidence(
+        self, accounts, txchain
+    ):
+        """No reason must never mean no facts: hash, block and gas spent
+        are known regardless of what the replay managed to recover."""
+        _revert_receipt(txchain, block=77, gas=55_000)
+        txchain.call_error = _RpcRaced()
+        with pytest.raises(server.OnChainRevertError) as ei:
+            server._send_tx(
+                "testa", "system.account.move", server._ABI_MOVE, [4],
+                gas_limit=100_000,
+            )
+        assert ei.value.block == 77
+        assert ei.value.gas_used == 55_000
+        assert ei.value.tx_hash.startswith("0x")
+        assert ei.value.reason is None
+
+
+class TestRevertDataDecoding:
+    def test_error_string_selector_decoded(self):
+        # Error("insufficient balance") ABI-encoded behind 0x08c379a0
+        payload = eth_abi.encode(["string"], ["insufficient balance"]).hex()
+        assert server._decode_revert_data(
+            "0x08c379a0" + payload
+        ) == "insufficient balance"
+
+    def test_panic_selector_decoded_with_meaning(self):
+        payload = eth_abi.encode(["uint256"], [0x11]).hex()
+        out = server._decode_revert_data("0x4e487b71" + payload)
+        assert "0x11" in out and "overflow" in out
+
+    def test_custom_error_selector_reported(self):
+        out = server._decode_revert_data("0xdeadbeef" + "00" * 32)
+        assert out == "custom error 0xdeadbeef"
+
+    def test_bare_0x_carries_nothing(self):
+        """The signature of an out-of-gas revert. It must not read as a
+        reason — there is no information in it."""
+        assert server._decode_revert_data("0x") is None
+
+    def test_infra_errors_classified_as_replay_failures(self):
+        assert server._is_replay_infra_error(
+            "requested height is greater than the latest block height"
+        )
+        assert server._is_replay_infra_error("header not found")
+        assert not server._is_replay_infra_error(
+            "execution reverted: objs not met"
+        )

@@ -27,6 +27,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
+import eth_abi
 import httpx
 import yaml
 from dotenv import load_dotenv, set_key
@@ -67,6 +68,173 @@ RPC_URL = os.environ.get(
 
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 _GAS_PRICE = {"maxFeePerGas": 2_500_000, "maxPriorityFeePerGas": 0}
+
+# ---------------------------------------------------------------------------
+# Gas ceilings
+#
+# Every hard-coded gas limit in this module lives here, keyed by the tool
+# that spends it, so a ceiling can be audited against observed on-chain
+# usage in one place instead of being chased through call sites.
+#
+# Each value is justified against the gas actually consumed by SUCCESSFUL
+# transactions of the same system, measured over 2026-05-01..2026-08-07.
+# The rule: a ceiling clears ~1.5x the single-call p99. Where the observed
+# p99 is inflated by batched calls (one transaction settling many
+# entities), the single-call proxy is p50 and the batch term is checked
+# separately against the observed maximum.
+#
+# This is not bookkeeping. A ceiling below real usage does not degrade
+# gracefully: the transaction lands, burns the entire ceiling, and reverts
+# out-of-gas with empty revert data. The pre-send eth_call dry-run does
+# NOT catch it, because a dry-run runs without a gas ceiling and therefore
+# always passes. system.harvest.collect was provisioned at 2,000,000
+# against a median successful cost of 2,359,919 and failed 12 times out of
+# 12 attempts on-chain, every one of them diagnosed as an unexplained
+# empty revert.
+#
+# The chain's block gas limit is 45,000,000 (observed at block
+# 31,808,156). Scaling formulas below are clamped well under it by
+# _batch_gas(); no formula may silently provision a transaction that
+# cannot fit in a block.
+# ---------------------------------------------------------------------------
+
+# Highest gas any single transaction may be provisioned. Under the
+# 45,000,000 block limit with margin: a transaction provisioned above the
+# block limit is unmineable, so the batch that would need it is rejected
+# pre-send with a split instruction rather than broadcast to die.
+MAX_TX_GAS = 40_000_000
+
+_GAS_CEILINGS = {
+    # -- system.account.register: p50 883,040 / p99 883,112 / max 892,864
+    "register_account": 2_000_000,
+    # -- system.account.move: p50 860,277 / p99 1,083,261 / max 1,085,203.
+    # Was 1,200,000 — above the observed max but only 1.11x it, thin
+    # enough that a gas-schedule change would push moves out-of-gas.
+    "move_to_room": 1_700_000,
+    # -- system.kami.use.item: p50 1,389,965 / p99 2,203,269 / max
+    # 2,639,799. Was 1,500,000 — BELOW p99, so stamina-item hops during
+    # travel were failing on anything but the cheapest path.
+    "travel_use_item": 3_500_000,
+    # -- system.listing.buy: p50 949,468 / p99 2,395,753 / max 3,114,738
+    "listing_buy_base": 1_200_000,
+    "listing_buy_per_item": 900_000,
+    # -- system.auction.buy: p50 941,910 / p99 1,023,644 / max 1,038,431.
+    # Was 1,500,000, just under 1.5x p99.
+    "auction_buy": 1_800_000,
+    # -- system.kami.equip: p50 1,139,006 / p99 1,475,614 / max 1,587,696
+    "equip_kami": 3_000_000,
+    # -- system.kami.unequip: p50 903,198 / p99 1,030,941 / max 1,030,941
+    "unequip_kami": 3_000_000,
+    # -- system.kamimarket.buy: p50 1,072,524 / p99 4,673,568 / max
+    # 12,434,456. The per-item term was 600,000, far under what the
+    # batched tail shows a marginal kami purchase costs.
+    "buy_kami_base": 1_800_000,
+    "buy_kami_per_item": 1_200_000,
+    # -- system.kamimarket.cancel: p50 728,851 / p99 940,015 / max
+    # 950,688. Was 1,000,000 — a 1.05x margin over the observed max.
+    "cancel_kami_listing": 1_500_000,
+    # -- system.kami.send: p50 782,915 / p99 3,029,135 / max 3,899,601
+    "transfer_kami_base": 1_000_000,
+    "transfer_kami_per_item": 1_000_000,
+    # -- system.item.transfer: p50 651,652 / p99 1,686,666 / max
+    # 2,660,695. Was 500,000 + 300,000/item: a single-item transfer got
+    # 800,000 against a 651,652 median, a 1.23x margin, and an
+    # eight-item transfer got 2,900,000 against an observed max of
+    # 2,660,695.
+    "transfer_items_base": 800_000,
+    "transfer_items_per_item": 600_000,
+    # -- system.item.burn has NO observed successful transactions in the
+    # measurement window, so these are NOT measured values. They mirror
+    # transfer_items, whose system does the same inventory decrement over
+    # the same item-index array shape. Re-derive from real data once
+    # burns appear on-chain.
+    "burn_items_base": 800_000,
+    "burn_items_per_item": 600_000,
+    # -- system.quest.accept: p50 837,098 / p99 957,476 / max 1,117,822
+    "accept_quest": 1_500_000,
+    # -- system.quest.complete: p50 943,620 / p99 1,167,339 / max 1,594,420
+    "complete_quest": 2_000_000,
+    # -- system.quest.drop: p50 613,887 / p99 621,069 / max 621,069 (n=14)
+    "drop_quest": 1_000_000,
+    # -- system.craft: p50 1,159,834 / p99 1,408,180 / max 1,701,712.
+    # Was 1,500,000 — BELOW the observed maximum, so the expensive tail
+    # of crafts was already failing out-of-gas.
+    "craft_item": 2_200_000,
+    # -- system.scavenge.claim: p50 779,040 / p99 779,082 / max 783,982
+    "scavenge_claim": 2_000_000,
+    # -- system.kami.sacrifice.commit: p50 1,240,248 / p99 1,310,222 /
+    # max 1,345,462
+    "sacrifice_kami": 2_000_000,
+    # -- system.harvest.liquidate: p50 4,343,014 / p99 4,750,112 / max
+    # 5,386,977. Clears 1.5x p99 (7,125,168) — the largest flat ceiling
+    # here, and correctly so.
+    "liquidate_kami": 7_500_000,
+    # -- system.kami.gacha.mint: p50 10,646,224 / p99 12,765,637 / max
+    # 12,786,799. Was 2,000,000 + 1,500,000/mint, i.e. 3,500,000 for a
+    # single mint against a median cost of 10,646,224 — under a THIRD of
+    # what a mint actually costs, so this tool could not succeed. The
+    # observed spread is narrow across mint counts (max is only 1.2x
+    # p50), so the cost is dominated by a large fixed term and the
+    # per-mint term is small.
+    "gacha_use_base": 16_000_000,
+    "gacha_use_per_item": 2_000_000,
+    # -- system.chat has no observed successful transactions (chat is
+    # disabled in deployments), so this ceiling is unmeasured.
+    "chat_send": 1_000_000,
+    # -- system.skill.respec: p50 4,347,883 / p99 5,148,177 / max
+    # 5,407,222. Was 2,000,000, under HALF the median successful cost.
+    "skill_respec": 8_000_000,
+    # -- system.kami.cast.item: p50 2,323,182 / p99 2,515,613 / max
+    # 2,578,486. Was 2,000,000, below the median successful cost.
+    "cast_item": 4_000_000,
+    # -- system.newbievendor.buy: p50 2,360,307 / p99 5,204,448 / max
+    # 5,206,209. Was 2,000,000, below the median successful cost. Only
+    # six successful transactions observed, so the tail is weakly
+    # constrained and the ceiling is set from p99 rather than p50.
+    "newbie_vendor_buy": 8_000_000,
+    # -- system.pool: p50 714,821 / p99 854,317 / max 881,129
+    "pool_swap": 1_400_000,
+    # The three harvest ceilings below are PER KAMI: the single-kami path
+    # sends them as the whole limit, and the batch path multiplies them by
+    # the number of kamis the transaction settles.
+    #
+    # -- system.harvest.start: p50 1,611,201 / p99 8,320,655 / max
+    # 18,390,430. p99 and max are batch-inflated, so p50 is the
+    # single-kami figure; 3,000,000 clears 1.5x it.
+    "harvest_start": 3_000_000,
+    # -- system.harvest.stop: p50 2,597,439 / p99 14,785,900 / max
+    # 20,087,787. The maximum is ~7.7x the single-kami median — a
+    # full-roster batch stop. 4,000,000 clears 1.5x p50.
+    "harvest_stop": 4_000_000,
+    # -- system.harvest.collect: p50 2,359,919 / p99 2,479,603 / max
+    # 16,906,695. The narrow p50/p99 band is single-kami collects; the
+    # max is a batch. THE headline defect: 2,000,000 against a 2,359,919
+    # median, on both the single and the per-kami batch path. Raised to
+    # match its sibling harvest_stop, which does strictly more work (it
+    # collects AND stops) and has never failed at 4,000,000.
+    "harvest_collect": 4_000_000,
+}
+
+
+def _batch_gas(base: int, per_item: int, count: int, what: str) -> int:
+    """Gas for a `count`-sized batch, refusing to exceed what a block holds.
+
+    A flat ceiling on a batch under-provisions every batch bigger than
+    one; a scaling ceiling with no bound eventually provisions more gas
+    than a block can contain, and such a transaction can never be mined.
+    Batches too large to fit are rejected here, before signing, with the
+    remedy in the message.
+    """
+    gas = base + per_item * count
+    if gas > MAX_TX_GAS:
+        fits = max(1, (MAX_TX_GAS - base) // per_item)
+        raise PreTxValidationError(
+            f"{count} {what} in one transaction needs about {gas:,} gas, "
+            f"more than the {MAX_TX_GAS:,} ceiling a single transaction "
+            f"may provision (the chain's block gas limit is 45,000,000). "
+            f"Split into calls of at most {fits} {what}."
+        )
+    return gas
 
 _WORLD_ABI = json.loads(
     '[{"type":"function","name":"systems","inputs":[],'
@@ -349,7 +517,7 @@ class OnChainRevertError(RuntimeError):
             f"REVERTED: gas was spent ({gas_used} gas) and no state change "
             f"was applied. Revert reason (best-effort eth_call replay at "
             f"block {block}): "
-            f"{reason or 'unavailable (the replay did not revert)'}"
+            f"{reason or REPLAY_UNAVAILABLE}"
         )
 
 
@@ -392,21 +560,194 @@ def _hex_hash(h) -> str:
     return s if s.startswith("0x") else "0x" + s
 
 
+# A transaction that ran out of gas reverts ONLY under the gas ceiling it
+# actually carried; replayed without one it succeeds and reports no
+# revert at all. Every replay below therefore carries the original limit.
+REPLAY_UNAVAILABLE = "revert reason unavailable (replay inconclusive)"
+
+# Errors that mean the REPLAY failed, not that the transaction reverted.
+# Surfacing one of these as a revert reason states a falsehood about the
+# chain: the most common is racing the RPC's head, where a node that has
+# not yet caught up to the landed block rejects the call outright.
+_REPLAY_INFRA_MARKERS = (
+    "greater than the latest block",
+    "requested height",
+    "missing trie node",
+    "header not found",
+    "block not found",
+    "state not available",
+    "pruned",
+    "timeout",
+    "connection",
+    "too many requests",
+    "rate limit",
+)
+
+# Solidity's two built-in error selectors. Anything else with a 4-byte
+# selector is a custom error declared by the contract.
+_SELECTOR_ERROR_STRING = "0x08c379a0"  # Error(string)
+_SELECTOR_PANIC = "0x4e487b71"  # Panic(uint256)
+
+_PANIC_CODES = {
+    0x01: "assertion failed",
+    0x11: "arithmetic overflow or underflow",
+    0x12: "division or modulo by zero",
+    0x21: "invalid enum conversion",
+    0x22: "malformed storage byte array",
+    0x31: "pop on an empty array",
+    0x32: "array index out of bounds",
+    0x41: "out of memory",
+    0x51: "call to an uninitialized function pointer",
+}
+
+
+def _is_replay_infra_error(text: str) -> bool:
+    """True when the text describes a failed replay, not a revert."""
+    lo = text.lower()
+    return any(m in lo for m in _REPLAY_INFRA_MARKERS)
+
+
+def _extract_revert_data(e: Exception) -> str | None:
+    """The 0x-prefixed revert payload carried by an RPC error, if any."""
+    for arg in e.args:
+        if isinstance(arg, dict):
+            for key in ("data", "message"):
+                v = arg.get(key)
+                if isinstance(v, dict):
+                    v = v.get("data")
+                if isinstance(v, str) and v.startswith("0x") and len(v) > 2:
+                    return v
+    for attr in ("data", "message"):
+        v = getattr(e, attr, None)
+        if isinstance(v, str) and v.startswith("0x") and len(v) > 2:
+            return v
+    return None
+
+
+def _decode_revert_data(data: str) -> str | None:
+    """Human-readable reason from raw revert data.
+
+    Handles the two built-in Solidity errors and reports the 4-byte
+    selector for custom errors. A bare `0x` carries no information at
+    all — the usual signature of an out-of-gas revert — and yields None
+    rather than an empty-looking reason.
+    """
+    if not data or data in ("0x", "0x0"):
+        return None
+    body = data[2:]
+    if len(body) < 8:
+        return None
+    selector = "0x" + body[:8].lower()
+    payload = body[8:]
+    if selector == _SELECTOR_ERROR_STRING:
+        try:
+            (msg,) = eth_abi.decode(["string"], bytes.fromhex(payload))
+            return msg
+        except Exception:
+            return None
+    if selector == _SELECTOR_PANIC:
+        try:
+            (code,) = eth_abi.decode(["uint256"], bytes.fromhex(payload))
+        except Exception:
+            return None
+        known = _PANIC_CODES.get(code)
+        return (
+            f"panic {hex(code)}" + (f" ({known})" if known else "")
+        )
+    # A custom error: the selector is the only identity available without
+    # the declaring contract's ABI, and it is enough to look up.
+    return f"custom error {selector}"
+
+
+def _replay_once(call: dict, block: int | str) -> tuple[str | None, bool]:
+    """One eth_call replay. Returns (reason, replay_was_usable).
+
+    `replay_was_usable` is False when the replay itself failed — the RPC
+    refused the call, or raced its own head — as opposed to the call
+    completing and telling us something about the transaction.
+    """
+    try:
+        w3.eth.call(call, block_identifier=block)
+        return None, True  # ran clean: no revert at this block
+    except (AttributeError, TypeError):
+        return None, False
+    except Exception as e:
+        data = _extract_revert_data(e)
+        if data is not None:
+            decoded = _decode_revert_data(data)
+            if decoded:
+                return decoded, True
+            # Revert data present but empty: real revert, no reason in it.
+            return None, True
+        text = _revert_text(e)
+        if _is_replay_infra_error(text):
+            return None, False
+        return text, True
+
+
 def _replay_revert_reason(built: dict | None, block: int) -> str | None:
-    """Best-effort revert reason for a landed revert: re-run the exact
-    calldata via eth_call at the block the transaction landed in.
-    Returns None when no reason is recoverable (the replay does not
-    revert against that block's state, or the RPC refuses the call)."""
+    """Best-effort revert reason for a transaction that landed and reverted.
+
+    Re-runs the exact calldata via eth_call against the state around the
+    block the transaction landed in. Three things make this harder than
+    it looks, and all three produced unusable diagnoses in production:
+
+    1. The replay must carry the SAME gas limit the transaction carried.
+       An out-of-gas revert cannot reproduce without it, so the replay
+       reports no revert and the real cause stays invisible.
+    2. The replay can race the RPC's head and be refused for a reason
+       that has nothing to do with the transaction. Such an error is
+       never returned as a reason; the replay is retried once the head
+       has advanced past the landed block.
+    3. The landed block's state may no longer reproduce the revert, so
+       neighbouring blocks are tried before giving up.
+
+    Returns None when no reason is recoverable; callers render that as
+    REPLAY_UNAVAILABLE rather than asserting why the replay failed.
+    """
     if not built:
         return None
     call = {k: built[k] for k in ("from", "to", "value", "data") if k in built}
+    # Fix 1: the ceiling is part of the execution being reproduced.
+    if built.get("gas"):
+        call["gas"] = built["gas"]
+
+    reason, usable = _replay_once(call, block)
+    if reason:
+        return reason
+
+    # Fix 2: if the replay was refused, give the node a chance to catch
+    # up to the block we are asking about, then try once more.
+    if not usable:
+        if _wait_for_head_past(block):
+            reason, usable = _replay_once(call, block)
+            if reason:
+                return reason
+
+    # Fix 3: the landed block ran clean; neighbouring state may not.
+    if usable:
+        for neighbour in (block - 1, block + 1):
+            if neighbour < 0:
+                continue
+            reason, _ = _replay_once(call, neighbour)
+            if reason:
+                return reason
+    return None
+
+
+def _wait_for_head_past(block: int, attempts: int = 3, delay: float = 1.0) -> bool:
+    """Block until the node's head is past `block`. False if it never is."""
+    for _ in range(attempts):
+        try:
+            if w3.eth.block_number > block:
+                return True
+        except Exception:
+            return False
+        time.sleep(delay)
     try:
-        w3.eth.call(call, block_identifier=block)
-        return None
-    except (AttributeError, TypeError):
-        return None
-    except Exception as e:
-        return _revert_text(e)
+        return w3.eth.block_number > block
+    except Exception:
+        return False
 
 
 def _await_receipt(tx_hash, built: dict | None, timeout: int):
@@ -435,6 +776,29 @@ def _receipt_fields(r: dict) -> dict:
     return {
         k: r[k] for k in ("tx_hash", "status", "block", "gas_used") if k in r
     }
+
+
+def _failed_tx_fields(e: Exception) -> dict:
+    """Receipt evidence for a step that failed, in _receipt_fields shape.
+
+    A transaction that landed and reverted is still a transaction: it has
+    a hash, a block, and spent gas, and it is visible on-chain whether or
+    not this payload mentions it. Reporting only the error string loses
+    that evidence and makes any tx-keyed reconciliation come up short.
+    A failure that never reached the chain has no hash to report, and
+    says so by omitting the field rather than inventing one.
+    """
+    if isinstance(e, OnChainRevertError):
+        return {
+            "tx_hash": e.tx_hash,
+            "status": "reverted",
+            "block": e.block,
+            "gas_used": e.gas_used,
+        }
+    if isinstance(e, TxUnconfirmedError):
+        # Outcome genuinely unknown: it may yet land and spend gas.
+        return {"tx_hash": getattr(e, "tx_hash", None), "status": "unconfirmed"}
+    return {"status": "error"}
 
 
 # component.address.operator stores address values; its reverse index
@@ -661,6 +1025,13 @@ def _dry_run(fn, from_addr: str, value_wei: int = 0) -> None:
 
     A revert here raises PreTxValidationError carrying the chain's
     revert string; nothing has been signed or broadcast.
+
+    Note what this check does NOT cover: it runs without a gas ceiling,
+    so it validates the logic of the call and nothing about whether the
+    real transaction is provisioned enough gas to finish. A tool whose
+    ceiling sits below real usage passes here every time and still dies
+    out-of-gas on-chain. Gas ceilings are audited against observed usage
+    in _GAS_CEILINGS instead; this dry-run cannot catch that class.
     """
     params: dict = {"from": from_addr}
     if value_wei:
@@ -794,7 +1165,8 @@ def _send_batch_tx(
     addr = _resolve_system(system_id)
     contract = w3.eth.contract(address=addr, abi=abi)
     fn = getattr(contract.functions, fn_name)(*args)
-    gas = gas_per_item * max(len(args[0]) if isinstance(args[0], list) else 1, 1)
+    count = max(len(args[0]) if isinstance(args[0], list) else 1, 1)
+    gas = _batch_gas(0, gas_per_item, count, "entities")
 
     if use_owner:
         _require_registered_owner(account)
@@ -1965,7 +2337,7 @@ def register_account(name: str, account: str = "main") -> dict:
         "system.account.register",
         _ABI_ACCOUNT_REGISTER,
         [operator_addr, name],
-        gas_limit=2_000_000,  # observed 883k on tx 0x85139659…
+        gas_limit=_GAS_CEILINGS["register_account"],  # observed 883k on tx 0x85139659…
     )
     result.update({
         "name": name,
@@ -2700,6 +3072,11 @@ def lens_inventory(account_key: str = "") -> dict:
 def lens_item(item_index: int) -> dict:
     """Item registry row by index.
 
+    Includes the item's pool facts where a pool exists: both reserves,
+    the fee in basis points, LP supply, and the implied rate before fees.
+    For what a specific trade would actually receive, and its price
+    impact, quote it with pool_swap_quote.
+
     Args:
         item_index: Item index (e.g. 11302).
     """
@@ -2708,7 +3085,12 @@ def lens_item(item_index: int) -> dict:
 
 @mcp.tool()
 def lens_items() -> dict:
-    """The full item registry."""
+    """The full item registry.
+
+    Carries each item's pool facts where a pool exists: reserves, fee in
+    basis points, LP supply, and the implied rate before fees. Quote a
+    specific trade with pool_swap_quote.
+    """
     return _lens_request("items")
 
 
@@ -2812,6 +3194,11 @@ def lens_auctions(item_index: int = -1) -> dict:
 def lens_quests(account_index: int = -1) -> dict:
     """Quest registry; with account_index, that account's accepted
     quests and completion state.
+
+    With account_index the payload carries per-quest account status:
+    accepted, complete, requirementsMet, objectivesMet, and per-objective
+    progress — enough to tell an unaccepted quest from an accepted one
+    whose objectives are unfinished, without a separate probe.
 
     Args:
         account_index: Account index (-1: registry only / daemon
@@ -2981,6 +3368,14 @@ async def start_strategy(
     transactions server-side with that key, and the account's tier tax
     applies to strategy proceeds.
 
+    A started strategy OUTLIVES this session. It keeps signing with the
+    enrolled operator key on its own cycle after the caller that started
+    it has stopped running — observed continuing for ~23 hours on a
+    ~10-minute cycle after its principal ended — and every one of those
+    transactions burns gas from the enrolled wallet. Enrolment has no
+    known expiry, and the service exposes no way to enumerate what is
+    running. stop_strategy is the only way to revoke it.
+
     Args:
         strategy_type: One of harvestAndRest, harvestAndFeed, rest_v3,
             auto_v2, bodyguard, craft.
@@ -3019,6 +3414,10 @@ async def stop_strategy(
     kami_id: str, permanent: bool = True, account: str = "main"
 ) -> dict:
     """Stop the running strategy for a kami.
+
+    This is the only way to revoke a strategy. Until it is called, the
+    strategy keeps signing and spending gas from the enrolled wallet
+    regardless of whether the session that started it is still running.
 
     For multi-kami strategies (auto_v2, rest_v3, bodyguard) pass
     kami_indices[0] from the strategy list; secondary indices return
@@ -3178,12 +3577,15 @@ def harvest_start(kami_ids: list[int], node_index: int, account: str = "main") -
     if len(entity_ids) == 1:
         return _send_tx(
             account, "system.harvest.start", _ABI_HARVEST_START,
-            [entity_ids[0], node_index, 0, 0], gas_limit=3_000_000,
+            [entity_ids[0], node_index, 0, 0],
+            gas_limit=_GAS_CEILINGS["harvest_start"],
         )
-    # Batch
+    # Batch: _send_batch_tx multiplies this by the number of kamis the
+    # transaction settles.
     return _send_batch_tx(
         account, "system.harvest.start", _ABI_HARVEST_START,
-        "executeBatched", [entity_ids, node_index, 0, 0], 3_000_000,
+        "executeBatched", [entity_ids, node_index, 0, 0],
+        _GAS_CEILINGS["harvest_start"],
     )
 
 
@@ -3206,11 +3608,11 @@ def harvest_stop(kami_ids: list[int], account: str = "main") -> dict:
     if len(h_ids) == 1:
         return _send_tx(
             account, "system.harvest.stop", _ABI_HARVEST_STOP,
-            [h_ids[0]], gas_limit=4_000_000,
+            [h_ids[0]], gas_limit=_GAS_CEILINGS["harvest_stop"],
         )
     result = _send_batch_tx(
         account, "system.harvest.stop", _ABI_HARVEST_STOP,
-        "executeBatched", [h_ids], 4_000_000,
+        "executeBatched", [h_ids], _GAS_CEILINGS["harvest_stop"],
     )
     result["kamis"] = kami_ids
     return result
@@ -3235,11 +3637,11 @@ def harvest_collect(kami_ids: list[int], account: str = "main") -> dict:
     if len(h_ids) == 1:
         return _send_tx(
             account, "system.harvest.collect", _ABI_HARVEST_COLLECT,
-            [h_ids[0]], gas_limit=2_000_000,
+            [h_ids[0]], gas_limit=_GAS_CEILINGS["harvest_collect"],
         )
     result = _send_batch_tx(
         account, "system.harvest.collect", _ABI_HARVEST_COLLECT,
-        "executeBatched", [h_ids], 2_000_000,
+        "executeBatched", [h_ids], _GAS_CEILINGS["harvest_collect"],
     )
     result["kamis"] = kami_ids
     return result
@@ -3275,7 +3677,7 @@ def move_to_room(room_index: int, account: str = "main") -> dict:
     try:
         return _send_tx(
             account, "system.account.move", _ABI_MOVE, [room_index],
-            gas_limit=1_200_000,
+            gas_limit=_GAS_CEILINGS["move_to_room"],
         )
     except PreTxValidationError as e:
         if "unreachable room" in e.detail and view is not None:
@@ -3469,12 +3871,20 @@ async def travel_to_room(
                     "system.account.move",
                     _ABI_MOVE,
                     [step["room"]],
-                    gas_limit=1_200_000,
+                    gas_limit=_GAS_CEILINGS["move_to_room"],
                 )
             except Exception as e:
                 exec_error = (
                     f"hop {moves_executed + 1} to room {step['room']} "
                     f"failed: {e}"
+                )
+                # A hop that landed and reverted spent gas and has a
+                # hash. Dropping it here makes the payload disagree with
+                # the chain, and a consumer keyed on tx hashes silently
+                # undercounts the transactions this tool actually sent.
+                txs.append(
+                    {"step": "move", "room": step["room"],
+                     **_failed_tx_fields(e)}
                 )
                 break
             txs.append(
@@ -3491,10 +3901,14 @@ async def travel_to_room(
                     "system.account.use.item",
                     _ABI_ACCOUNT_USE,
                     [step["id"], 1],
-                    gas_limit=1_500_000,
+                    gas_limit=_GAS_CEILINGS["travel_use_item"],
                 )
             except Exception as e:
                 exec_error = f"item {step['id']} use failed: {e}"
+                txs.append(
+                    {"step": "item", "item_id": step["id"],
+                     **_failed_tx_fields(e)}
+                )
                 break
             txs.append(
                 {"step": "item", "item_id": step["id"], **_receipt_fields(r)}
@@ -3599,7 +4013,11 @@ def listing_buy(
         "system.listing.buy",
         _ABI_LISTING_BUY,
         [merchant_index, item_indices, amounts],
-        gas_limit=1_500_000,
+        gas_limit=_batch_gas(
+            _GAS_CEILINGS["listing_buy_base"],
+            _GAS_CEILINGS["listing_buy_per_item"],
+            len(item_indices), "item types",
+        ),
     )
 
 
@@ -3629,7 +4047,7 @@ def auction_buy(
         "system.auction.buy",
         _ABI_AUCTION_BUY,
         [item_index, amount],
-        gas_limit=1_500_000,
+        gas_limit=_GAS_CEILINGS["auction_buy"],
     )
 
 
@@ -4375,7 +4793,7 @@ def equip_all_batch(
                 "system.kami.equip",
                 _ABI_EQUIP,
                 [eid, item_index],
-                gas_limit=3_000_000,
+                gas_limit=_GAS_CEILINGS["equip_kami"],
             )
         except Exception as e:
             results.append(
@@ -4478,7 +4896,7 @@ def unequip_all_batch(
                 "system.kami.unequip",
                 _ABI_UNEQUIP,
                 [eid, slot_type],
-                gas_limit=3_000_000,  # unequip uses ~1.02M; 1M was too low → reverts
+                gas_limit=_GAS_CEILINGS["unequip_kami"],  # unequip uses ~1.02M; 1M was too low → reverts
             )
         except Exception as e:
             results.append({"kami_id": ki, "status": "error", "reason": str(e)[:300]})
@@ -4711,7 +5129,11 @@ def buy_kami(
         )
 
     listing_ids = [int(l["order_id_hex"], 16) for l in picked]
-    gas_limit = 1_500_000 + 600_000 * len(listing_ids)
+    gas_limit = _batch_gas(
+        _GAS_CEILINGS["buy_kami_base"],
+        _GAS_CEILINGS["buy_kami_per_item"],
+        len(listing_ids), "kami purchases",
+    )
     acct = _get_account(account)
     balance = w3.eth.get_balance(acct.owner_addr)
     gas_provision = gas_limit * _GAS_PRICE["maxFeePerGas"]
@@ -4813,11 +5235,11 @@ def cancel_kami_listing(
                 "system.kamimarket.cancel",
                 _ABI_KAMI_CANCEL,
                 [int(lst["order_id_hex"], 16)],
-                gas_limit=1_000_000,
+                gas_limit=_GAS_CEILINGS["cancel_kami_listing"],
             )
             entry.update(_receipt_fields(tx))
         except Exception as e:
-            entry.update({"status": "error", "error": str(e)})
+            entry.update({"error": str(e), **_failed_tx_fields(e)})
         results.append(entry)
 
     ok = sum(1 for r in results if r["status"] == "success")
@@ -5284,6 +5706,264 @@ def get_item_orderbook(
     return result
 
 
+# ---- On-chain: item pools (constant-product swaps) ----
+#
+# Each pool holds a reserve of MUSU and a reserve of one item, and prices
+# them against each other by keeping their product constant: taking item
+# out means putting MUSU in, and the deeper the trade cuts into a
+# reserve, the worse the rate it gets. Every live pool is MUSU-against-an-
+# item; there is no pool between MUSU and the native gas token, so MUSU
+# cannot be swapped for gas in one hop.
+#
+# A pool's entity id is derived the same way as every other keccak entity
+# in this world (see integration/entity-ids.md): the prefix and the two
+# item indices, ordered low-then-high so that the pair has ONE id
+# regardless of which side a caller asks about.
+
+_ABI_POOL_SWAP = json.loads(
+    '[{"type":"function","name":"executeTyped",'
+    '"inputs":[{"name":"indexIn","type":"uint32"},'
+    '{"name":"indexOut","type":"uint32"},'
+    '{"name":"amountIn","type":"uint256"},'
+    '{"name":"minAmountOut","type":"uint256"}],'
+    '"outputs":[{"type":"bytes"}],"stateMutability":"nonpayable"}]'
+)
+
+# Pools charge 30 basis points on the input amount. Read live per pool
+# rather than assumed — this default only names the observed value.
+_POOL_DEFAULT_FEE_BPS = 30
+_BPS = 10_000
+
+
+def _pool_entity_id(index_a: int, index_b: int) -> int:
+    """Deterministic pool entity id for an unordered item-index pair."""
+    lo, hi = sorted((int(index_a), int(index_b)))
+    return int.from_bytes(
+        Web3.solidity_keccak(
+            ["string", "uint32", "uint32"], ["amm.pool", lo, hi]
+        ),
+        "big",
+    )
+
+
+def _pool_fee_bps(pool_id: int) -> int:
+    """Live fee in basis points for a pool, defaulting when unset."""
+    try:
+        comp = w3.eth.contract(
+            address=_resolve_component("component.value.fee"),
+            abi=_UINT_VALUE_ABI,
+        )
+        fee = comp.functions.safeGet(pool_id).call()
+        return int(fee) if fee else _POOL_DEFAULT_FEE_BPS
+    except Exception:
+        return _POOL_DEFAULT_FEE_BPS
+
+
+def _pool_reserves(pool_id: int, index_in: int, index_out: int) -> tuple[int, int]:
+    """(reserve_in, reserve_out) held by the pool entity."""
+    return (
+        _inventory_balance(pool_id, index_in),
+        _inventory_balance(pool_id, index_out),
+    )
+
+
+def _require_pool(index_in: int, index_out: int) -> tuple[int, int, int, int]:
+    """Resolve a tradable pool, or explain precisely what is missing.
+
+    Returns (pool_id, reserve_in, reserve_out, fee_bps).
+    """
+    if index_in == index_out:
+        raise PreTxValidationError(
+            "item_in and item_out are the same item; a swap needs two "
+            "different sides"
+        )
+    if _MUSU_INDEX not in (index_in, index_out):
+        raise PreTxValidationError(
+            f"every pool trades an item against MUSU (index {_MUSU_INDEX}), "
+            f"so one side of the swap must be MUSU. Swapping "
+            f"{_get_item_name(index_in)} for {_get_item_name(index_out)} "
+            f"directly is not a single-pool trade; route it through MUSU "
+            f"as two swaps."
+        )
+    pool_id = _pool_entity_id(index_in, index_out)
+    reserve_in, reserve_out = _pool_reserves(pool_id, index_in, index_out)
+    if reserve_in <= 0 or reserve_out <= 0:
+        raise PreTxValidationError(
+            f"no pool with liquidity for "
+            f"{_get_item_name(index_in)} (index {index_in}) against "
+            f"{_get_item_name(index_out)} (index {index_out}): reserves "
+            f"read {reserve_in} in / {reserve_out} out"
+        )
+    return pool_id, reserve_in, reserve_out, _pool_fee_bps(pool_id)
+
+
+def _pool_amount_out(
+    amount_in: int, reserve_in: int, reserve_out: int, fee_bps: int
+) -> int:
+    """Constant-product output for an exact input, fee taken on the input.
+
+    The invariant is reserve_in * reserve_out; the fee is withheld from
+    the input before it is applied against the curve.
+    """
+    net_in = amount_in * (_BPS - fee_bps)
+    return (net_in * reserve_out) // (reserve_in * _BPS + net_in)
+
+
+def _pool_quote(
+    index_in: int, index_out: int, amount_in: int, slippage_bps: int
+) -> dict:
+    """Priced quote for a swap, from live reserves. Reads only."""
+    if amount_in <= 0:
+        raise PreTxValidationError("amount_in must be greater than 0")
+    if not 0 <= slippage_bps <= _BPS:
+        raise PreTxValidationError(
+            f"slippage_bps must be between 0 and {_BPS} (got {slippage_bps})"
+        )
+    pool_id, reserve_in, reserve_out, fee_bps = _require_pool(
+        index_in, index_out
+    )
+    amount_out = _pool_amount_out(amount_in, reserve_in, reserve_out, fee_bps)
+    if amount_out <= 0:
+        raise PreTxValidationError(
+            f"a swap of {amount_in} {_get_item_name(index_in)} against a "
+            f"reserve of {reserve_in} returns 0 "
+            f"{_get_item_name(index_out)} after the {fee_bps} bps fee — "
+            f"the input is too small to price at this pool's depth"
+        )
+    # Spot rate is the marginal rate before the trade moves anything; the
+    # effective rate is what this trade actually gets. The gap between
+    # them IS the price impact — how far this trade pushes the pool.
+    spot_rate = reserve_out / reserve_in
+    effective_rate = amount_out / amount_in
+    price_impact_pct = max(0.0, (1 - effective_rate / spot_rate) * 100)
+    min_amount_out = (amount_out * (_BPS - slippage_bps)) // _BPS
+    return {
+        "pool_id": hex(pool_id),
+        "item_in": _get_item_name(index_in),
+        "item_in_index": index_in,
+        "item_out": _get_item_name(index_out),
+        "item_out_index": index_out,
+        "amount_in": amount_in,
+        "amount_out": amount_out,
+        "min_amount_out": min_amount_out,
+        "slippage_bps": slippage_bps,
+        "fee_bps": fee_bps,
+        "reserve_in": reserve_in,
+        "reserve_out": reserve_out,
+        "spot_rate": round(spot_rate, 8),
+        "effective_rate": round(effective_rate, 8),
+        "price_impact_pct": round(price_impact_pct, 4),
+    }
+
+
+@mcp.tool()
+def pool_swap_quote(
+    item_in: int, item_out: int, amount_in: int, slippage_bps: int = 100
+) -> dict:
+    """Price a MUSU-item pool swap before sending it. Reads only.
+
+    Returns the exact amount_out this swap would receive at current
+    reserves, the min_amount_out floor implied by slippage_bps, the fee
+    in basis points, both reserves, and price_impact_pct — how far the
+    trade moves the pool away from its current rate.
+
+    One side must be MUSU (index 1); MUSU cannot be swapped for gas.
+
+    These pools are shallow: a large trade prices far worse than a small
+    one, and the quote is only good for the reserves it was read at.
+    Nothing is signed or spent here; pass min_amount_out to pool_swap.
+
+    Args:
+        item_in: Item index being sold (1 for MUSU).
+        item_out: Item index being bought (1 for MUSU).
+        amount_in: Exact amount of item_in to sell.
+        slippage_bps: Tolerance in basis points used to derive
+            min_amount_out (default 100 = 1%).
+    """
+    return _pool_quote(item_in, item_out, amount_in, slippage_bps)
+
+
+@mcp.tool()
+def pool_swap(
+    item_in: int,
+    item_out: int,
+    amount_in: int,
+    min_amount_out: int,
+    account: str = "main",
+) -> dict:
+    """Swap one item against MUSU in a constant-product pool.
+
+    min_amount_out is required: it is the floor below which the swap
+    reverts instead of filling. Get it from pool_swap_quote, which
+    computes it from live reserves and a slippage tolerance.
+
+    Why required rather than optional: these pools are shallow and
+    thinly traded, so the rate can move between quoting and landing —
+    including by another trade in the same block. A swap sent without a
+    floor accepts whatever it gets, which on a thin pool can be far less
+    than quoted. A reverted swap is strictly cheaper than the fill the
+    floor prevents.
+
+    One side must be MUSU (index 1); MUSU cannot be swapped for gas.
+
+    Validates before signing (no gas spent on failure): distinct items,
+    a MUSU side, a pool with liquidity, sufficient balance, and that the
+    live quote still clears min_amount_out.
+
+    Args:
+        item_in: Item index being sold (1 for MUSU).
+        item_out: Item index being bought (1 for MUSU).
+        amount_in: Exact amount of item_in to sell.
+        min_amount_out: Minimum acceptable amount of item_out. The swap
+            reverts rather than filling below this.
+        account: Account label whose operator wallet signs.
+    """
+    if min_amount_out <= 0:
+        raise PreTxValidationError(
+            "min_amount_out must be greater than 0 — a floor of 0 accepts "
+            "any fill, which is the footgun the floor exists to prevent"
+        )
+    aid = _require_registered_operator(account)
+    quote = _pool_quote(item_in, item_out, amount_in, 0)
+
+    # Balance is checked here so a shortfall names itself. The pool
+    # system decrements the inventory directly, so an underfunded swap
+    # surfaces from the chain as an arithmetic underflow that says
+    # nothing about which item was short.
+    _require_item_balance(account, aid, item_in, amount_in, "pool_swap")
+
+    if quote["amount_out"] < min_amount_out:
+        raise PreTxValidationError(
+            f"the live pool would return {quote['amount_out']} "
+            f"{quote['item_out']} for {amount_in} {quote['item_in']}, "
+            f"below the min_amount_out floor of {min_amount_out}. The "
+            f"pool moved since the quote, or the floor was set above "
+            f"what this trade size can get at "
+            f"{quote['price_impact_pct']}% price impact. No transaction "
+            f"was sent."
+        )
+
+    result = _send_tx(
+        account,
+        "system.pool",
+        _ABI_POOL_SWAP,
+        [item_in, item_out, amount_in, min_amount_out],
+        gas_limit=_GAS_CEILINGS["pool_swap"],
+    )
+    result.update({
+        "item_in": quote["item_in"],
+        "item_in_index": item_in,
+        "item_out": quote["item_out"],
+        "item_out_index": item_out,
+        "amount_in": amount_in,
+        "expected_out": quote["amount_out"],
+        "min_amount_out": min_amount_out,
+        "fee_bps": quote["fee_bps"],
+        "price_impact_pct": quote["price_impact_pct"],
+    })
+    return result
+
+
 # ---- On-chain: in-world transfers between accounts ----
 
 # Only the array signature is declared so executeTyped resolves unambiguously
@@ -5430,7 +6110,11 @@ def transfer_kami(
     # dry-run passed (a single high-HP kami send measures ~1.05M gas).
     # Yominet gas is flat-priced and only gas_used is paid, so provision
     # generously.
-    gas_limit = 1_000_000 + 1_000_000 * len(indices)
+    gas_limit = _batch_gas(
+        _GAS_CEILINGS["transfer_kami_base"],
+        _GAS_CEILINGS["transfer_kami_per_item"],
+        len(indices), "kamis",
+    )
     result = _send_tx(
         account,
         "system.kami.send",
@@ -5572,7 +6256,11 @@ def transfer_items(
         )
 
     # --- Submit (owner wallet; gas scales with number of item types) ---
-    gas_limit = 500_000 + 300_000 * len(indices)
+    gas_limit = _batch_gas(
+        _GAS_CEILINGS["transfer_items_base"],
+        _GAS_CEILINGS["transfer_items_per_item"],
+        len(indices), "item types",
+    )
     result = _send_tx_owner(
         account,
         "system.item.transfer",
@@ -5884,7 +6572,7 @@ def accept_quest(quest_index: int, account: str = "main") -> dict:
         "system.quest.accept",
         _ABI_QUEST_ACCEPT,
         [quest_index],
-        gas_limit=1_500_000,
+        gas_limit=_GAS_CEILINGS["accept_quest"],
     )
 
 
@@ -5918,7 +6606,7 @@ def complete_quest(quest_index: int, account: str = "main") -> dict:
         "system.quest.complete",
         _ABI_QUEST_COMPLETE,
         [q_id],
-        gas_limit=2_000_000,
+        gas_limit=_GAS_CEILINGS["complete_quest"],
     )
 
 
@@ -6001,7 +6689,17 @@ def quest_state(quest_index: int, account: str = "main") -> dict:
             )
             completable_now = True
         except Exception as e:
-            revert_reason = str(e)
+            # Same discipline as the landed-revert replay: an error that
+            # describes the probe failing (a refused or raced eth_call)
+            # is not a statement about the quest, and reporting it as
+            # one would invent a requirement the chain never named.
+            data = _extract_revert_data(e)
+            decoded = _decode_revert_data(data) if data else None
+            if decoded:
+                revert_reason = decoded
+            else:
+                text = _revert_text(e)
+                revert_reason = None if _is_replay_infra_error(text) else text
 
     revert_kind = _classify_revert(revert_reason)
 
@@ -6122,7 +6820,7 @@ def drop_quest(quest_index: int, account: str = "main") -> dict:
         "system.quest.drop",
         _ABI_QUEST_DROP,
         [q_id],
-        gas_limit=1_000_000,
+        gas_limit=_GAS_CEILINGS["drop_quest"],
     )
 
 
@@ -6176,7 +6874,11 @@ def burn_items(
         "system.item.burn",
         _ABI_ITEM_BURN,
         [item_indices, amounts],
-        gas_limit=1_000_000,
+        gas_limit=_batch_gas(
+            _GAS_CEILINGS["burn_items_base"],
+            _GAS_CEILINGS["burn_items_per_item"],
+            len(item_indices), "item types",
+        ),
     )
 
 
@@ -6220,7 +6922,7 @@ def craft_item(
         "system.craft",
         _ABI_CRAFT,
         [recipe_index, amount],
-        gas_limit=1_500_000,
+        gas_limit=_GAS_CEILINGS["craft_item"],
     )
 
 
@@ -6287,7 +6989,7 @@ def speed_craft_batch(
                 "system.craft",
                 _ABI_CRAFT,
                 [recipe_index, 1],
-                gas_limit=1_500_000,
+                gas_limit=_GAS_CEILINGS["craft_item"],
             )
         except Exception as e:
             last_error = f"craft failed at cycle {i + 1}/{count}: {str(e)[:300]}"
@@ -6578,7 +7280,7 @@ def scavenge_claim(node_index: int, account: str = "main") -> dict:
         "system.scavenge.claim",
         _ABI_SCAV_CLAIM,
         [reg_id],
-        gas_limit=2_000_000,
+        gas_limit=_GAS_CEILINGS["scavenge_claim"],
         return_receipt=True,
     )
     receipt = result.pop("_receipt", None)
@@ -6796,7 +7498,7 @@ def sacrifice_kami(kami_id: int, account: str = "main") -> dict:
         "system.kami.sacrifice.commit",
         _ABI_SACRIFICE_COMMIT,
         [ki],
-        gas_limit=2_000_000,
+        gas_limit=_GAS_CEILINGS["sacrifice_kami"],
         return_receipt=True,
     )
     receipt = result.pop("_receipt", None)
@@ -6879,7 +7581,7 @@ def sacrifice_kami_batch(
                 "system.kami.sacrifice.commit",
                 _ABI_SACRIFICE_COMMIT,
                 [ki],
-                gas_limit=2_000_000,
+                gas_limit=_GAS_CEILINGS["sacrifice_kami"],
             )
         except Exception as e:
             results.append({"kami_id": ki, "status": "error", "reason": str(e)[:300]})
@@ -7027,7 +7729,7 @@ def liquidate_kami(
         "system.harvest.liquidate",
         _ABI_LIQUIDATE,
         [_harvest_entity_id(victim_kami_id), _kami_entity_id(killer_kami_id)],
-        gas_limit=7_500_000,
+        gas_limit=_GAS_CEILINGS["liquidate_kami"],
     )
     result.update(
         {"victim_kami_id": victim_kami_id, "killer_kami_id": killer_kami_id}
@@ -7180,7 +7882,11 @@ def gacha_use(amount: int = 1, account: str = "main") -> dict:
         "system.kami.gacha.mint",
         _ABI_GACHA_MINT,
         [amount],
-        gas_limit=2_000_000 + 1_500_000 * amount,
+        gas_limit=_batch_gas(
+            _GAS_CEILINGS["gacha_use_base"],
+            _GAS_CEILINGS["gacha_use_per_item"],
+            amount, "gacha mints",
+        ),
         return_receipt=True,
     )
     result = _gacha_commit_and_reveal(account, commit_result, "gacha_use")
@@ -7295,7 +8001,7 @@ def chat_send(message: str, account: str = "main") -> dict:
         "system.chat",
         _ABI_CHAT,
         [message],
-        gas_limit=1_000_000,
+        gas_limit=_GAS_CEILINGS["chat_send"],
     )
     result["message_bytes"] = len(message.encode())
     return result
@@ -7350,7 +8056,7 @@ def skill_respec(kami_id: int, account: str = "main") -> dict:
         "system.skill.respec",
         _ABI_SKILL_RESPEC,
         [_kami_entity_id(kami_id)],
-        gas_limit=2_000_000,
+        gas_limit=_GAS_CEILINGS["skill_respec"],
     )
     result.update({
         "kami_id": kami_id,
@@ -7394,7 +8100,7 @@ def cast_item(
         "system.kami.cast.item",
         _ABI_CAST_ITEM,
         [_kami_entity_id(target_kami_id), item_index],
-        gas_limit=2_000_000,
+        gas_limit=_GAS_CEILINGS["cast_item"],
     )
     result.update({
         "target_kami_id": target_kami_id,
@@ -7446,7 +8152,7 @@ def newbie_vendor_buy(
             f"the live vendor price is {w3.from_wei(price_wei, 'ether')} "
             f"ETH, above max_price_eth {max_price_eth}"
         )
-    gas_limit = 2_000_000
+    gas_limit = _GAS_CEILINGS["newbie_vendor_buy"]
     acct = _get_account(account)
     balance = w3.eth.get_balance(acct.owner_addr)
     gas_provision = gas_limit * _GAS_PRICE["maxFeePerGas"]
@@ -7495,6 +8201,7 @@ _ACT_TOOLS = {
     "harvest_stop", "level_and_allocate_batch", "level_to",
     "level_up_kami", "liquidate_kami", "list_kami", "listing_buy",
     "move_to_room", "name_kami", "newbie_vendor_buy",
+    "pool_swap",
     "register_account", "revive_kami",
     "sacrifice_kami", "sacrifice_kami_batch", "sacrifice_reveal",
     "scavenge_claim", "scavenge_claim_and_reveal", "skill_respec",
@@ -7515,7 +8222,8 @@ _PERCEIVE_TOOLS = {
     # native holdouts (see EXPOSURE.md for serving path + migration note)
     "check_quest_completable", "get_expected_objective",
     "get_item_orderbook",
-    "get_scavenge_droptable", "get_scavenge_points", "quest_state",
+    "get_scavenge_droptable", "get_scavenge_points", "pool_swap_quote",
+    "quest_state",
 }
 
 _OUTSOURCE_TOOLS = {
@@ -7597,7 +8305,12 @@ _finalize_descriptions()
 
 # Hard ceiling on the agent-visible registry mass (name + description +
 # inputSchema per tool), CI-enforced from the live registry.
-REGISTRY_MASS_BUDGET = 66_000
+#
+# Every character here is paid for out of the agent's context before it
+# does anything, so the budget is capacity that has to be earned, not
+# room to spread into. Raising it is a deliberate act tied to named
+# capability — never a way to avoid editing.
+REGISTRY_MASS_BUDGET = 70_000
 
 
 def registry_mass() -> int:

@@ -22,6 +22,212 @@ marks the tool contract.
 - **PATCH** — non-semantic changes: documentation fixes, wording, catalog
   data refreshes, internal refactors that do not change the tool contract.
 
+## [2.1.0] — gas ceilings, pool swaps, honest revert reasons
+
+MINOR. Two new tools and no breaking change to an existing one. Surface:
+**101 tools** — ACT 55 / PERCEIVE 30 / OUTSOURCE 9 / META 7.
+
+### Fixed — gas ceilings that could not succeed on-chain
+
+Five tools were provisioned with a gas ceiling below the MEDIAN cost of a
+successful call of the system they invoke. They could not succeed:
+
+| tool | was | median successful cost | now |
+|---|---|---|---|
+| `harvest_collect` | 2,000,000 | 2,359,919 | 4,000,000 |
+| `gacha_use` | 3,500,000 (1 mint) | 10,646,224 | 18,000,000 (1 mint) |
+| `skill_respec` | 2,000,000 | 4,347,883 | 8,000,000 |
+| `cast_item` | 2,000,000 | 2,323,182 | 4,000,000 |
+| `newbie_vendor_buy` | 2,000,000 | 2,360,307 | 8,000,000 |
+
+This class does not fail loudly. The transaction is accepted, lands,
+burns the entire ceiling, and reverts out-of-gas carrying empty revert
+data — indistinguishable, from the caller's side, from a contract
+rejecting the action. `harvest_collect` failed this way 12 times out of
+12 attempts on-chain, each recorded as an unexplained revert.
+
+What hid it: the pre-send `eth_call` dry-run runs WITHOUT a gas ceiling,
+so it validates the logic of a call and nothing about whether the real
+transaction is provisioned enough gas to finish. It passed every time.
+The same blind spot existed in the post-hoc replay used to diagnose the
+failures, which is why 12 identical failures produced no diagnosis
+between them; that is fixed below.
+
+Seven further ceilings cleared the median but had no real margin, and
+two of those sat below the observed MAXIMUM — already failing on the
+tail: `craft_item` and `speed_craft_batch` (1,500,000 against a
+1,701,712 observed max) and `cancel_kami_listing` (1,000,000 against
+950,688, a 1.05x margin). Also raised: `move_to_room` and the move hops
+in `travel_to_room` (1,200,000 → 1,700,000), the stamina-item hop in
+`travel_to_room` (1,500,000 → 3,500,000, was under p99), and
+`auction_buy` (1,500,000 → 1,800,000).
+
+Two per-item formulas were too small in their coefficient rather than
+their base: `buy_kami` (600,000 → 1,200,000 per kami, against a batched
+p99 of 4,673,568) and `transfer_items` (500,000 + 300,000/item →
+800,000 + 600,000/item, whose single-item case had a 1.23x margin and
+whose eight-item case sat under the observed maximum). `listing_buy` and
+`burn_items` carried a flat ceiling across a multi-item array and now
+scale with it.
+
+`liquidate_kami` was checked and left alone at 7,500,000: it clears 1.5x
+its p99, and is correctly the largest flat ceiling here.
+
+Every ceiling now lives in one `_GAS_CEILINGS` mapping, each justified
+in a comment against gas consumed by successful transactions of the same
+system over 2026-05-01..2026-08-07, and pinned by
+`test_gas_ceilings.py` against a floor derived from that data. The floors
+sit below the ceilings, so ordinary tuning stays free while a silent
+lowering back under real usage fails the suite.
+
+Batches are now bounded as well as scaled. `_batch_gas()` refuses to
+provision any single transaction above 40,000,000 gas — under the
+chain's 45,000,000 block limit — and rejects an oversized batch before
+signing, naming the largest size that fits. A formula that silently
+provisioned past the block limit would produce an unmineable
+transaction.
+
+### Fixed — revert reasons that were unusable or untrue
+
+A landed-and-reverted transaction is diagnosed by replaying its calldata
+through `eth_call`. Three failure modes made that useless:
+
+- **The replay dropped the gas limit.** An out-of-gas revert reproduces
+  ONLY under the ceiling the transaction actually carried; without it
+  the replay runs clean and reports no revert. The replay now carries
+  the original limit. This one change diagnoses the entire ceiling class
+  above.
+- **A failed replay was reported as a revert reason.** When the replay
+  raced the RPC's head, the node's complaint ("requested height is
+  greater than the latest block height") was surfaced verbatim as though
+  the chain had said it about the transaction. Replay-infrastructure
+  errors are now recognised as such, the replay is retried once the head
+  advances past the landed block, and neighbouring blocks are tried when
+  the landed block replays clean.
+- **Nothing decoded revert data.** `Error(string)` and `Panic(uint256)`
+  are now decoded, and a custom error reports its 4-byte selector, which
+  is enough to identify it. A bare `0x` carries no information and is
+  reported as none rather than as an empty reason.
+
+When everything fails the message is exactly `revert reason unavailable
+(replay inconclusive)`. The previous wording — "unavailable (the replay
+did not revert)" — asserted a cause that is false whenever the replay
+never ran. Receipt evidence (hash, block, gas spent) is reported either
+way; not knowing the reason never means withholding the facts.
+
+The same correction is applied to the quest-completability probe, which
+had the identical defect: a refused probe became a statement about the
+quest.
+
+### Fixed — transactions missing from tool payloads
+
+`travel_to_room` (multi-hop) and `cancel_kami_listing` (multi-item)
+reported per-step transaction hashes for steps that SUCCEEDED, and
+dropped them for the step that failed. A hop that landed and reverted
+spent gas and exists on-chain whether or not the payload mentions it, so
+any consumer keyed on transaction hashes undercounted. Failed steps now
+carry the same receipt evidence, with `status: "reverted"` where the
+transaction landed and `"unconfirmed"` where the outcome is unknown. A
+failure that never reached the chain has no hash and omits the field
+rather than inventing one.
+
+### Added — pool swaps (2 tools)
+
+`pool_swap_quote` (PERCEIVE) prices a swap from live reserves: amount
+out, the `min_amount_out` floor implied by a slippage tolerance, fee,
+both reserves, and price impact. It signs nothing.
+
+`pool_swap` (ACT) executes it. `min_amount_out` is **required**, not
+defaulted: these pools are shallow and thinly traded, so the rate can
+move between quoting and landing, and a swap without a floor accepts
+whatever it gets. A reverted swap is strictly cheaper than the fill the
+floor prevents; a defaulted floor is one callers never think about.
+
+Every pool trades an item against MUSU, so one side of a swap must be
+MUSU; there is no MUSU-to-native pool, and the tool says so instead of
+letting callers discover it. An item-to-item request names the
+two-swap route through MUSU rather than only refusing. An underfunded
+swap is caught before signing, because the pool system decrements
+inventory directly and otherwise surfaces as an arithmetic underflow
+naming nothing.
+
+Liquidity provision (add/remove/positions) is deliberately not here.
+
+### Changed — dependency pins are exact
+
+`executor/requirements.txt` pinned five floors; all five are now `==`.
+Two deployments had already been broken by a transitive upgrade arriving
+between one install and the next: `mcp` 2.0.0 removed
+`mcp.server.fastmcp`, which this server imports at module scope (the
+child process dies at import, before it can report why), and
+`python-dotenv` 1.2.2 changed its quote emission, which downstream
+parsers had assumed stable. A floor constrains what is too old and says
+nothing about what is too new, so it cannot prevent this.
+
+Pinned and validated together on Python 3.13: `mcp==1.29.0`,
+`httpx==0.28.1`, `web3==7.16.0`, `python-dotenv==1.2.2`, `pyyaml==6.0.3`.
+Resolving the old floors today yields `mcp==2.0.0` — i.e. the unpinned
+file no longer produced a server that starts.
+
+### Changed — registry mass budget 66,000 → 70,000
+
+The two pool tools and the description work below do not fit under
+66,000. The budget is capacity that has to be earned rather than room to
+spread into: every character is spent out of the agent's context before
+it acts. It is raised here for named capability, and the alternative —
+cutting text to fit a number — is what the 2.0.0 entry records happening
+when 58 characters remained. Live mass **69,900** on Python 3.13.
+
+### Changed — delegation persistence stated in the tools
+
+`start_strategy` and `stop_strategy` now say what enrolment does: a
+started strategy outlives the session, keeps signing with the enrolled
+operator key on its own cycle after the caller stops running, and burns
+gas from that wallet while it does. Observed in production continuing
+~23 hours on a ~10-minute cycle after its principal ended. Enrolment has
+no known expiry and the service exposes no way to enumerate what is
+running, so `stop_strategy` is the only revocation path. No new tools.
+
+### Changed — description true-ups
+
+`lens_item` / `lens_items` now point at the pool facts their payloads
+already carry (reserves, fee, LP supply, implied rate) and at
+`pool_swap_quote` for per-trade pricing. `lens_quests` states that its
+payload carries per-quest account status (accepted, complete,
+requirementsMet, objectivesMet, per-objective progress); the underlying
+query grew this and the wrapper text predated it.
+
+SPEC gains the general rule behind these: routing belongs in
+descriptions, not error text. A tool named only inside an error message
+is not discoverable — in one deployment the tool an error pointed at
+ended the run with zero calls.
+
+### Notes — parallel tool-call aliasing not reproduced
+
+Production saw, once, two parallel tool calls return identical result
+content under an identical tool call id (sibling shape: `is_error:
+false` carrying a top-level error key, 9 times). Under the pins above,
+250 concurrent request pairs — 500 calls against distinguishable results
+— produced zero aliased and zero crossed responses. It does not
+reproduce at this layer, which is consistent with the defect living
+above MCP: the MCP protocol has no tool-call-id concept, so nothing here
+assigns or reuses one. Recorded rather than worked around; parallel
+calls are deliberately NOT serialized, which would trade real throughput
+against a defect this server has not been shown to have.
+
+### Notes — interpreter basis
+
+Registry mass and `tools_hash` are interpreter-dependent: both derive
+from schemas the interpreter's own JSON and typing machinery generates,
+so a different Python version can yield different values from identical
+source. **Python 3.13 is the SPEC and production basis**, now stated in
+SPEC.md. Any downstream record of these figures must record the
+interpreter with them.
+
+Registry mass 65,942 → **69,900** (budget 70,000). `tools_hash`
+`9e236f90…ada8` →
+`7fc11fe95b85ebeed4f898e774c50833cd63314d56c3ed18b5afa56989f75262`.
+
 ## [2.0.0] — budget, tools_hash, final surface
 
 MAJOR. Consolidates the [2.0.0-dev] train below (ACT reporting

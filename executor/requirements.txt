@@ -1,5 +1,20 @@
-mcp>=1.7.1
-httpx>=0.25.0
-web3>=7.0.0
-python-dotenv>=1.0.0
-pyyaml>=6.0
+# Exact pins, not floors. Two deployments have already been broken by a
+# transitive upgrade arriving between one install and the next:
+#
+#   * mcp 2.0.0 removed mcp.server.fastmcp, which this server imports at
+#     module scope. The child process dies at import, before it can
+#     report anything about why.
+#   * python-dotenv 1.2.2 changed how it emits quotes, which downstream
+#     parsers had assumed was stable.
+#
+# Both were installed by a floor that resolved to a newer release than
+# the one anything had been tested against. A floor says what is too old
+# and nothing about what is too new, so it cannot prevent this class.
+#
+# Resolved and validated together on Python 3.13 — the SPEC/production
+# basis interpreter. Changing any pin means re-running the suite on it.
+mcp==1.29.0
+httpx==0.28.1
+web3==7.16.0
+python-dotenv==1.2.2
+pyyaml==6.0.3

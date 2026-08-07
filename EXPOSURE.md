@@ -45,6 +45,7 @@ rows below go missing.
 | `get_scavenge_points` | PERCEIVE | per-account scavenge points + claimable tiers | official web client scavenge panel | chain component reads | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (no lens scavenge query at pin a0a3e1e) |
 | `get_scavenge_droptable` | PERCEIVE | node droptable weights/probabilities | official web client scavenge panel | Kamibots nodes endpoint (node metadata) + chain component reads (weights) | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (no lens scavenge query at pin a0a3e1e) |
 | `get_item_orderbook` | PERCEIVE | one item's complete order book | in-game World Order Book (kwob) | chain event-scan + component reads | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (per-item book exceeds lens_trades at this pin) |
+| `pool_swap_quote` | PERCEIVE | priced quote for one pool swap: amount out, min received, price impact | in-game swap panel quote | chain component reads (live reserves + fee) | 2.1.0 (2026-08-07); kept native as an ACT pre-check — the perception layer carries pool reserves, the per-trade quote is the act's own |
 | `get_tier` | OUTSOURCE | account tier/tax/slots at the strategy service | Kamibots dashboard | Kamibots API | ≤ v1.5.1 (2026-07-19) |
 | `get_all_strategies` | OUTSOURCE | account's strategy list | Kamibots dashboard | Kamibots API | ≤ v1.5.1 (2026-07-19) |
 | `get_all_strategy_statuses` | OUTSOURCE | live strategy container statuses | Kamibots dashboard | Kamibots API | ≤ v1.5.1 (2026-07-19) |

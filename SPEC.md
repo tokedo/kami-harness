@@ -1,7 +1,7 @@
 ---
 module: kami-harness
-version: 2
-describes: 48bd154
+version: 3
+describes: HEAD_SHA
 ---
 
 # SPEC — contract registry
@@ -21,20 +21,26 @@ this registry says *what holds*, not *how it is built*.
 
 ### P1 — MCP tool surface
 
-- The registry advertises exactly **99 tools**.
+- The registry advertises exactly **101 tools**.
 - Every registered tool carries exactly one class tag in
   `server.TOOL_CLASSES`; the tag set is `{ACT, PERCEIVE, OUTSOURCE,
   META}` and the key set equals the registered tool names exactly.
-- Class counts: **ACT 54 / PERCEIVE 29 / OUTSOURCE 9 / META 7**.
+- Class counts: **ACT 55 / PERCEIVE 30 / OUTSOURCE 9 / META 7**.
 - Class meanings, as the code partitions them:
   - `ACT` — signs and broadcasts at least one transaction.
   - `PERCEIVE` — world-state read; signs nothing, changes no remote state.
   - `OUTSOURCE` — reaches the third-party strategy service.
   - `META` — wallet, account-registry, and bridge infrastructure; not
     world state.
-- `server.READ_TOOLS` is the non-mutating subset: **37 tools** = all 29
+- `server.READ_TOOLS` is the non-mutating subset: **38 tools** = all 30
   `PERCEIVE` + 5 `OUTSOURCE` reads + 3 `META` reads. `ACT ∩ READ_TOOLS`
   is empty.
+- **Routing lives in descriptions, not in error text.** A tool named
+  only inside an error message is not discoverable: in one deployment
+  the tool an error pointed at ended the run with zero calls. Every
+  capability an agent is expected to reach must be reachable from tool
+  descriptions alone; error-text pointers are a courtesy on top of that
+  and are never the mechanism.
 - Every served input schema is portable: no `anyOf`, `oneOf`, `allOf`,
   or `$ref` appears in any tool's `parameters`, and no `title` key
   survives to the wire.
@@ -43,7 +49,18 @@ this registry says *what holds*, not *how it is built*.
   carries `server._LENS_SERVING_SENTENCE`. Non-read tools carry neither.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **65,942 characters** at this ref.
+  **69,900 characters** at this ref, against a `REGISTRY_MASS_BUDGET`
+  of 70,000. The budget is capacity that has to be earned: every
+  character is spent out of the agent's context before it acts, so the
+  ceiling rises only for named capability, never to make room for
+  wording that could be tightened instead.
+- Registry mass and `tools_hash` are **interpreter-dependent**: both are
+  computed from schemas that the interpreter's own JSON and typing
+  machinery generates, so a different Python version can yield different
+  values from identical source. **Python 3.13 is the SPEC and production
+  basis.** Figures quoted anywhere in this document are 3.13 figures,
+  and any downstream pin that records them must record the interpreter
+  alongside.
 
 ### P2 — tools_hash
 
@@ -56,8 +73,8 @@ this registry says *what holds*, not *how it is built*.
 - `server.TOOLS_HASH` holds the value computed at import.
 - The MCP `initialize` handshake carries it in the `instructions` field
   as the exact string `tools_hash=<64 hex chars>`.
-- Value at this ref:
-  `9e236f902fe169aea73fe32d7ca3c1f1e8c683d4d27e6f6a313aba4b5083ada8`.
+- Value at this ref (Python 3.13):
+  `7fc11fe95b85ebeed4f898e774c50833cd63314d56c3ed18b5afa56989f75262`.
 
 ### P3 — SCHEMA_VERSION
 
@@ -203,6 +220,11 @@ ever reported as another:
 - **Blast radius:** an outage of this third party therefore reaches **4
   ACT tools and 1 PERCEIVE tool** in addition to the 9 OUTSOURCE tools.
   See deviation X2.
+- **Delegation outlives the session.** A strategy started through this
+  service keeps signing with the escrowed operator key after the MCP
+  session that started it has ended — observed continuing ~23 hours on a
+  ~10-minute cycle — with no known enrolment expiry and no enumeration
+  API; `stop_strategy` is the only revocation path.
 - **Assumptions:** the account and kami response shapes stay stable;
   `/api/accounts/` remains ~15s-cached upstream; HTTP 5xx and connection
   failures are transport-level, not semantic.
@@ -274,9 +296,9 @@ ever reported as another:
 
 | claim | enforcement |
 |---|---|
-| Registry description mass ≤ 66,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget` (65,942 at this ref) |
-| The registry advertises exactly 99 tools | `test_tool_surface.py::test_tool_surface_count` |
-| Every registered tool is class-tagged, and no tag names an absent tool | `test_tool_surface.py::test_taxonomy_covers_registry_exactly` (also pins ACT 54 / PERCEIVE 29 / OUTSOURCE 9 / META 7) |
+| Registry description mass ≤ 70,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget` (69,900 at this ref, on Python 3.13) |
+| The registry advertises exactly 101 tools | `test_tool_surface.py::test_tool_surface_count` |
+| Every registered tool is class-tagged, and no tag names an absent tool | `test_tool_surface.py::test_taxonomy_covers_registry_exactly` (also pins ACT 55 / PERCEIVE 30 / OUTSOURCE 9 / META 7) |
 | Tools removed at this version stay absent | `test_tool_surface.py::test_removed_tools_absent` |
 | Every READ tool has an EXPOSURE.md row; no row names a non-READ or absent tool | `test_tool_surface.py::test_exposure_rows` |
 | Named deferred reads and unserved ACT rows stay present in EXPOSURE.md | `test_tool_surface.py::test_exposure_rows` |
@@ -285,9 +307,9 @@ ever reported as another:
 | An account with no operator wallet has nothing to escrow and issues no request | `test_outsource.py::TestEnableStrategies::test_owner_only_account_refuses` |
 | `tools_hash` is 64 lowercase hex chars, recomputes identically, and equals the handshake `instructions` value; `serverInfo.version` equals `SCHEMA_VERSION` | `test_tool_surface.py::test_tools_hash_present_and_deterministic` |
 | `tools_hash` is stable across capability-flag settings | **unenforced** — no test asserts it. Verified by hand at this ref: identical across `KAMI_CHAT_ENABLED` × `PRESENTATION_MODE` |
-| `SCHEMA_VERSION == "2.0.0"` | `test_tool_surface.py::test_schema_version` |
-| Docstrings are mechanism-only: no advisory or endorsement language in either direction | **partially enforced** — `test_tool_surface.py::test_h3_docstrings_stay_mechanical` covers 8 ACT tools against a banned-phrase list; `::test_enable_strategies_docstring_facts` covers 1 tool against a second list. The remaining 90 tools are **unenforced** |
-| No deployment-context references in agent-visible tool descriptions | **unenforced** — no scrub scan exists in this repository. Verified by hand at this ref: all 99 descriptions are clean |
+| `SCHEMA_VERSION == "2.1.0"` | `test_tool_surface.py::test_schema_version` |
+| Docstrings are mechanism-only: no advisory or endorsement language in either direction | **partially enforced** — `test_tool_surface.py::test_h3_docstrings_stay_mechanical` covers 8 ACT tools against a banned-phrase list; `::test_enable_strategies_docstring_facts` covers 1 tool against a second list. The remaining 92 tools are **unenforced** |
+| No deployment-context references in agent-visible tool descriptions | **unenforced** — no scrub scan exists in this repository. Verified by hand at this ref: all 101 descriptions are clean |
 | Every READ description carries the untrusted-data sentence; every lens description names its serving path; non-read tools carry neither | `test_tool_surface.py::test_read_descriptions_carry_standing_sentence` |
 | Served schemas are portable (no `anyOf`/`oneOf`/`allOf`/`$ref`) and carry no `title` noise | `test_tool_surface.py::test_all_schemas_portable`, `::test_schema_titles_stripped` |
 | `allow_partial` appears on exactly the 13 batch tools, boolean, default `False` | `test_tool_surface.py::test_allow_partial_surface` |
