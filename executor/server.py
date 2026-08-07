@@ -565,6 +565,52 @@ def _hex_hash(h) -> str:
 # revert at all. Every replay below therefore carries the original limit.
 REPLAY_UNAVAILABLE = "revert reason unavailable (replay inconclusive)"
 
+# Fraction of the provisioned limit that, once consumed by a reverted
+# transaction, identifies the revert as out-of-gas. A transaction that
+# reverts for a contract reason stops where it stops and leaves the
+# unused remainder behind; one that runs out consumes essentially all of
+# it. Twelve production out-of-gas reverts consumed 1,998,618-2,000,000
+# of exactly 2,000,000 provisioned — 99.93% at the lowest.
+_OUT_OF_GAS_RATIO = 0.98
+
+
+def _out_of_gas_reason(built: dict | None, receipt) -> str | None:
+    """Name an out-of-gas revert from receipt arithmetic alone.
+
+    This is the primary detector, and it runs BEFORE any replay, because
+    the replay cannot be relied on to find this class:
+
+      * A node that meters eth_call reproduces an out-of-gas revert only
+        when the replay carries the original limit, which is why the
+        replay below passes it.
+      * The production RPC does not meter eth_call at all — it ignores
+        the `gas` field outright. A collect call that eth_estimate_gas
+        prices at 3,083,548 "succeeds" through eth_call at gas=30,000.
+        On such a node NO replay can ever surface this class, however it
+        is parameterised.
+
+    Receipt arithmetic depends on neither behaviour. It needs only the
+    provisioned limit and the gas the transaction actually burned, both
+    of which are already in hand, and it is what would have named the
+    harvest_collect defect from its very first revert instead of after
+    twelve indistinguishable ones.
+
+    Returns None when the transaction reverted for some other reason, so
+    the caller falls through to the replay.
+    """
+    limit = (built or {}).get("gas")
+    used = getattr(receipt, "gasUsed", None)
+    if not limit or not used:
+        return None
+    if used < limit * _OUT_OF_GAS_RATIO:
+        return None
+    return (
+        f"likely ran out of gas: consumed {used:,} of {limit:,} "
+        f"provisioned ({used / limit:.1%} of the limit). The gas ceiling "
+        f"for this call is too low for what it does on-chain — raising "
+        f"the ceiling is the fix, not retrying."
+    )
+
 # Errors that mean the REPLAY failed, not that the transaction reverted.
 # Surfacing one of these as a revert reason states a falsehood about the
 # chain: the most common is racing the RPC's head, where a node that has
@@ -762,11 +808,16 @@ def _await_receipt(tx_hash, built: dict | None, timeout: int):
     except TimeExhausted:
         raise TxUnconfirmedError(_hex_hash(tx_hash), timeout)
     if receipt.status != 1:
+        # Receipt arithmetic first: it is deterministic, needs no archive
+        # state, and identifies the one revert class a replay cannot.
+        reason = _out_of_gas_reason(built, receipt)
+        if reason is None:
+            reason = _replay_revert_reason(built, receipt.blockNumber)
         raise OnChainRevertError(
             _hex_hash(receipt.transactionHash),
             receipt.blockNumber,
             receipt.gasUsed,
-            _replay_revert_reason(built, receipt.blockNumber),
+            reason,
         )
     return receipt
 

@@ -1012,3 +1012,97 @@ class TestRevertDataDecoding:
         assert not server._is_replay_infra_error(
             "execution reverted: objs not met"
         )
+
+
+class TestOutOfGasFromReceiptArithmetic:
+    """The out-of-gas detector that does not depend on the node.
+
+    A replay cannot carry this class on the production RPC, which
+    ignores the `gas` field in eth_call outright: a collect call priced
+    at 3,083,548 by eth_estimate_gas "succeeds" through eth_call at
+    gas=30,000. Receipt arithmetic needs nothing from the node beyond
+    the receipt itself.
+    """
+
+    def test_full_burn_reported_as_out_of_gas(self, accounts, txchain):
+        """The production fingerprint: gas consumed == gas provisioned."""
+        _revert_receipt(txchain, block=77, gas=2_000_000)
+        txchain.call_error = None  # replay runs clean, as it did in production
+        with pytest.raises(server.OnChainRevertError) as ei:
+            server._send_tx(
+                "testa", "system.account.move", server._ABI_MOVE, [4],
+                gas_limit=2_000_000,
+            )
+        msg = str(ei.value)
+        assert "ran out of gas" in msg
+        assert "2,000,000" in msg  # both numbers named
+        assert server.REPLAY_UNAVAILABLE not in msg
+
+    def test_observed_production_shortfall_still_detected(
+        self, accounts, txchain
+    ):
+        """The 12 real collect reverts burned 1,998,618-2,000,000 of
+        2,000,000 — the lowest is 99.93%, well inside the threshold."""
+        _revert_receipt(txchain, block=77, gas=1_998_618)
+        txchain.call_error = None
+        with pytest.raises(server.OnChainRevertError) as ei:
+            server._send_tx(
+                "testa", "system.account.move", server._ABI_MOVE, [4],
+                gas_limit=2_000_000,
+            )
+        assert "ran out of gas" in str(ei.value)
+        assert "1,998,618" in str(ei.value)
+
+    def test_ordinary_revert_not_called_out_of_gas(self, accounts, txchain):
+        """A contract revert leaves the unused remainder behind. Calling
+        that out-of-gas would send the caller to raise a ceiling that was
+        never the problem."""
+        _revert_receipt(txchain, block=77, gas=120_000)
+        txchain.call_error = Exception("execution reverted: objs not met")
+        with pytest.raises(server.OnChainRevertError) as ei:
+            server._send_tx(
+                "testa", "system.account.move", server._ABI_MOVE, [4],
+                gas_limit=2_000_000,
+            )
+        msg = str(ei.value)
+        assert "ran out of gas" not in msg
+        assert "objs not met" in msg
+
+    def test_partial_burn_below_threshold_not_out_of_gas(
+        self, accounts, txchain
+    ):
+        _revert_receipt(txchain, block=77, gas=1_900_000)  # 95%
+        txchain.call_error = None
+        with pytest.raises(server.OnChainRevertError) as ei:
+            server._send_tx(
+                "testa", "system.account.move", server._ABI_MOVE, [4],
+                gas_limit=2_000_000,
+            )
+        assert "ran out of gas" not in str(ei.value)
+
+    def test_detector_runs_before_the_replay(self, accounts, txchain):
+        """Deterministic arithmetic beats a network round trip, and on a
+        non-metering node the replay would answer wrongly anyway."""
+        _revert_receipt(txchain, block=77, gas=2_000_000)
+        txchain.call_error = None
+        txchain.call_log.clear()
+        with pytest.raises(server.OnChainRevertError):
+            server._send_tx(
+                "testa", "system.account.move", server._ABI_MOVE, [4],
+                gas_limit=2_000_000,
+            )
+        replays = [b for _, b in txchain.call_log if b is not None]
+        assert replays == [], (
+            f"detector should short-circuit before replaying; got {replays}"
+        )
+
+    def test_unknown_limit_falls_through_to_the_replay(self):
+        """Nothing to divide by: no claim is made either way."""
+        receipt = SimpleNamespace(gasUsed=2_000_000)
+        assert server._out_of_gas_reason(None, receipt) is None
+        assert server._out_of_gas_reason({}, receipt) is None
+
+    def test_reason_names_the_actual_fix(self):
+        receipt = SimpleNamespace(gasUsed=2_000_000)
+        reason = server._out_of_gas_reason({"gas": 2_000_000}, receipt)
+        assert "raising the ceiling" in reason

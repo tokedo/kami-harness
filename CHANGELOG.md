@@ -49,9 +49,14 @@ rejecting the action. `harvest_collect` failed this way 12 times out of
 What hid it: the pre-send `eth_call` dry-run runs WITHOUT a gas ceiling,
 so it validates the logic of a call and nothing about whether the real
 transaction is provisioned enough gas to finish. It passed every time.
-The same blind spot existed in the post-hoc replay used to diagnose the
-failures, which is why 12 identical failures produced no diagnosis
-between them; that is fixed below.
+The post-hoc replay could not recover the diagnosis either, for a
+second and independent reason: the production RPC ignores the `gas`
+field in `eth_call` outright. A collect call that `eth_estimate_gas`
+prices at 3,083,548 "succeeds" through `eth_call` at gas=30,000. No
+replay, however parameterised, can reproduce an out-of-gas revert
+against a node that does not meter the call — which is why 12 identical
+failures produced no diagnosis between them. Fixed below by arithmetic
+that depends on neither behaviour.
 
 Seven further ceilings cleared the median but had no real margin, and
 two of those sat below the observed MAXIMUM — already failing on the
@@ -92,11 +97,23 @@ transaction.
 A landed-and-reverted transaction is diagnosed by replaying its calldata
 through `eth_call`. Three failure modes made that useless:
 
+- **Out-of-gas was never identified as such.** This is now caught
+  before any replay, from receipt arithmetic: a reverted transaction
+  that consumed at least 98% of its provisioned limit ran out of gas,
+  and the reason says so with both numbers. A transaction reverting for
+  a contract reason stops where it stops and leaves the remainder
+  unspent; one that runs out consumes essentially all of it. The twelve
+  production collect reverts each burned 1,998,618-2,000,000 of exactly
+  2,000,000 provisioned. This needs no archive state and no cooperation
+  from the node, and it is what would have named the ceiling class above
+  from its very first revert.
 - **The replay dropped the gas limit.** An out-of-gas revert reproduces
-  ONLY under the ceiling the transaction actually carried; without it
-  the replay runs clean and reports no revert. The replay now carries
-  the original limit. This one change diagnoses the entire ceiling class
-  above.
+  on a metering node ONLY under the ceiling the transaction actually
+  carried; without it the replay runs clean and reports no revert. The
+  replay now carries the original limit. Correct against nodes that
+  meter `eth_call`, and inert against the production RPC, which does
+  not — hence the receipt check above rather than this one carrying the
+  ceiling class.
 - **A failed replay was reported as a revert reason.** When the replay
   raced the RPC's head, the node's complaint ("requested height is
   greater than the latest block height") was surfaced verbatim as though
