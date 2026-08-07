@@ -1,7 +1,7 @@
 ---
 module: kami-harness
 version: 3
-describes: HEAD_SHA
+describes: 869767b
 ---
 
 # SPEC — contract registry
@@ -431,3 +431,4 @@ mode name stays in `_PRESENTATION_MODES` so the gap is visible.
 |---|---|---|
 | 1 | 2026-07-24 | Initial contract registry, describing `v2.0.0-rc1` (`a65e22f`). |
 | 2 | 2026-07-24 | Re-pinned to `48bd154`, which adds one sentence to the `sacrifice_kami` description ("sacrifice is not liquidation"). P1 registry mass 65,830 → 65,942; P2 `tools_hash` `b952adf8…bb43` → `9e236f90…ada8`; mass invariant row updated. Tool count, classes, and schemas unchanged. |
+| 3 | 2026-08-07 | Re-pinned to `869767b` (SCHEMA_VERSION 2.1.0). Adds the swap pair `pool_swap_quote` (PERCEIVE) + `pool_swap` (ACT): P1 count 99 -> 101, classes ACT 54 -> 55 / PERCEIVE 29 -> 30, `READ_TOOLS` 37 -> 38. Registry-mass budget 66,000 -> 70,000 with P1 mass 65,942 -> 69,900; P2 `tools_hash` `9e236f90...ada8` -> `7fc11fe9...5262`. Adds the interpreter-basis statement (Python 3.13) to P1, the descriptions-not-error-text routing rule to P1, and the delegation-outlives-the-session property to Depends. Mass, count, class, version and description-scrub invariant rows updated. |
