@@ -167,6 +167,13 @@ KAMI_LENS_SOCKET=/absolute/path/to/kami-lens.sock
 #                              # player-authored names, with receipt)
 # KAMI_CHAT_ENABLED=false      # lens_chat/chat_send answer
 #                              # CHAT_DISABLED while off
+# KAMI_ERROR_SNIPPETS=false    # append a "[mechanics]" block to error
+#                              # results: the state read, the tools whose
+#                              # state gate accepts it, what the attempted
+#                              # tool requires, the gas ceiling used.
+#                              # Error text only — the tool surface
+#                              # (count, descriptions, tools_hash) is
+#                              # identical either way.
 ```
 
 Verify the daemon before moving on — it exits 0 only when the daemon is

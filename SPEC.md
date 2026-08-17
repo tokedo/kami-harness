@@ -1,7 +1,7 @@
 ---
 module: kami-harness
-version: 4
-describes: da11b28
+version: 5
+describes: 2ce4268
 ---
 
 # SPEC — contract registry
@@ -40,7 +40,10 @@ this registry says *what holds*, not *how it is built*.
   the tool an error pointed at ended the run with zero calls. Every
   capability an agent is expected to reach must be reachable from tool
   descriptions alone; error-text pointers are a courtesy on top of that
-  and are never the mechanism.
+  and are never the mechanism. The optional mechanics snippet (P4,
+  deviation X9) names tool names inside error text and does not change
+  this: it is off by default, and every tool it can name states the same
+  state requirement in its own description.
 - Every served input schema is portable: no `anyOf`, `oneOf`, `allOf`,
   or `$ref` appears in any tool's `parameters`, and no `title` key
   survives to the wire.
@@ -78,7 +81,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "2.0.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "2.2.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -128,6 +131,38 @@ ever reported as another:
   hold is a failure, not a success: it raises by default and is
   reported per-item under `allow_partial`.
 
+**Mechanics snippet (flag-gated, results only).** With
+`KAMI_ERROR_SNIPPETS` on (P6), the messages of `PreTxValidationError`,
+`OnChainRevertError` and `BatchTxError` carry an appended
+`\n[mechanics] ...` block. It is a courtesy on top of the honest channel
+and never a substitute for it: no failure is invented, reclassified, or
+softened, and the pre-snippet text is unchanged.
+
+- Contents are states, tool names and numbers this module already holds:
+  the kami / harvest-entity state it read, the tools whose harness state
+  gate accepts that state (from the single source in
+  `server._TOOL_KAMI_STATES` / `_STATE_TOOLS` / `_HARVEST_STATE_TOOLS`),
+  the requirement of the tool attempted, the live account room and stamina
+  on revert classes, and the `_GAS_CEILINGS` entry the call provisioned
+  when the revert was out-of-gas. No advice, no strategy, no game
+  documentation: `integration/errors.md` and `systems/*.md` are not
+  sources, and no sentence tells the caller what to do.
+- A kami is named only when its entity id appears in that call's own
+  arguments or calldata, so a failure never has an unrelated kami
+  attributed to it.
+- Facts the module does not read (cooldown, HP, room/node match, XP) are
+  named as unread on revert classes rather than guessed at, and a live
+  read that fails drops its fact instead of inventing a value.
+- Bounded: at most 5 kamis and 800 characters, and the block states how
+  many subjects it left out rather than dropping them silently.
+- The block is appended to the error message only. It is never written
+  into a return value: `allow_partial` payloads keep their documented
+  shape (per-item `error` / `reason` strings do carry it, because they are
+  `str(exception)` of the inner failure).
+- `PreTxValidationError.detail` never carries the snippet; the `PREFIX` is
+  unchanged.
+- With the flag off, every error message is byte-identical to 2.1.0.
+
 ### P5 — lens envelope pass-through
 
 - Every `lens_*` answer is the kami-lens daemon envelope
@@ -144,14 +179,18 @@ ever reported as another:
 
 - A flag-gated tool **stays in the registry** when its flag is off. It
   answers a legible `*_DISABLED` error and contacts nothing.
-- At this ref the only capability flag is `KAMI_CHAT_ENABLED` (default
-  off), gating `lens_chat` (PERCEIVE) and `chat_send` (ACT); both answer
-  `CHAT_DISABLED` when off, and neither opens the daemon socket or signs
-  anything in that state.
+- `KAMI_CHAT_ENABLED` (default off) gates `lens_chat` (PERCEIVE) and
+  `chat_send` (ACT); both answer `CHAT_DISABLED` when off, and neither
+  opens the daemon socket or signs anything in that state.
+- `KAMI_ERROR_SNIPPETS` (default off) gates the mechanics snippet on error
+  results (P4). It gates error TEXT only: no tool, parameter, schema or
+  description depends on it, it contacts nothing beyond the state reads
+  the snippet names, and it changes no decision this module makes — every
+  gate, dry-run and terminal-state ruling is identical either way.
 - Tool count, registry mass, and `tools_hash` are byte-identical across
-  every combination of `KAMI_CHAT_ENABLED` and `PRESENTATION_MODE`. A
-  client's recorded fingerprint therefore identifies the surface, not
-  the operator's configuration.
+  every combination of `KAMI_CHAT_ENABLED`, `KAMI_ERROR_SNIPPETS` and
+  `PRESENTATION_MODE`. A client's recorded fingerprint therefore
+  identifies the surface, not the operator's configuration.
 
 ### P7 — EXPOSURE.md as the exposure-precedent registry
 
@@ -306,8 +345,14 @@ ever reported as another:
 | The escrow request body is exactly `{"operatorKey": <operator key>}` and the service echoes the matching address or the call raises | `test_outsource.py::TestEnableStrategies::test_posts_operator_key_exactly`, `::test_address_echo_mismatch_raises` |
 | An account with no operator wallet has nothing to escrow and issues no request | `test_outsource.py::TestEnableStrategies::test_owner_only_account_refuses` |
 | `tools_hash` is 64 lowercase hex chars, recomputes identically, and equals the handshake `instructions` value; `serverInfo.version` equals `SCHEMA_VERSION` | `test_tool_surface.py::test_tools_hash_present_and_deterministic` |
-| `tools_hash` is stable across capability-flag settings | **unenforced** — no test asserts it. Verified by hand at this ref: identical across `KAMI_CHAT_ENABLED` × `PRESENTATION_MODE` |
-| `SCHEMA_VERSION == "2.1.0"` | `test_tool_surface.py::test_schema_version` |
+| Tool count, registry mass, `tools_hash` and every (name, description, parameters) triple are identical across capability-flag settings | `test_tool_surface.py::test_surface_identical_across_capability_flags` — imports the module in 8 subprocesses over `KAMI_ERROR_SNIPPETS` × `KAMI_CHAT_ENABLED` × `PRESENTATION_MODE`, and asserts each child observed the flags it was given, so it cannot pass on a flag that never took effect |
+| With `KAMI_ERROR_SNIPPETS` off, error text is what 2.1.0 produced | the pre-existing error-format suite passes unedited with the flag off (`test_validation.py::TestErrorFormat`, `::TestHarvestValidation`, `test_h3_act.py`), and `test_error_snippets.py::TestFlagOff` asserts the exact messages and an empty `mechanics` |
+| Every kami-state gate reads its requirement from the single source, and a state row names only tools this module gates | `test_error_snippets.py::TestStateTable` (requirements equal the 2.1.0 literals, rows are the exact inversion, no `required_state=` literal survives in the module source, every named tool is live) |
+| A snippet names a kami only when its entity id is in that call's own arguments or calldata | `test_error_snippets.py::TestSubjectDerivation` |
+| A snippet states no advice, never lengthens past its bound, never hides a subject silently, reports only facts it read, and never introduces the `-32000` marker retry routes on | `test_error_snippets.py::TestSnippetGuards`, `::TestSnippetBehaviour` |
+| The three snippets an agent sees are the pinned wordings | `test_error_snippets.py::TestSnippetExamples` (harvest_start on a HARVESTING kami, harvest_collect on a RESTING kami, a dry-run revert — asserted verbatim) |
+| An `allow_partial` return keeps its documented shape with the flag on | `test_error_snippets.py::TestSnippetBehaviour::test_batch_error_leaves_the_returned_payload_untouched` |
+| `SCHEMA_VERSION == "2.2.0"` | `test_tool_surface.py::test_schema_version` |
 | Docstrings are mechanism-only: no advisory or endorsement language in either direction | **partially enforced** — `test_tool_surface.py::test_h3_docstrings_stay_mechanical` covers 8 ACT tools against a banned-phrase list; `::test_enable_strategies_docstring_facts` covers 1 tool against a second list. The remaining 92 tools are **unenforced** |
 | No deployment-context references in agent-visible tool descriptions | **unenforced** — no scrub scan exists in this repository. Verified by hand at this ref: all 101 descriptions are clean |
 | Every READ description carries the untrusted-data sentence; every lens description names its serving path; non-read tools carry neither | `test_tool_surface.py::test_read_descriptions_carry_standing_sentence` |
@@ -401,6 +446,22 @@ is a declared mode with no implementation at this version. Selecting it
 raises at startup instead of silently falling back to `envelope`. The
 mode name stays in `_PRESENTATION_MODES` so the gap is visible.
 
+**X9 — `error-text-mechanics-snippet`.** P1 says routing lives in
+descriptions and that a tool named only in an error message is not
+discoverable — a deployment once ended a run with zero calls to the tool
+an error pointed at. The mechanics snippet (P4) names tool names in error
+text anyway, and is admitted because it repeats rather than replaces:
+every tool a state row can name states the same requirement in its own
+description (`harvest_start` "not already harvesting", `harvest_stop` /
+`harvest_collect` "ACTIVE harvest", `revive_kami` "Revive a DEAD kami",
+`liquidate_kami` "both HARVESTING on the same node", `gacha_reroll` "must
+be RESTING and owned", `transfer_kami` "RESTING or LISTED"). The snippet
+says which of those applies to the state just observed. It is off by
+default, so the routing mechanism a default deployment offers is
+unchanged, and the rows deliberately omit tools whose state requirement
+this module does not gate — a row is narrower than "what would work", and
+the wording ("tools whose harness state gate accepts X") says so.
+
 ---
 
 ## Non-goals
@@ -433,3 +494,4 @@ mode name stays in `_PRESENTATION_MODES` so the gap is visible.
 | 2 | 2026-07-24 | Re-pinned to `48bd154`, which adds one sentence to the `sacrifice_kami` description ("sacrifice is not liquidation"). P1 registry mass 65,830 → 65,942; P2 `tools_hash` `b952adf8…bb43` → `9e236f90…ada8`; mass invariant row updated. Tool count, classes, and schemas unchanged. |
 | 3 | 2026-08-07 | Re-pinned to `869767b` (SCHEMA_VERSION 2.1.0). Adds the swap pair `pool_swap_quote` (PERCEIVE) + `pool_swap` (ACT): P1 count 99 -> 101, classes ACT 54 -> 55 / PERCEIVE 29 -> 30, `READ_TOOLS` 37 -> 38. Registry-mass budget 66,000 -> 70,000 with P1 mass 65,942 -> 69,900; P2 `tools_hash` `9e236f90...ada8` -> `7fc11fe9...5262`. Adds the interpreter-basis statement (Python 3.13) to P1, the descriptions-not-error-text routing rule to P1, and the delegation-outlives-the-session property to Depends. Mass, count, class, version and description-scrub invariant rows updated. |
 | 4 | 2026-08-07 | Re-pinned to `da11b28`: out-of-gas reverts are now identified from receipt arithmetic before any replay, after a live probe showed the production RPC ignores the `gas` field in `eth_call` (a call priced at 3,083,548 by `eth_estimate_gas` succeeds through `eth_call` at gas=30,000), which makes replay unable to reach that class on this chain. Code and tests only — P1 mass 69,900, P1 count 101, P2 `tools_hash` and all class counts unchanged. |
+| 5 | 2026-08-17 | Re-pinned to `2ce4268` (SCHEMA_VERSION 2.2.0). Adds the flag-gated mechanics snippet on error results: P4 gains its paragraph (courtesy on the honest channel, contents, bounds, results-only), P6 gains `KAMI_ERROR_SNIPPETS` and widens the surface-identity claim to it, P1 notes that the snippet's tool-name pointers are not the routing mechanism, and deviation X9 `error-text-mechanics-snippet` argues that admission. The "tools_hash stable across capability flags" invariant moves from **unenforced** to `test_tool_surface.py::test_surface_identical_across_capability_flags` (8 flag combinations, count + mass + hash + every description), and six invariant rows are added for the single-source state table, subject derivation, snippet guards and the pinned snippet wordings. No tool, parameter, schema or description changes: P1 mass 69,900, P1 count 101, P2 `tools_hash` and all class counts unchanged. **Correction:** P3 stated `SCHEMA_VERSION = "2.0.0"` while the module and the invariant row said 2.1.0; P3 now reads 2.2.0. |

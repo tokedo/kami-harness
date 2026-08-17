@@ -22,6 +22,107 @@ marks the tool contract.
 - **PATCH** — non-semantic changes: documentation fixes, wording, catalog
   data refreshes, internal refactors that do not change the tool contract.
 
+An addition that changes what an agent *sees* at runtime — new content in
+results or errors, even behind a default-off flag — is MINOR, not PATCH:
+existing callers keep working, but the interface now says something it did
+not say before, and a client recording behaviour deserves a version to
+key it to. PATCH stays reserved for changes with no agent-visible effect
+at all.
+
+## [2.2.0] — mechanics snippets on error results
+
+MINOR. No tool, parameter, schema or description changes: the surface is
+unchanged at **101 tools**, registry mass **69,900**, `tools_hash`
+`7fc11fe9...5262` (Python 3.13) — identical with the new flag on and off.
+What is new is optional content in error TEXT.
+
+### Added — `KAMI_ERROR_SNIPPETS` (boolean, default off)
+
+In runs 001–005 agents picked up mechanics from error text more reliably
+than from any document: a message like "kami #123 is HARVESTING;
+harvest_start requires RESTING" was routinely followed by a
+`harvest_collect` call. With this flag on, that channel says what the
+module already knows at the failure site — and nothing more. Off by
+default, so a deployment that has not asked for it sees 2.1.0 error text
+byte for byte.
+
+The block is appended to the messages of `PreTxValidationError`,
+`OnChainRevertError` and `BatchTxError`, and carries states, tool names
+and numbers only: no advice, no strategy, no game documentation. Three
+examples exactly as an agent receives them:
+
+```
+Error executing tool harvest_start: validation failed; no transaction sent: kami #123 is HARVESTING; harvest_start requires RESTING
+[mechanics] kami #123: state HARVESTING, harvest entity ACTIVE. Tools whose harness state gate accepts HARVESTING: liquidate_kami. Tools whose harness state gate accepts harvest ACTIVE: harvest_collect, harvest_stop, liquidate_kami. harvest_start requires RESTING.
+```
+
+```
+Error executing tool harvest_collect: validation failed; no transaction sent: no active harvest exists for kami #123; its harvest entity state is ''
+[mechanics] kami #123: state RESTING, harvest entity unset. Tools whose harness state gate accepts RESTING: gacha_reroll, harvest_start, transfer_kami. harvest_collect requires harvest ACTIVE.
+```
+
+```
+Error executing tool harvest_start: validation failed; no transaction sent: transaction dry-run reverted: kami not in node room
+[mechanics] account 'main': room 42, stamina 7. kami #123: state RESTING, harvest entity unset. Tools whose harness state gate accepts RESTING: gacha_reroll, harvest_start, transfer_kami. Not read by the harness for this call: cooldowns, HP, node/room match, XP.
+```
+
+Out-of-gas reverts additionally name the ceiling they provisioned — `Gas
+ceiling for this call: _GAS_CEILINGS['harvest_collect'] = 4,000,000.` —
+on the tools where that class has actually been observed (the harvest
+trio, `liquidate_kami`, `skill_respec`). A ceiling is never guessed from
+the provisioned limit: only 7 of the 34 `_GAS_CEILINGS` entries have a
+unique value, so the key is threaded from the call site or omitted.
+
+Honesty rules the snippet keeps:
+
+- A kami is named only when its entity id appears in that call's own
+  arguments or calldata. `_kami_entity_id` and `_harvest_entity_id` record
+  what they derive, so the id in the message is literally the id in the
+  call — a failure never has an unrelated kami attributed to it.
+- Facts the module does not read — cooldown, HP, room/node match, XP — are
+  named as unread on revert classes instead of being guessed at, and a
+  live read that fails drops its fact rather than inventing a value.
+- Bounded at 5 kamis and 800 characters, and it says how many subjects it
+  left out rather than dropping them silently.
+- Nothing is written into a return value: `allow_partial` payloads keep
+  their documented shape. Per-item `error` / `reason` strings do carry the
+  block, because they are `str(exception)` of the inner failure.
+- The block never contains `-32000`, the marker `_send_tx_retry` routes
+  on, so it cannot turn a final error into a retried one.
+
+### Changed — one source for every kami-state gate
+
+`server._TOOL_KAMI_STATES` now declares every state requirement this
+module enforces before signing — `harvest_start` RESTING, `revive_kami`
+DEAD, `liquidate_kami` HARVESTING, `gacha_reroll` RESTING,
+`transfer_kami` RESTING or LISTED — and the gates read it instead of
+carrying literals. `_STATE_TOOLS` is its inversion and is what the snippet
+quotes, so a gate and what an error says about it cannot drift apart.
+Behaviour is unchanged: every existing validation test passes with its
+expected strings untouched.
+
+A state row names only tools this module gates. Tools whose state
+requirement is enforced solely by the chain's dry-run — `list_kami`,
+`sacrifice_kami`, `cancel_kami_listing`, `stop_harvest_batch`, and the
+ownership-only callers such as `feed_kami` and `equip_item` — are
+deliberately absent, because listing them would assert game knowledge the
+harness does not hold. The wording says exactly what the row means: *tools
+whose harness state gate accepts X*.
+
+### Added — surface identity across flags is now enforced
+
+"`tools_hash` is stable across capability-flag settings" was a SPEC claim
+with no test behind it, verified by hand.
+`test_tool_surface.py::test_surface_identical_across_capability_flags`
+imports the module in 8 subprocesses across `KAMI_ERROR_SNIPPETS` ×
+`KAMI_CHAT_ENABLED` × `PRESENTATION_MODE` and compares tool count,
+registry mass, `tools_hash` and every (name, description, parameters)
+triple, asserting each child observed the flags it was given so the test
+cannot pass on a flag that never reached the module.
+
+Suite: 511 passed, 3 skipped under Python 3.13.12, with the flag off and
+with the flag on.
+
 ## [2.1.0] — gas ceilings, pool swaps, honest revert reasons
 
 MINOR. Two new tools and no breaking change to an existing one. Surface:
