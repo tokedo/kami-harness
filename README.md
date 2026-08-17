@@ -280,13 +280,14 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`2.1.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
+Current: **`2.2.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
 reads served as thin `kami-lens` wrappers with verbatim envelope
 pass-through; every tool class-tagged ACT / PERCEIVE / OUTSOURCE /
 META; three non-conflatable transaction terminal states (a confirmed
-revert raises, never returns as success); a CI-enforced registry
-description-mass budget with `tools_hash` surface fingerprinting; and
-the contract registry in [`SPEC.md`](SPEC.md).
+revert raises, never returns as success); optional mechanics snippets on
+error results (`KAMI_ERROR_SNIPPETS`, default off, error text only); a
+CI-enforced registry description-mass budget with `tools_hash` surface
+fingerprinting; and the contract registry in [`SPEC.md`](SPEC.md).
 
 ## No agent policy
 

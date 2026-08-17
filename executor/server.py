@@ -62,6 +62,18 @@ RPC_URL = os.environ.get(
     "RPC_URL", "https://jsonrpc-yominet-1.anvil.asia-southeast.initia.xyz"
 )
 
+# Mechanics snippets on ERROR results. When on, an error message gains an
+# appended "[mechanics] ..." block built from this module's own
+# precondition gates and gas-ceiling registry — the state it read, the
+# tools whose gate accepts that state, the requirement of the tool that
+# was attempted, the ceiling it provisioned. Results only: tool schemas,
+# descriptions, registry mass and tools_hash are byte-identical either
+# way, and with the flag off every error text is what 2.1.0 produced.
+# Same boolean idiom as KAMI_CHAT_ENABLED; default off.
+ERROR_SNIPPETS = os.environ.get("KAMI_ERROR_SNIPPETS", "").strip().lower() in (
+    "1", "true", "yes", "on",
+)
+
 # ---------------------------------------------------------------------------
 # Web3
 # ---------------------------------------------------------------------------
@@ -267,10 +279,33 @@ def _resolve_system(system_id: str) -> str:
     return _system_cache[system_id]
 
 
+# Entity id -> ("kami" | "harvest", kami index) for every id this process
+# derived. The two helpers below are the only producers of these ids, so
+# the index is complete for whatever call is in flight, and the mechanics
+# snippet can name a kami only when its entity id is literally present in
+# that call's own arguments or calldata — nothing is guessed, and no
+# unrelated kami can be attributed to a failure. Bounded so a long-lived
+# process cannot grow it without limit.
+_ENTITY_SUBJECTS: dict[int, tuple[str, int]] = {}
+_ENTITY_SUBJECTS_MAX = 4096
+
+
+def _remember_entity(entity_id: int, kind: str, kami_index: int) -> int:
+    if len(_ENTITY_SUBJECTS) >= _ENTITY_SUBJECTS_MAX:
+        _ENTITY_SUBJECTS.clear()
+    _ENTITY_SUBJECTS[entity_id] = (kind, kami_index)
+    return entity_id
+
+
 def _kami_entity_id(kami_index: int) -> int:
     """Derive kami entity ID from token index: keccak256("kami.id", index)."""
-    return int.from_bytes(
-        Web3.solidity_keccak(["string", "uint32"], ["kami.id", kami_index]), "big"
+    return _remember_entity(
+        int.from_bytes(
+            Web3.solidity_keccak(["string", "uint32"], ["kami.id", kami_index]),
+            "big",
+        ),
+        "kami",
+        kami_index,
     )
 
 
@@ -285,8 +320,13 @@ def _account_entity_id(account: str) -> int:
 def _harvest_entity_id(kami_index: int) -> int:
     """Derive harvest entity ID: keccak256("harvest", kamiEntityId)."""
     kami_eid = _kami_entity_id(kami_index)
-    return int.from_bytes(
-        Web3.solidity_keccak(["string", "uint256"], ["harvest", kami_eid]), "big"
+    return _remember_entity(
+        int.from_bytes(
+            Web3.solidity_keccak(["string", "uint256"], ["harvest", kami_eid]),
+            "big",
+        ),
+        "harvest",
+        kami_index,
     )
 
 
@@ -481,13 +521,20 @@ def _get_account(label: str) -> _Account:
 
 
 class PreTxValidationError(ValueError):
-    """A precondition failed before signing; nothing was broadcast."""
+    """A precondition failed before signing; nothing was broadcast.
+
+    `mechanics` is the optional context a gate hands over for the
+    KAMI_ERROR_SNIPPETS block (see _mechanics_snippet): with the flag off
+    it costs nothing and the message is exactly what 2.1.0 produced.
+    `detail` never carries the snippet.
+    """
 
     PREFIX = "validation failed; no transaction sent: "
 
-    def __init__(self, detail: str):
+    def __init__(self, detail: str, mechanics: dict | None = None):
         self.detail = detail
-        super().__init__(self.PREFIX + detail)
+        self.mechanics = _mechanics_snippet(**mechanics) if mechanics else ""
+        super().__init__(self.PREFIX + detail + self.mechanics)
 
 
 def _revert_text(e: Exception) -> str:
@@ -506,18 +553,25 @@ class OnChainRevertError(RuntimeError):
     gas was spent."""
 
     def __init__(
-        self, tx_hash: str, block: int, gas_used: int, reason: str | None
+        self,
+        tx_hash: str,
+        block: int,
+        gas_used: int,
+        reason: str | None,
+        mechanics: dict | None = None,
     ):
         self.tx_hash = tx_hash
         self.block = block
         self.gas_used = gas_used
         self.reason = reason
+        self.mechanics = _mechanics_snippet(**mechanics) if mechanics else ""
         super().__init__(
             f"transaction {tx_hash} landed on-chain in block {block} and "
             f"REVERTED: gas was spent ({gas_used} gas) and no state change "
             f"was applied. Revert reason (best-effort eth_call replay at "
             f"block {block}): "
             f"{reason or REPLAY_UNAVAILABLE}"
+            + self.mechanics
         )
 
 
@@ -544,13 +598,23 @@ class BatchTxError(RuntimeError):
     transactions that succeeded are final on-chain regardless of this
     error."""
 
-    def __init__(self, tool: str, summary: str, outcomes):
+    def __init__(
+        self, tool: str, summary: str, outcomes, mechanics: dict | None = None
+    ):
         self.outcomes = outcomes
+        # Per failed step, from the outcomes themselves. The block is
+        # appended to the message and never written into `outcomes`: that
+        # payload is also the return value under allow_partial, and adding
+        # a key to it would change a documented return shape.
+        self.mechanics = _mechanics_snippet(
+            **(mechanics or {"batch_outcomes": outcomes})
+        )
         super().__init__(
             f"{tool}: {summary} Items reported successful below are final "
             f"on-chain (their gas was spent and their state changes "
             f"applied) — do not resubmit them. Per-item outcomes: "
             f"{json.dumps(outcomes, default=str)}"
+            + self.mechanics
         )
 
 
@@ -796,12 +860,22 @@ def _wait_for_head_past(block: int, attempts: int = 3, delay: float = 1.0) -> bo
         return False
 
 
-def _await_receipt(tx_hash, built: dict | None, timeout: int):
+def _await_receipt(
+    tx_hash,
+    built: dict | None,
+    timeout: int,
+    account: str | None = None,
+    ceiling_key: str | None = None,
+):
     """Wait for the receipt and enforce the three terminal states.
 
     confirmed-success -> returns the receipt;
     confirmed-revert  -> raises OnChainRevertError (gas spent, tx final);
     unconfirmed       -> raises TxUnconfirmedError (outcome unknown).
+
+    `account` and `ceiling_key` feed the mechanics snippet only: the live
+    state of the kamis this call names, and the _GAS_CEILINGS entry it
+    provisioned when the revert was out-of-gas.
     """
     try:
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
@@ -811,6 +885,7 @@ def _await_receipt(tx_hash, built: dict | None, timeout: int):
         # Receipt arithmetic first: it is deterministic, needs no archive
         # state, and identifies the one revert class a replay cannot.
         reason = _out_of_gas_reason(built, receipt)
+        out_of_gas = reason is not None
         if reason is None:
             reason = _replay_revert_reason(built, receipt.blockNumber)
         raise OnChainRevertError(
@@ -818,6 +893,12 @@ def _await_receipt(tx_hash, built: dict | None, timeout: int):
             receipt.blockNumber,
             receipt.gasUsed,
             reason,
+            mechanics={
+                "calldata": (built or {}).get("data"),
+                "account": account,
+                "ceiling_key": ceiling_key if out_of_gas else None,
+                "unread_facts": True,
+            },
         )
     return receipt
 
@@ -996,6 +1077,324 @@ def _account_view(account_id: int) -> dict | None:
     return {"index": idx, "name": name, "stamina": stamina, "room": room}
 
 
+# ---------------------------------------------------------------------------
+# State gates — the single source for "which tools accept which state"
+#
+# Every kami-state requirement this module enforces before signing is
+# declared here once. The gates below read their requirement from this
+# table, and the mechanics snippet reads the same table, so a gate and
+# what an error says about it cannot drift apart.
+#
+# A tool appears here only when THIS MODULE gates on the state. Tools
+# whose state requirement is enforced solely by the chain's eth_call
+# dry-run — list_kami, sacrifice_kami, cancel_kami_listing,
+# stop_harvest_batch, and every ownership-only caller of
+# _require_kamis_owned (feed_kami, level_up_kami, equip_item, ...) — are
+# deliberately absent: the harness holds no gate for them, so naming them
+# in a state row would assert game knowledge this module does not have.
+# A state row is therefore narrower than "what would work", and the
+# snippet says exactly what the row means.
+# ---------------------------------------------------------------------------
+
+# tool -> the kami states its pre-send gate accepts, in rendering order.
+_TOOL_KAMI_STATES: dict[str, tuple[str, ...]] = {
+    "harvest_start": ("RESTING",),
+    "revive_kami": ("DEAD",),
+    "liquidate_kami": ("HARVESTING",),  # the attacking kami
+    "gacha_reroll": ("RESTING",),
+    "transfer_kami": ("RESTING", "LISTED"),
+}
+
+# Every kami state this module can read from component.state (_kami_state),
+# including the ones no gate accepts. "" is a kami this world has no state
+# for (nonexistent, or never played).
+_KNOWN_KAMI_STATES = (
+    "RESTING", "HARVESTING", "DEAD", "LISTED", "721_EXTERNAL", "",
+)
+
+# state -> tools whose gate accepts it, inverted from _TOOL_KAMI_STATES.
+_STATE_TOOLS: dict[str, tuple[str, ...]] = {
+    st: tuple(sorted(t for t, sts in _TOOL_KAMI_STATES.items() if st in sts))
+    for st in _KNOWN_KAMI_STATES
+}
+
+# harvest-entity state -> tools whose gate accepts it. ACTIVE is required
+# by _validate_active_harvests (harvest_stop, harvest_collect) and by the
+# victim side of liquidate_kami.
+_HARVEST_STATE_TOOLS: dict[str, tuple[str, ...]] = {
+    "ACTIVE": ("harvest_collect", "harvest_stop", "liquidate_kami"),
+    "": (),
+}
+
+
+def _render_states(states: tuple[str, ...]) -> str:
+    """A state requirement as text: "RESTING", "RESTING or LISTED"."""
+    return " or ".join(s or "unset" for s in states)
+
+
+# ---------------------------------------------------------------------------
+# Mechanics snippet on ERROR results (KAMI_ERROR_SNIPPETS, default off)
+#
+# A courtesy on top of the honest error channel and never the routing
+# mechanism (SPEC P1, deviation X9): facts this module already holds at
+# the failure site — the state it read, the tools whose gate accepts that
+# state, the requirement of the tool that was attempted, the gas ceiling
+# it provisioned. States, tool names and numbers only: no advice, no
+# strategy, no game documentation. Preconditions this module does not read
+# (cooldown, HP, room/node match, XP) are named as unread rather than
+# guessed at.
+# ---------------------------------------------------------------------------
+
+_MECHANICS_PREFIX = "\n[mechanics] "
+_SNIPPET_MAX_SUBJECTS = 5
+_SNIPPET_MAX_CHARS = 800
+_SUBJECT_CLAUSE_MAX = 320
+_UNREAD_FACTS = (
+    "Not read by the harness for this call: cooldowns, HP, node/room "
+    "match, XP."
+)
+# _send_tx_retry routes on "-32000" in str(e). A snippet must never
+# introduce that marker and turn a final error into a retried one.
+_RETRY_ROUTING_MARKER = "-32000"
+
+
+def _safe_read(fn, *args):
+    """A live read for diagnostics: unreadable is never reported as a value."""
+    try:
+        return fn(*args)
+    except Exception:
+        return None
+
+
+def _state_tools_sentence(state: str) -> str:
+    """The applicable-tools row for a kami state.
+
+    An unrecognised state yields no sentence at all: the table makes no
+    claim about a state this version does not know.
+    """
+    if state not in _STATE_TOOLS:
+        return ""
+    label = state or "unset"
+    tools = _STATE_TOOLS[state]
+    if not tools:
+        return f"No harness state gate accepts {label}."
+    return (
+        f"Tools whose harness state gate accepts {label}: "
+        f"{', '.join(tools)}."
+    )
+
+
+def _harvest_tools_sentence(hstate: str) -> str:
+    """The applicable-tools row for a harvest-entity state."""
+    tools = _HARVEST_STATE_TOOLS.get(hstate, ())
+    if not tools:
+        return ""
+    return (
+        f"Tools whose harness state gate accepts harvest {hstate}: "
+        f"{', '.join(tools)}."
+    )
+
+
+def _subject_clause(subject: dict) -> str:
+    """One kami's clause: the states read, then the tools that accept them.
+
+    States the caller already read are used as given; anything missing is
+    read live here, and a read that fails drops the fact instead of
+    inventing one. `with_tools=False` (an ownership failure) reports state
+    alone, because every tool in the table also requires ownership.
+    """
+    kid = subject.get("kami_id")
+    if kid is None:
+        return ""
+    state = subject.get("state")
+    if state is None:
+        state = _safe_read(_kami_state, kid)
+    hstate = subject.get("harvest_state")
+    if hstate is None and (state == "HARVESTING" or subject.get("read_harvest")):
+        hstate = _safe_read(_harvest_state, kid)
+    facts = []
+    if state is not None:
+        facts.append(f"state {state or 'unset'}")
+    if hstate is not None:
+        facts.append(f"harvest entity {hstate or 'unset'}")
+    if not facts:
+        return ""
+    parts = [f"kami #{kid}: {', '.join(facts)}."]
+    if subject.get("with_tools", True):
+        if state is not None:
+            parts.append(_state_tools_sentence(state))
+        if hstate:
+            parts.append(_harvest_tools_sentence(hstate))
+    clause = " ".join(p for p in parts if p)
+    if len(clause) > _SUBJECT_CLAUSE_MAX:
+        clause = clause[: _SUBJECT_CLAUSE_MAX - 3].rstrip() + "..."
+    return clause
+
+
+def _calldata_subjects(args=None, data=None) -> list[dict]:
+    """Kami subjects for entity ids present in THIS call's own arguments.
+
+    Only ids this process derived from a kami index are recognised (see
+    _ENTITY_SUBJECTS), so the snippet names a kami exactly when its entity
+    id is in the call and never otherwise.
+    """
+    found: dict[int, str] = {}
+
+    def note(value) -> None:
+        hit = _ENTITY_SUBJECTS.get(value)
+        if hit:
+            kind, kid = hit
+            if kid not in found or kind == "harvest":
+                found[kid] = kind
+
+    def walk(node) -> None:
+        if isinstance(node, bool):
+            return
+        if isinstance(node, int):
+            note(node)
+        elif isinstance(node, (list, tuple)):
+            for v in node:
+                walk(v)
+
+    walk(list(args or ()))
+    if data:
+        body = data.hex() if hasattr(data, "hex") else str(data)
+        if body.startswith("0x"):
+            body = body[2:]
+        body = body[8:]  # past the 4-byte selector
+        for i in range(0, len(body) - 63, 64):
+            try:
+                note(int(body[i:i + 64], 16))
+            except ValueError:
+                continue
+    # read_harvest: on a revert the presence or absence of a harvest entity
+    # is part of the live state worth reporting, so it is read for every
+    # kami the call names, not only for harvest-entity arguments.
+    return [{"kami_id": kid, "read_harvest": True} for kid in sorted(found)]
+
+
+_BATCH_OK_STATUSES = ("success", "skipped", "skipped_empty")
+_KAMI_ID_KEYS = ("kami_id", "kami_index", "kami")
+
+
+def _failed_batch_subjects(outcomes) -> list[dict]:
+    """Kami subjects for the failed steps of a batch outcome payload.
+
+    Batch tools carry per-item dicts in several shapes (a "results" list,
+    a "per_kami" map keyed by kami index, a single-kami outcome), so the
+    payload is walked rather than assumed. Items the dry-run gate skipped
+    are not failures (SPEC X6) and are not reported here.
+    """
+    found: list[int] = []
+
+    def failed(item: dict) -> bool:
+        if item.get("error"):
+            return True
+        st = item.get("status")
+        if st is not None and st not in _BATCH_OK_STATUSES:
+            return True
+        return item.get("stopped") is False
+
+    def walk(node, key_hint=None) -> None:
+        if isinstance(node, dict):
+            kid = key_hint if isinstance(key_hint, int) else None
+            for k in _KAMI_ID_KEYS:
+                v = node.get(k)
+                if isinstance(v, int) and not isinstance(v, bool):
+                    kid = v
+                    break
+            if kid is not None and failed(node) and kid not in found:
+                found.append(kid)
+            for k, v in node.items():
+                if isinstance(v, (dict, list)):
+                    walk(v, k if isinstance(k, int) else None)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(outcomes)
+    return [{"kami_id": k} for k in sorted(found)]
+
+
+def _mechanics_snippet(
+    subjects: list[dict] | None = None,
+    call_args=None,
+    calldata=None,
+    batch_outcomes=None,
+    attempted: str | None = None,
+    requires: str | None = None,
+    account: str | None = None,
+    ceiling_key: str | None = None,
+    unread_facts: bool = False,
+) -> str:
+    """The appended [mechanics] block, or "" when the flag is off.
+
+    Never raises: this runs while an error is being constructed, so a
+    failed live read costs the fact and nothing else. Never unbounded:
+    at most _SNIPPET_MAX_SUBJECTS kamis and _SNIPPET_MAX_CHARS characters.
+    """
+    if not ERROR_SNIPPETS:
+        return ""
+    try:
+        subs = list(subjects or [])
+        if not subs and call_args is not None:
+            subs = _calldata_subjects(args=call_args)
+        if not subs and calldata:
+            subs = _calldata_subjects(data=calldata)
+        if not subs and batch_outcomes is not None:
+            subs = _failed_batch_subjects(batch_outcomes)
+
+        sentences: list[str] = []
+        if account:
+            aid = _safe_read(_account_entity_id, account)
+            view = _safe_read(_account_view, aid) if aid else None
+            if view:
+                sentences.append(
+                    f"account '{account}': room {view['room']}, "
+                    f"stamina {view['stamina']}."
+                )
+        tail: list[str] = []
+        if attempted and requires:
+            tail.append(f"{attempted} requires {requires}.")
+        if ceiling_key and ceiling_key in _GAS_CEILINGS:
+            tail.append(
+                f"Gas ceiling for this call: _GAS_CEILINGS['{ceiling_key}'] "
+                f"= {_GAS_CEILINGS[ceiling_key]:,}."
+            )
+        if unread_facts:
+            tail.append(_UNREAD_FACTS)
+
+        def assemble(clauses: list[str], hidden: int) -> str:
+            parts = list(sentences) + list(clauses)
+            if hidden:
+                parts.append(f"(+{hidden} more kamis not shown.)")
+            parts += tail
+            body = " ".join(p for p in parts if p)
+            return _MECHANICS_PREFIX + body if body else ""
+
+        shown = [
+            c for c in (_subject_clause(s) for s in subs[:_SNIPPET_MAX_SUBJECTS])
+            if c
+        ]
+        hidden = max(0, len(subs) - _SNIPPET_MAX_SUBJECTS)
+        text = assemble(shown, hidden)
+        # Drop whole subjects rather than cut a sentence in half, and keep
+        # saying how many were left out.
+        while len(text) > _SNIPPET_MAX_CHARS and shown:
+            shown.pop()
+            hidden += 1
+            text = assemble(shown, hidden)
+        if len(text) > _SNIPPET_MAX_CHARS:
+            text = text[: _SNIPPET_MAX_CHARS - 3].rstrip() + "..."
+        if not text:
+            return ""
+        if _RETRY_ROUTING_MARKER in text:
+            return ""
+        return text
+    except Exception:
+        return ""
+
+
 def _require_kamis_owned(
     kami_ids: list[int],
     account: str,
@@ -1005,23 +1404,44 @@ def _require_kamis_owned(
 ) -> list[dict]:
     """Per-kami ownership (+ optional state) validation gate.
 
+    The state requirement is read from _TOOL_KAMI_STATES, keyed by
+    `action`, so this gate and the mechanics snippet cannot disagree about
+    what the tool accepts; an explicit `required_state` still works for a
+    caller outside that table.
+
     Collects every failing kami into one PreTxValidationError so a batch
     reports all problems at once. Returns per-kami {kami_id, state}.
     """
+    required = (
+        (required_state,) if required_state is not None
+        else _TOOL_KAMI_STATES.get(action, ())
+    )
     problems: list[str] = []
     per_kami: list[dict] = []
+    subjects: list[dict] = []
+    state_failed = False
     for k in kami_ids:
         st = _kami_state(k)
         per_kami.append({"kami_id": k, "state": st})
         if _kami_owner_id(k) != account_id:
             problems.append(f"kami #{k} is not owned by account '{account}'")
-        elif required_state is not None and st != required_state:
+            subjects.append({"kami_id": k, "state": st, "with_tools": False})
+        elif required and st not in required:
             problems.append(
                 f"kami #{k} is {st or 'unset'}; {action} requires "
-                f"{required_state}"
+                f"{_render_states(required)}"
             )
+            subjects.append({"kami_id": k, "state": st})
+            state_failed = True
     if problems:
-        raise PreTxValidationError("; ".join(problems))
+        raise PreTxValidationError(
+            "; ".join(problems),
+            mechanics={
+                "subjects": subjects,
+                "attempted": action,
+                "requires": _render_states(required) if state_failed else None,
+            },
+        )
     return per_kami
 
 
@@ -1071,7 +1491,9 @@ def _require_gas_balance(
         )
 
 
-def _dry_run(fn, from_addr: str, value_wei: int = 0) -> None:
+def _dry_run(
+    fn, from_addr: str, value_wei: int = 0, account: str | None = None
+) -> None:
     """eth_call dry-run of the exact calldata from the signing address.
 
     A revert here raises PreTxValidationError carrying the chain's
@@ -1091,7 +1513,12 @@ def _dry_run(fn, from_addr: str, value_wei: int = 0) -> None:
         fn.call(params)
     except Exception as e:
         raise PreTxValidationError(
-            f"transaction dry-run reverted: {_revert_text(e)}"
+            f"transaction dry-run reverted: {_revert_text(e)}",
+            mechanics={
+                "call_args": getattr(fn, "args", None),
+                "account": account,
+                "unread_facts": True,
+            },
         )
 
 
@@ -1127,6 +1554,7 @@ def _send_tx(
     args: list,
     gas_limit: int | None = None,
     return_receipt: bool = False,
+    ceiling_key: str | None = None,
 ) -> dict:
     """Build, sign, send a transaction with the account's operator key.
 
@@ -1144,7 +1572,7 @@ def _send_tx(
 
     _require_registered_operator(account)
     _require_gas_balance(acct.operator_addr, gas_limit, 0, "operator")
-    _dry_run(fn, acct.operator_addr)
+    _dry_run(fn, acct.operator_addr, account=account)
 
     tx_params = {
         "from": acct.operator_addr,
@@ -1161,7 +1589,9 @@ def _send_tx(
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     except Exception as e:
         raise _wrap_send_error(e, acct.operator_addr, "operator", account)
-    receipt = _await_receipt(tx_hash, built, timeout=120)
+    receipt = _await_receipt(
+        tx_hash, built, timeout=120, account=account, ceiling_key=ceiling_key
+    )
 
     result = {
         "tx_hash": _hex_hash(receipt.transactionHash),
@@ -1184,6 +1614,7 @@ def _send_batch_tx(
     gas_per_item: int,
     use_owner: bool = False,
     return_receipt: bool = False,
+    ceiling_key: str | None = None,
 ) -> dict:
     """Build, sign, send a batch/named-function transaction.
 
@@ -1224,7 +1655,7 @@ def _send_batch_tx(
     else:
         _require_registered_operator(account)
     _require_gas_balance(signer_addr, gas, 0, role)
-    _dry_run(fn, signer_addr)
+    _dry_run(fn, signer_addr, account=account)
 
     tx_params = {
         "from": signer_addr,
@@ -1239,7 +1670,9 @@ def _send_batch_tx(
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     except Exception as e:
         raise _wrap_send_error(e, signer_addr, role, account)
-    receipt = _await_receipt(tx_hash, built, timeout=180)
+    receipt = _await_receipt(
+        tx_hash, built, timeout=180, account=account, ceiling_key=ceiling_key
+    )
     result = {
         "tx_hash": _hex_hash(receipt.transactionHash),
         "status": "success",
@@ -1258,11 +1691,15 @@ def _send_tx_retry(
     args: list,
     gas_limit: int | None = None,
     retries: int = 3,
+    ceiling_key: str | None = None,
 ) -> dict:
     """_send_tx with retry on transient RPC errors (e.g. -32000 nonce race)."""
     for attempt in range(retries):
         try:
-            return _send_tx(account, system_id, abi, args, gas_limit)
+            return _send_tx(
+                account, system_id, abi, args, gas_limit,
+                ceiling_key=ceiling_key,
+            )
         except (OnChainRevertError, TxUnconfirmedError):
             # Never blindly resubmit: a confirmed revert is final (a
             # retry would re-execute the action), and an unconfirmed tx
@@ -1304,7 +1741,7 @@ def _send_tx_owner(
     if system_id != "system.account.register":
         _require_registered_owner(account)
     _require_gas_balance(acct.owner_addr, gas_limit, value_wei, "owner")
-    _dry_run(fn, acct.owner_addr, value_wei)
+    _dry_run(fn, acct.owner_addr, value_wei, account=account)
 
     tx_params = {
         "from": acct.owner_addr,
@@ -1323,7 +1760,7 @@ def _send_tx_owner(
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     except Exception as e:
         raise _wrap_send_error(e, acct.owner_addr, "owner", account)
-    receipt = _await_receipt(tx_hash, built, timeout=120)
+    receipt = _await_receipt(tx_hash, built, timeout=120, account=account)
 
     result = {
         "tx_hash": _hex_hash(receipt.transactionHash),
@@ -3587,9 +4024,12 @@ def _validate_active_harvests(
         )
     aid = _require_registered_operator(account)
     problems: list[str] = []
+    subjects: list[dict] = []
+    state_failed = False
     for k in kami_ids:
         if _kami_owner_id(k) != aid:
             problems.append(f"kami #{k} is not owned by account '{account}'")
+            subjects.append({"kami_id": k, "with_tools": False})
             continue
         hstate = _harvest_state(k)
         if hstate != "ACTIVE":
@@ -3597,8 +4037,17 @@ def _validate_active_harvests(
                 f"no active harvest exists for kami #{k}; its harvest "
                 f"entity state is {hstate!r}"
             )
+            subjects.append({"kami_id": k, "harvest_state": hstate})
+            state_failed = True
     if problems:
-        raise PreTxValidationError("; ".join(problems))
+        raise PreTxValidationError(
+            "; ".join(problems),
+            mechanics={
+                "subjects": subjects,
+                "attempted": action,
+                "requires": "harvest ACTIVE" if state_failed else None,
+            },
+        )
 
 
 @mcp.tool()
@@ -3621,15 +4070,14 @@ def harvest_start(kami_ids: list[int], node_index: int, account: str = "main") -
             "kami_ids is empty; harvest_start requires at least one kami"
         )
     aid = _require_registered_operator(account)
-    _require_kamis_owned(
-        kami_ids, account, aid, "harvest_start", required_state="RESTING"
-    )
+    _require_kamis_owned(kami_ids, account, aid, "harvest_start")
     entity_ids = [_kami_entity_id(k) for k in kami_ids]
     if len(entity_ids) == 1:
         return _send_tx(
             account, "system.harvest.start", _ABI_HARVEST_START,
             [entity_ids[0], node_index, 0, 0],
             gas_limit=_GAS_CEILINGS["harvest_start"],
+            ceiling_key="harvest_start",
         )
     # Batch: _send_batch_tx multiplies this by the number of kamis the
     # transaction settles.
@@ -3637,6 +4085,7 @@ def harvest_start(kami_ids: list[int], node_index: int, account: str = "main") -
         account, "system.harvest.start", _ABI_HARVEST_START,
         "executeBatched", [entity_ids, node_index, 0, 0],
         _GAS_CEILINGS["harvest_start"],
+        ceiling_key="harvest_start",
     )
 
 
@@ -3660,10 +4109,12 @@ def harvest_stop(kami_ids: list[int], account: str = "main") -> dict:
         return _send_tx(
             account, "system.harvest.stop", _ABI_HARVEST_STOP,
             [h_ids[0]], gas_limit=_GAS_CEILINGS["harvest_stop"],
+            ceiling_key="harvest_stop",
         )
     result = _send_batch_tx(
         account, "system.harvest.stop", _ABI_HARVEST_STOP,
         "executeBatched", [h_ids], _GAS_CEILINGS["harvest_stop"],
+        ceiling_key="harvest_stop",
     )
     result["kamis"] = kami_ids
     return result
@@ -3689,10 +4140,12 @@ def harvest_collect(kami_ids: list[int], account: str = "main") -> dict:
         return _send_tx(
             account, "system.harvest.collect", _ABI_HARVEST_COLLECT,
             [h_ids[0]], gas_limit=_GAS_CEILINGS["harvest_collect"],
+            ceiling_key="harvest_collect",
         )
     result = _send_batch_tx(
         account, "system.harvest.collect", _ABI_HARVEST_COLLECT,
         "executeBatched", [h_ids], _GAS_CEILINGS["harvest_collect"],
+        ceiling_key="harvest_collect",
     )
     result["kamis"] = kami_ids
     return result
@@ -4173,7 +4626,7 @@ def revive_kami(
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned(
-        [kami_id], account, aid, "revive_kami", required_state="DEAD"
+        [kami_id], account, aid, "revive_kami"
     )
     if method == "onyx":
         _require_item_balance(
@@ -6029,7 +6482,9 @@ _ABI_SEND = json.loads(
 
 # States from which an in-world send is allowed. The send system auto-cancels
 # any active marketplace listing, so LISTED is fine; HARVESTING / DEAD revert.
-_SENDABLE_STATES = {"RESTING", "LISTED"}
+# Read from the single source above so this gate and the mechanics snippet
+# cannot disagree about what transfer_kami accepts.
+_SENDABLE_STATES = set(_TOOL_KAMI_STATES["transfer_kami"])
 
 # system.kami.send hard cap (one tx moves at most this many kamis).
 _KAMI_SEND_BATCH_CAP = 9
@@ -6123,7 +6578,8 @@ def transfer_kami(
         info["state"] = st
         if st is not None and st not in _SENDABLE_STATES:
             blocked.append(
-                f"kami {k} is {st} (must be RESTING or LISTED — "
+                f"kami {k} is {st} (must be "
+                f"{_render_states(_TOOL_KAMI_STATES['transfer_kami'])} — "
                 f"stop harvest/revive first)"
             )
         if src_account_id is not None:
@@ -6513,7 +6969,9 @@ def stop_harvest_batch(
     built = fn.build_transaction(tx_params)
     signed = w3.eth.account.sign_transaction(built, private_key=acct.operator_key)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    receipt = _await_receipt(tx_hash, built, timeout=120)
+    # No ceiling_key: this path provisions no _GAS_CEILINGS entry (the gas
+    # comes from web3's own estimate), so there is none to name.
+    receipt = _await_receipt(tx_hash, built, timeout=120, account=account)
 
     # Post-tx verification: read each kami's harvest.state component.
     # ACTIVE = still harvesting (silent skip), INACTIVE = stopped successfully.
@@ -7765,15 +8223,19 @@ def liquidate_kami(
             owned by `account`).
     """
     aid = _require_registered_operator(account)
-    _require_kamis_owned(
-        [killer_kami_id], account, aid, "liquidate_kami",
-        required_state="HARVESTING",
-    )
+    _require_kamis_owned([killer_kami_id], account, aid, "liquidate_kami")
     victim_hstate = _harvest_state(victim_kami_id)
     if victim_hstate != "ACTIVE":
         raise PreTxValidationError(
             f"kami #{victim_kami_id} has no ACTIVE harvest (state "
-            f"{victim_hstate!r}); only a harvesting kami can be liquidated"
+            f"{victim_hstate!r}); only a harvesting kami can be liquidated",
+            mechanics={
+                "subjects": [
+                    {"kami_id": victim_kami_id, "harvest_state": victim_hstate}
+                ],
+                "attempted": "liquidate_kami",
+                "requires": "harvest ACTIVE",
+            },
         )
     result = _send_tx(
         account,
@@ -7781,6 +8243,7 @@ def liquidate_kami(
         _ABI_LIQUIDATE,
         [_harvest_entity_id(victim_kami_id), _kami_entity_id(killer_kami_id)],
         gas_limit=_GAS_CEILINGS["liquidate_kami"],
+        ceiling_key="liquidate_kami",
     )
     result.update(
         {"victim_kami_id": victim_kami_id, "killer_kami_id": killer_kami_id}
@@ -7976,7 +8439,7 @@ def gacha_reroll(kami_ids: list[int], account: str = "main") -> dict:
     _require_registered_owner(account)
     aid = _account_entity_id(account)
     _require_kamis_owned(
-        kami_ids, account, aid, "gacha_reroll", required_state="RESTING"
+        kami_ids, account, aid, "gacha_reroll"
     )
     _require_item_balance(
         account, aid, _REROLL_TICKET_INDEX, len(kami_ids), "gacha_reroll"
@@ -8108,6 +8571,7 @@ def skill_respec(kami_id: int, account: str = "main") -> dict:
         _ABI_SKILL_RESPEC,
         [_kami_entity_id(kami_id)],
         gas_limit=_GAS_CEILINGS["skill_respec"],
+        ceiling_key="skill_respec",
     )
     result.update({
         "kami_id": kami_id,

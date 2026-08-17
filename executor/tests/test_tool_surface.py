@@ -86,7 +86,7 @@ def _tools():
 
 
 def test_schema_version():
-    assert SCHEMA_VERSION == "2.1.0"
+    assert SCHEMA_VERSION == "2.2.0"
 
 
 def test_readme_current_version_matches_schema_version():
@@ -314,3 +314,104 @@ def test_schema_titles_stripped():
     """Served schemas carry no pydantic auto-"title" noise."""
     for name, t in _tools().items():
         assert '"title"' not in json.dumps(t.parameters), name
+
+
+# ---------------------------------------------------------------------------
+# Surface identity across capability flags (SPEC P6)
+#
+# Every capability flag is read at import, so the surface it might have
+# influenced can only be compared by importing the module again under a
+# different environment. A client's recorded fingerprint must identify the
+# surface, not the operator's configuration.
+# ---------------------------------------------------------------------------
+
+_SURFACE_SENTINEL = "---SURFACE-JSON---"
+
+# Printed by the child: the whole agent-visible surface, plus the flag
+# values it actually saw (so this test cannot pass on a flag that never
+# reached the module).
+_SURFACE_PROBE = f"""
+import json, server
+tools = server.mcp._tool_manager.list_tools()
+print({_SURFACE_SENTINEL!r} + json.dumps({{
+    "count": len(tools),
+    "mass": server.registry_mass(),
+    "tools_hash": server.TOOLS_HASH,
+    "schema_version": server.SCHEMA_VERSION,
+    "surface": sorted(
+        [t.name, t.description or "", t.parameters] for t in tools
+    ),
+    "flags": {{
+        "error_snippets": server.ERROR_SNIPPETS,
+        "chat": server.CHAT_ENABLED,
+        "presentation_mode": server.PRESENTATION_MODE,
+    }},
+}}, sort_keys=True))
+"""
+
+_FLAG_MATRIX = [
+    {"KAMI_ERROR_SNIPPETS": snip, "KAMI_CHAT_ENABLED": chat,
+     "PRESENTATION_MODE": mode}
+    for snip in ("false", "1")
+    for chat in ("false", "1")
+    for mode in ("envelope", "name-free")
+]
+
+
+def _probe_surface(overrides):
+    """Import the module in a fresh process and return its surface payload."""
+    import os
+    import subprocess
+    import sys
+
+    env = dict(os.environ)
+    env.pop("KAMI_ERROR_SNIPPETS", None)
+    env.pop("KAMI_CHAT_ENABLED", None)
+    env.pop("PRESENTATION_MODE", None)
+    env["MAINNET_RPC_URL"] = env.get(
+        "MAINNET_RPC_URL", "http://127.0.0.1:9/offline-test"
+    )
+    env.update(overrides)
+    executor_dir = str(Path(__file__).resolve().parent.parent)
+    env["PYTHONPATH"] = executor_dir
+    proc = subprocess.run(
+        [sys.executable, "-c", _SURFACE_PROBE],
+        cwd=executor_dir, env=env, capture_output=True, text=True, timeout=120,
+    )
+    assert proc.returncode == 0, proc.stderr
+    # Import writes a keyless-startup warning to stdout, so the payload is
+    # found by its sentinel rather than by position.
+    line = [
+        ln for ln in proc.stdout.splitlines() if ln.startswith(_SURFACE_SENTINEL)
+    ]
+    assert len(line) == 1, proc.stdout
+    return json.loads(line[0][len(_SURFACE_SENTINEL):])
+
+
+def test_surface_identical_across_capability_flags():
+    """Tool count, registry mass, tools_hash and every (name, description,
+    parameters) triple are byte-identical across every combination of the
+    capability flags. KAMI_ERROR_SNIPPETS changes error TEXT only."""
+    baseline = None
+    seen_flags = set()
+    for overrides in _FLAG_MATRIX:
+        payload = _probe_surface(overrides)
+        flags = payload.pop("flags")
+        # The child really saw the configuration under test.
+        assert flags["error_snippets"] is (
+            overrides["KAMI_ERROR_SNIPPETS"] == "1"
+        ), overrides
+        assert flags["chat"] is (overrides["KAMI_CHAT_ENABLED"] == "1"), overrides
+        assert flags["presentation_mode"] == overrides["PRESENTATION_MODE"]
+        seen_flags.add(
+            (flags["error_snippets"], flags["chat"], flags["presentation_mode"])
+        )
+        if baseline is None:
+            baseline = payload
+            assert payload["count"] == 101
+            assert payload["tools_hash"] == server.TOOLS_HASH
+            continue
+        assert json.dumps(payload, sort_keys=True) == json.dumps(
+            baseline, sort_keys=True
+        ), f"surface differs under {overrides}"
+    assert len(seen_flags) == len(_FLAG_MATRIX)
