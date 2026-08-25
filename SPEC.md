@@ -1,7 +1,7 @@
 ---
 module: kami-harness
-version: 5
-describes: 2ce4268
+version: 6
+describes: 7da193c
 ---
 
 # SPEC — contract registry
@@ -21,18 +21,18 @@ this registry says *what holds*, not *how it is built*.
 
 ### P1 — MCP tool surface
 
-- The registry advertises exactly **101 tools**.
+- The registry advertises exactly **102 tools**.
 - Every registered tool carries exactly one class tag in
   `server.TOOL_CLASSES`; the tag set is `{ACT, PERCEIVE, OUTSOURCE,
   META}` and the key set equals the registered tool names exactly.
-- Class counts: **ACT 55 / PERCEIVE 30 / OUTSOURCE 9 / META 7**.
+- Class counts: **ACT 55 / PERCEIVE 31 / OUTSOURCE 9 / META 7**.
 - Class meanings, as the code partitions them:
   - `ACT` — signs and broadcasts at least one transaction.
   - `PERCEIVE` — world-state read; signs nothing, changes no remote state.
   - `OUTSOURCE` — reaches the third-party strategy service.
   - `META` — wallet, account-registry, and bridge infrastructure; not
     world state.
-- `server.READ_TOOLS` is the non-mutating subset: **38 tools** = all 30
+- `server.READ_TOOLS` is the non-mutating subset: **39 tools** = all 31
   `PERCEIVE` + 5 `OUTSOURCE` reads + 3 `META` reads. `ACT ∩ READ_TOOLS`
   is empty.
 - **Routing lives in descriptions, not in error text.** A tool named
@@ -52,11 +52,14 @@ this registry says *what holds*, not *how it is built*.
   carries `server._LENS_SERVING_SENTENCE`. Non-read tools carry neither.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **69,900 characters** at this ref, against a `REGISTRY_MASS_BUDGET`
-  of 70,000. The budget is capacity that has to be earned: every
+  **69,993 characters** at this ref, against a `REGISTRY_MASS_BUDGET`
+  of 71,000. The budget is capacity that has to be earned: every
   character is spent out of the agent's context before it acts, so the
   ceiling rises only for named capability, never to make room for
-  wording that could be tightened instead.
+  wording that could be tightened instead. The 70,000 -> 71,000 raise
+  at this version is an operator ruling of 2026-08-25, made for the
+  named capability `lens_roster`; the wording tightened in the same
+  change was tightened because it reads better, and did not fund it.
 - Registry mass and `tools_hash` are **interpreter-dependent**: both are
   computed from schemas that the interpreter's own JSON and typing
   machinery generates, so a different Python version can yield different
@@ -77,11 +80,18 @@ this registry says *what holds*, not *how it is built*.
 - The MCP `initialize` handshake carries it in the `instructions` field
   as the exact string `tools_hash=<64 hex chars>`.
 - Value at this ref (Python 3.13):
-  `7fc11fe95b85ebeed4f898e774c50833cd63314d56c3ed18b5afa56989f75262`.
+  `b7eebb88c49b9077efd4ba72e96ddf58af6af3eb17852aaecc800ea030fcf1f8`.
+- The MCP `initialize` handshake additionally carries
+  `schema_version=<SCHEMA_VERSION>` and `error_snippets=<on|off>` in the
+  same `instructions` field, space-separated after the hash. The
+  capability flag changes no name, description, schema or hash (P6), so
+  a client cannot infer it from the surface: unstated, the harness half
+  of a deployment is unrecordable. `instructions` is therefore the one
+  handshake value that is NOT flag-invariant.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "2.2.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.0.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -120,6 +130,27 @@ ever reported as another:
   error message carries **every** per-item outcome, successes included,
   and states that successful items are final on-chain and must not be
   resubmitted.
+- **Every hash a call landed is reported, including on failure.** A
+  transaction that landed and reverted has a hash, a block and spent
+  gas, and is visible on-chain whether or not the payload mentions it.
+  A multi-transaction tool therefore carries a per-leg `txs` list, and
+  each leg that reached the chain appears in it with `tx_hash`,
+  `status`, `block` and `gas_used` — the failed leg included. A failure
+  that never reached the chain has no hash and adds no row rather than
+  an empty one. Because the MCP error path carries no structured
+  content (an exception becomes one text block), **the hash-bearing
+  channel on failure is the itemized outcomes payload inside the error
+  message** — the same payload `allow_partial` returns. Receipt fields
+  are added to a per-item row before any `str(e)[:N]` truncation
+  applies, so a cut reason can never sever a hash.
+- **A batch dry-runs each item before batching.** An allow-failure
+  on-chain batch absorbs a per-item revert without reverting the
+  transaction, which spends gas on an item that took no effect; each
+  item is validated by an `eth_call` of its single-item calldata first,
+  a rejected item is `skipped` with its reason (deviation X6), and a
+  run in which every item is skipped sends no transaction at all. This
+  tightens pre-send validation only: the terminal states of items that
+  were submitted are reported exactly as before.
 - Exactly **13 tools** expose `allow_partial` (boolean, default
   `False`). With `allow_partial=True` a mixed batch returns its per-item
   result instead of raising. The set is: `travel_to_room`,
@@ -150,9 +181,24 @@ softened, and the pre-snippet text is unchanged.
 - A kami is named only when its entity id appears in that call's own
   arguments or calldata, so a failure never has an unrelated kami
   attributed to it.
-- Facts the module does not read (cooldown, HP, room/node match, XP) are
-  named as unread on revert classes rather than guessed at, and a live
-  read that fails drops its fact instead of inventing a value.
+- The unread-preconditions list is **per call, not per module**: a call
+  that reads one of these facts drops it from the list rather than
+  claiming it unread. `level_up_kami` reads the kami's level and XP from
+  `component.level` / `component.experience` and states both, and states
+  no requirement — the XP a level costs is the leveling formula, which
+  this module does not hold and does not reimplement. `harvest_start`
+  states the node's room from the index convention its own description
+  states, so a cooldown revert stops masking a room mismatch. Facts
+  still unread on a given call (cooldown, HP, and whichever of room/node
+  match or XP that call did not read) are named as unread rather than
+  guessed at, and a live read that fails drops its fact instead of
+  inventing a value.
+- Other facts a snippet may carry, each read at the failure site: the
+  pool entity's `IsDisabled` state on a pool revert, the account's
+  holding of the item a call spends, and the rooms `catalogs/rooms.csv`
+  lists as adjacent to the account's room on an unreachable-room
+  refusal. The room list names its source, because that catalog is
+  documentation and may drift from chain state (D6).
 - Bounded: at most 5 kamis and 800 characters, and the block states how
   many subjects it left out rather than dropping them silently.
 - The block is appended to the error message only. It is never written
@@ -190,11 +236,13 @@ softened, and the pre-snippet text is unchanged.
 - Tool count, registry mass, and `tools_hash` are byte-identical across
   every combination of `KAMI_CHAT_ENABLED`, `KAMI_ERROR_SNIPPETS` and
   `PRESENTATION_MODE`. A client's recorded fingerprint therefore
-  identifies the surface, not the operator's configuration.
+  identifies the surface, not the operator's configuration. The
+  handshake `instructions` string is the deliberate exception: it
+  reports `error_snippets=on|off` so the capability is recordable (P2).
 
 ### P7 — EXPOSURE.md as the exposure-precedent registry
 
-- `EXPOSURE.md` holds one row per READ tool on the live registry — **37
+- `EXPOSURE.md` holds one row per READ tool on the live registry — **38
   served rows** at this ref — with columns: Tool, Class, Exposure,
   Precedent, Serving path, Admitted.
 - It additionally holds *deferred* rows (reads deliberately not served
@@ -210,8 +258,12 @@ softened, and the pre-snippet text is unchanged.
 
 ### D1 — kami-lens daemon
 
-- **Pin:** `a0a3e1e` (kami-lens release 0.2.0), recorded as
-  `server.KAMI_LENS_PIN`.
+- **Pin:** `1d7a960` (kami-lens release 0.4.0), recorded as
+  `server.KAMI_LENS_PIN`. **Correction at this version:** the declared
+  pin had been `a0a3e1e` (0.2.0) while deployments ran 0.4.0 — the
+  declaration lagged the deployed daemon by two minor versions and no
+  row said so. `lens_roster` exists only from 0.3.0, so serving it and
+  correcting the pin are the same change.
 - **Transport:** local AF_UNIX stream socket, one newline-delimited JSON
   request and one response per connection, 30-second timeout. Path from
   `KAMI_LENS_SOCKET`, else the daemon's own platform default
@@ -248,16 +300,16 @@ softened, and the pre-snippet text is unchanged.
   `/api/agent/strategies`, `/api/strategies/status/all`, plus per-kami
   status, logs, start, and stop.
 - **Internal read paths (not OUTSOURCE-classed)** via `_api_get`:
-  - `travel_to_room` — `GET /api/accounts/{operator}` for room, stamina,
-    and inventory before routing.
   - `level_to`, `level_and_allocate_batch`,
     `feed_level_allocate_batch` — `GET /api/playwright/kami/{id}/` for
     current level before issuing level transactions.
   - `get_scavenge_droptable` (PERCEIVE) — `GET /api/playwright/nodes`
     for node metadata; the droptable weights themselves come from chain
     component reads.
-- **Blast radius:** an outage of this third party therefore reaches **4
+- **Blast radius:** an outage of this third party therefore reaches **3
   ACT tools and 1 PERCEIVE tool** in addition to the 9 OUTSOURCE tools.
+  `travel_to_room` left this set at 3.0.0: it now reads room and stamina
+  from `system.getter.getAccount` and SP+ balances from chain inventory.
   See deviation X2.
 - **Delegation outlives the session.** A strategy started through this
   service keeps signing with the escrowed operator key after the MCP
@@ -335,16 +387,16 @@ softened, and the pre-snippet text is unchanged.
 
 | claim | enforcement |
 |---|---|
-| Registry description mass ≤ 70,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget` (69,900 at this ref, on Python 3.13) |
-| The registry advertises exactly 101 tools | `test_tool_surface.py::test_tool_surface_count` |
-| Every registered tool is class-tagged, and no tag names an absent tool | `test_tool_surface.py::test_taxonomy_covers_registry_exactly` (also pins ACT 55 / PERCEIVE 30 / OUTSOURCE 9 / META 7) |
+| Registry description mass ≤ 71,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget` (69,993 at this ref, on Python 3.13) |
+| The registry advertises exactly 102 tools | `test_tool_surface.py::test_tool_surface_count` |
+| Every registered tool is class-tagged, and no tag names an absent tool | `test_tool_surface.py::test_taxonomy_covers_registry_exactly` (also pins ACT 55 / PERCEIVE 31 / OUTSOURCE 9 / META 7) |
 | Tools removed at this version stay absent | `test_tool_surface.py::test_removed_tools_absent` |
 | Every READ tool has an EXPOSURE.md row; no row names a non-READ or absent tool | `test_tool_surface.py::test_exposure_rows` |
 | Named deferred reads and unserved ACT rows stay present in EXPOSURE.md | `test_tool_surface.py::test_exposure_rows` |
 | Operator keys are only ever escrowed; an owner private key never crosses the wire | `test_outsource.py::TestEnableStrategies::test_owner_key_never_in_request` — asserted on a split account whose owner and operator keys differ, so it cannot pass by key coincidence |
 | The escrow request body is exactly `{"operatorKey": <operator key>}` and the service echoes the matching address or the call raises | `test_outsource.py::TestEnableStrategies::test_posts_operator_key_exactly`, `::test_address_echo_mismatch_raises` |
 | An account with no operator wallet has nothing to escrow and issues no request | `test_outsource.py::TestEnableStrategies::test_owner_only_account_refuses` |
-| `tools_hash` is 64 lowercase hex chars, recomputes identically, and equals the handshake `instructions` value; `serverInfo.version` equals `SCHEMA_VERSION` | `test_tool_surface.py::test_tools_hash_present_and_deterministic` |
+| `tools_hash` is 64 lowercase hex chars, recomputes identically, and is the first field of the handshake `instructions`, which also carries `schema_version` and `error_snippets`; `serverInfo.version` equals `SCHEMA_VERSION` | `test_tool_surface.py::test_tools_hash_present_and_deterministic`, `test_v300_families.py::TestHandshakeProvenance` |
 | Tool count, registry mass, `tools_hash` and every (name, description, parameters) triple are identical across capability-flag settings | `test_tool_surface.py::test_surface_identical_across_capability_flags` — imports the module in 8 subprocesses over `KAMI_ERROR_SNIPPETS` × `KAMI_CHAT_ENABLED` × `PRESENTATION_MODE`, and asserts each child observed the flags it was given, so it cannot pass on a flag that never took effect |
 | With `KAMI_ERROR_SNIPPETS` off, error text is what 2.1.0 produced | the pre-existing error-format suite passes unedited with the flag off (`test_validation.py::TestErrorFormat`, `::TestHarvestValidation`, `test_h3_act.py`), and `test_error_snippets.py::TestFlagOff` asserts the exact messages and an empty `mechanics` |
 | Every kami-state gate reads its requirement from the single source, and a state row names only tools this module gates | `test_error_snippets.py::TestStateTable` (requirements equal the 2.1.0 literals, rows are the exact inversion, no `required_state=` literal survives in the module source, every named tool is live) |
@@ -352,7 +404,7 @@ softened, and the pre-snippet text is unchanged.
 | A snippet states no advice, never lengthens past its bound, never hides a subject silently, reports only facts it read, and never introduces the `-32000` marker retry routes on | `test_error_snippets.py::TestSnippetGuards`, `::TestSnippetBehaviour` |
 | The three snippets an agent sees are the pinned wordings | `test_error_snippets.py::TestSnippetExamples` (harvest_start on a HARVESTING kami, harvest_collect on a RESTING kami, a dry-run revert — asserted verbatim) |
 | An `allow_partial` return keeps its documented shape with the flag on | `test_error_snippets.py::TestSnippetBehaviour::test_batch_error_leaves_the_returned_payload_untouched` |
-| `SCHEMA_VERSION == "2.2.0"` | `test_tool_surface.py::test_schema_version` |
+| `SCHEMA_VERSION == "3.0.0"` | `test_tool_surface.py::test_schema_version` |
 | Docstrings are mechanism-only: no advisory or endorsement language in either direction | **partially enforced** — `test_tool_surface.py::test_h3_docstrings_stay_mechanical` covers 8 ACT tools against a banned-phrase list; `::test_enable_strategies_docstring_facts` covers 1 tool against a second list. The remaining 92 tools are **unenforced** |
 | No deployment-context references in agent-visible tool descriptions | **unenforced** — no scrub scan exists in this repository. Verified by hand at this ref: all 101 descriptions are clean |
 | Every READ description carries the untrusted-data sentence; every lens description names its serving path; non-read tools carry neither | `test_tool_surface.py::test_read_descriptions_carry_standing_sentence` |
@@ -373,6 +425,18 @@ softened, and the pre-snippet text is unchanged.
 | A declared-but-unimplemented presentation mode fails at startup rather than silently serving `envelope`; an unknown mode fails too | `test_lens_wrappers.py::TestPresentationMode::test_mode_validation` |
 | `MAINNET_RPC_URL` has no default: the process refuses to import without it, loudly | `test_bridge.py::TestMainnetRpcRequired::test_startup_fails_loudly_without_mainnet_rpc_url` |
 | ACT + PERCEIVE alone suffice to reach every documented game mechanic and to complete every quest | **manual audit, CI-pinned only in its conclusions.** The sufficiency sweep is run by hand against an upstream game-source pin (recorded in `EXPOSURE.md` § "ACT coverage" and in `CHANGELOG.md`); at this ref it covers all 26 quest objective types and all quest requirement chains. CI (`test_tool_surface.py::test_exposure_rows`) asserts only that the recorded gap rows remain present. **The sweep itself is not re-run by CI and does not re-run on an upstream bump** |
+| Every leg a multi-transaction tool landed is reported with its hash, on failure as well as success; a failure that never reached the chain adds no row | `test_v300_families.py::TestFailedLegsCarryTheirHash`, `test_reporting_fidelity.py::TestUseItemBatchMatrix::test_mixed_allow_partial_returns`, `::TestSequentialLoopsMatrix::test_level_to_mixed_allow_partial_returns` |
+| Receipt fields are structured, never inside a truncated reason string | `test_v300_families.py::TestFailedLegsCarryTheirHash::test_hash_fields_never_overwrite_a_documented_item_status` |
+| A batch item that would revert is skipped by its own dry-run before batching, and an all-skip run sends no transaction | `test_reporting_fidelity.py::TestStopHarvestBatch::test_doomed_item_is_skipped_before_the_batch`, `::test_all_skipped_sends_no_transaction` |
+| Revealed droptable loot is decoded from the reveal's own receipt, and an unrecognised payload yields nothing rather than a guess | `test_v300_families.py::TestRevealedLootDecode` |
+| Pool availability is read from the pool entity's `IsDisabled` component; no world-config pool flag is read anywhere (no such field exists on-chain, and reading one would return the same 0 an absent field returns) | `test_v300_families.py::TestPoolDisabled` |
+| The travel planner reads room, stamina and SP+ balances from chain state per call, spends no item without a computed deficit, and never reports a state-read failure with an empty reason | `test_v300_families.py::TestTravelReadsChainState` |
+| The unreachable-room refusal keeps its snippet and names its adjacency source | `test_v300_families.py::TestUnreachableRoomSnippet` |
+| A call that reads a precondition drops it from the unread list; `level_up_kami` states level and XP and states no XP requirement | `test_v300_families.py::TestLevelUpReportsXp`, `::TestHarvestGatesReportedTogether` |
+| An unaffordable whole-lot take fails before signing, naming cost and holding; an unreadable precondition does not block the call | `test_v300_families.py::TestWholeLotTake`, `::TestAuctionHoldings` |
+| `get_all_strategy_statuses` summarizes to the calling account's kamis from an on-chain ownership read, and passes an unrecognised or unreadable case through whole | `test_v300_families.py::TestStrategyStatusSummary` |
+| `lens_roster` is a 1:1 wrapper, PERCEIVE, carrying both standing sentences | `test_v300_families.py::TestLensRoster` |
+| A refused `eth_call` is retried once and never reported as a revert; a stale account sequence is in the retry class and no snippet can introduce a retry marker | `test_v300_families.py::TestTransientRpcClasses` |
 | `SPEC.md` exists, is well-formed, and its `describes:` names a ref that resolves in this repository | `test_spec.py::test_spec_frontmatter`, `::test_describes_resolves` |
 
 ---
@@ -391,20 +455,26 @@ EXPOSURE row carrying serving path and migration note:
 | `get_expected_objective` | local `catalogs/quests/` | documentation, not chain truth; no lens equivalent by design |
 | `check_quest_completable` | chain `staticCall` | act-guard: answers "would quest-complete revert right now" |
 | `quest_state` | chain component reads | act-guard: discriminates the on-chain quest state |
-| `get_scavenge_points` | chain component reads | no lens scavenge query at pin `a0a3e1e` |
-| `get_scavenge_droptable` | Kamibots node metadata + chain weights | no lens scavenge query at pin `a0a3e1e` |
+| `get_scavenge_points` | chain component reads | no lens scavenge query at pin `1d7a960` |
+| `get_scavenge_droptable` | Kamibots node metadata + chain weights | no lens scavenge query at pin `1d7a960` |
 | `get_item_orderbook` | chain event-scan + component reads | per-item book exceeds `lens_trades` at this pin |
 | `get_gas_balance` | Yominet + mainnet RPC | wallet infrastructure |
 | `list_accounts` | local roster / env | local configuration |
 | `bridge_status` | Initia router API + RPC | cross-chain transport state |
 
 **X2 — `third-party-reach-into-ACT`.** Internal Kamibots reads sit
-inside four ACT tools (`travel_to_room`, `level_to`,
-`level_and_allocate_batch`, `feed_level_allocate_batch`) and one
-PERCEIVE tool (`get_scavenge_droptable`). A strategy-service outage
-therefore reaches action paths, not only the OUTSOURCE class. Kept
-because no equivalent read exists at lens pin `a0a3e1e`. The correct
-resolution is a lens query, not a fallback.
+inside three ACT tools (`level_to`, `level_and_allocate_batch`,
+`feed_level_allocate_batch`) and one PERCEIVE tool
+(`get_scavenge_droptable`). A strategy-service outage therefore reaches
+action paths, not only the OUTSOURCE class. Kept because these read a
+kami's current level, for which no equivalent read is served. The
+correct resolution is an on-chain or lens read, not a fallback.
+`travel_to_room` was the fourth until 3.0.0 and is the worked example:
+its third-party read was ~15s-cached upstream and reached the planner
+through a field-name search and a hand-rolled stamina-regeneration
+estimate, which planned on a stamina of 3 against a real ~100 and on
+rooms the account had already left. It reads chain state directly now,
+and the deviation is one tool smaller.
 
 **X3 — `internal-only-read-helpers`.** `get_kami_market_listings` and
 `get_account_trades` left the tool registry but remain as module
@@ -495,3 +565,4 @@ the wording ("tools whose harness state gate accepts X") says so.
 | 3 | 2026-08-07 | Re-pinned to `869767b` (SCHEMA_VERSION 2.1.0). Adds the swap pair `pool_swap_quote` (PERCEIVE) + `pool_swap` (ACT): P1 count 99 -> 101, classes ACT 54 -> 55 / PERCEIVE 29 -> 30, `READ_TOOLS` 37 -> 38. Registry-mass budget 66,000 -> 70,000 with P1 mass 65,942 -> 69,900; P2 `tools_hash` `9e236f90...ada8` -> `7fc11fe9...5262`. Adds the interpreter-basis statement (Python 3.13) to P1, the descriptions-not-error-text routing rule to P1, and the delegation-outlives-the-session property to Depends. Mass, count, class, version and description-scrub invariant rows updated. |
 | 4 | 2026-08-07 | Re-pinned to `da11b28`: out-of-gas reverts are now identified from receipt arithmetic before any replay, after a live probe showed the production RPC ignores the `gas` field in `eth_call` (a call priced at 3,083,548 by `eth_estimate_gas` succeeds through `eth_call` at gas=30,000), which makes replay unable to reach that class on this chain. Code and tests only — P1 mass 69,900, P1 count 101, P2 `tools_hash` and all class counts unchanged. |
 | 5 | 2026-08-17 | Re-pinned to `2ce4268` (SCHEMA_VERSION 2.2.0). Adds the flag-gated mechanics snippet on error results: P4 gains its paragraph (courtesy on the honest channel, contents, bounds, results-only), P6 gains `KAMI_ERROR_SNIPPETS` and widens the surface-identity claim to it, P1 notes that the snippet's tool-name pointers are not the routing mechanism, and deviation X9 `error-text-mechanics-snippet` argues that admission. The "tools_hash stable across capability flags" invariant moves from **unenforced** to `test_tool_surface.py::test_surface_identical_across_capability_flags` (8 flag combinations, count + mass + hash + every description), and six invariant rows are added for the single-source state table, subject derivation, snippet guards and the pinned snippet wordings. No tool, parameter, schema or description changes: P1 mass 69,900, P1 count 101, P2 `tools_hash` and all class counts unchanged. **Correction:** P3 stated `SCHEMA_VERSION = "2.0.0"` while the module and the invariant row said 2.1.0; P3 now reads 2.2.0. |
+| 6 | 2026-08-25 | Re-pinned to `7da193c` (SCHEMA_VERSION **3.0.0**). **MAJOR by P3's own rule**, not the 2.3.0 the build brief labelled it: `get_all_strategy_statuses` changes return shape, and new pre-send gates move failures that were on-chain reverts into `PreTxValidationError`. Five families. (A) Multi-transaction hash integrity: every landed leg is reported on failure as well as success, the hash-bearing failure channel is named in P4 (the MCP error path carries no structured content), receipt fields precede truncation, `scavenge_claim_and_reveal` gains a top-level `txs` and returns its revealed loot decoded from the reveal receipt, and `stop_harvest_batch` dry-runs each item before batching and routes through the standard sender (it previously built, signed and sent inline with no dry-run, no gas check and no send-error wrapping). (B) Pool availability: read from the pool entity's `IsDisabled` component. The world-config flags the run record blamed (`POOL_ENABLED`, `POOL_SWAP_ENABLED`) **do not exist**: a config read returns 0 for an absent field, so the fabricated name confirmed itself, and this version reads the entity and names no config key. (C) `travel_to_room` reads room, stamina and SP+ balances from chain state, leaving deviation X2; state-read failures name their cause and retry once; `use_items` defaults to **False** and consumes only against a computed deficit. (D) Snippet true-ups: the unread-preconditions list is per call, `level_up_kami` states level and XP, `harvest_start` states the node's room, `take_trade` gains a whole-lot balance gate, `auction_buy` names its currency and holding, and the unreachable-room refusal — which had been dropping its snippet entirely on the re-raise — names the catalog adjacency. (E) `lens_roster` served (P1 count 101 -> 102, PERCEIVE 30 -> 31, `READ_TOOLS` 38 -> 39, EXPOSURE 37 -> 38 served rows); `get_all_strategy_statuses` summarized to the account's own kamis with `full=true` for the raw answer; transient-RPC and stale-sequence classes absorbed. D1 re-pinned `a0a3e1e` (0.2.0) -> `1d7a960` (0.4.0), correcting a declared pin that had lagged the deployed daemon by two minor versions. Registry-mass budget 70,000 -> 71,000 by operator ruling for the named capability `lens_roster`, with P1 mass 69,900 -> 69,993; P2 `tools_hash` `7fc11fe9...5262` -> `b7eebb88...f1f8`, and the handshake `instructions` now also carries `schema_version` and `error_snippets`. |
