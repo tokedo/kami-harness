@@ -29,6 +29,173 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [3.0.0] — hash integrity, the pool trap, the travel cluster, snippets
+
+MAJOR. **102 tools** (`lens_roster` added), registry mass **69,993**
+against a budget raised to **71,000**, `tools_hash`
+`b7eebb88...f1f8` (Python 3.13), `SCHEMA_VERSION` **3.0.0**.
+
+The build brief called this 2.3.0. It is MAJOR by this file's own rule:
+`get_all_strategy_statuses` changes its return shape, and several new
+pre-send gates move failures that used to be on-chain reverts into
+`PreTxValidationError`. Both are exactly what MAJOR is for.
+
+Everything here comes from what agents actually did in run 006. Each
+item names the behaviour it was paying for.
+
+### Multi-transaction hash integrity
+
+- **Every leg a call lands is reported, failure included.**
+  `scavenge_claim_and_reveal` emitted two transactions per call and
+  returned neither hash at the top level: 54 transactions across four
+  arms existed on-chain and not in the run record. It now returns a
+  `txs` list (one row per leg, with `tx_hash`, `status`, `block`,
+  `gas_used`) plus the last landed `tx_hash`, on the failure paths too.
+  Eleven other multi-transaction tools dropped the hash of a leg that
+  landed and reverted, keeping only an error string; they now record it.
+- **Receipt fields are structured, never inside a truncated reason.**
+  Several per-item payloads carried the hash inside `str(e)[:300]`,
+  where a cut can sever it. The fields are added before truncation.
+- **The failure channel is named.** The MCP error path carries no
+  structured content — an exception becomes a single text block — so
+  the hash-bearing channel on failure is the itemized outcomes payload
+  inside the error message, the same payload `allow_partial` returns.
+  SPEC P4 says so now rather than leaving it to be discovered.
+- **`stop_harvest_batch` dry-runs each item before batching.** Its
+  allow-failure batch absorbed a cooldown revert as a silent skip that
+  still spent gas. Each item is dry-run first, a doomed one is skipped
+  with its reason and never batched, and an all-skip run sends no
+  transaction. The tool also stopped building, signing and sending
+  inline: it routes through the standard sender, so it finally gets the
+  gas-balance check, the dry-run gate, the send-error wrapping and a
+  named gas ceiling every other write already had.
+- **Revealed loot is returned.** Agents learned what a scavenge reveal
+  dropped by diffing inventory reads that lag the reveal, and one
+  concluded the drops "may not have landed". `revealed_items` is decoded
+  from the reveal transaction's own receipt. The payload layout is
+  pinned against three production reveals (`0x4f27a529` in block
+  32564363 -> 1x item 1005; `0x7a327d5c` -> 1x 11302; `0x990e6991` ->
+  1x 1002), each cross-checked against the same receipt's inventory
+  writes. An unrecognised payload returns nothing rather than a guess.
+
+### The pool trap
+
+One arm spent roughly twenty sessions and 77 reverts on a pool that
+could not fill, because `pool_swap_quote` priced it happily while every
+swap reverted bare.
+
+- **The quote reads the pool's own switch** and returns `disabled`. A
+  disabled pool still prices — those numbers are real — and now says so.
+- **The swap's mechanics snippet names it** on the bare revert.
+- **There is no world-config pool flag, and this version reads none.**
+  The run record blamed `POOL_ENABLED` / `POOL_SWAP_ENABLED`. Neither
+  exists on-chain: a config read returns 0 for an absent field, so a
+  fabricated name confirms itself, and two arms "verified" a flag that
+  was never there. The real gate is an `IsDisabled` component on the
+  pool entity — absence means enabled, since the admin setter removes
+  the entry rather than storing false — and it gates swap and
+  add-liquidity but deliberately not remove-liquidity, so a disabled
+  pool is exit-only rather than frozen. The tool descriptions describe
+  that mechanism and name no config key, so the invented name is not
+  laundered into the surface.
+
+### The travel cluster
+
+- **The planner reads chain state.** It had been reading a third-party
+  endpoint cached ~15 seconds upstream, through a field-name search and
+  a hand-rolled stamina-regeneration estimate. It planned on a stamina
+  of 3 against a real ~100, and from rooms the account had already left.
+  Room and stamina now come from `system.getter.getAccount`, which
+  applies regeneration to the current block, and SP+ balances from the
+  chain inventory the use would spend. `travel_to_room` leaves deviation
+  X2 as a result: it no longer touches the strategy service at all.
+- **A read failure names its cause.** `"failed to read account state: "`
+  with nothing after the colon appeared in five sessions across three
+  runs; one arm lost pathfinding entirely, probed blind, and wrote
+  "room is COMPLETELY ISOLATED" into its plan. The exception type is
+  always reported, with status and body excerpt where they exist, and
+  the read is retried once first.
+- **`use_items` defaults to False** and an item is consumed only against
+  a deficit the plan actually computes. The default spent a stamina
+  spell card on a trip that needed none.
+- **The unreachable-room refusal names the rooms that are connected**,
+  attributed to `catalogs/rooms.csv` because that catalog is
+  documentation and can drift from chain state. It also keeps its
+  mechanics snippet, which the re-raise had been discarding on exactly
+  this path since the snippet shipped.
+
+### Error-snippet true-ups (all flag-gated; flag-off text unchanged)
+
+- **The unread-preconditions list is per call.** It was one fixed
+  sentence, so a fact the harness read was still announced as unread.
+- **`level_up_kami` states level and XP**, read from
+  `component.level` / `component.experience`. It states no requirement:
+  the XP a level costs is the leveling formula, which this module does
+  not hold and does not reimplement.
+- **`harvest_start` states the node's room** alongside the account's, so
+  a cooldown revert stops masking a room mismatch — which cost one arm a
+  14-hop round trip and three re-learnings.
+- **`take_trade` gates on balance before signing.** An unaffordable take
+  reverted as "arithmetic underflow or overflow", naming neither the
+  cost nor the holding; one arm's correct first guess ("likely
+  insufficient balance") was overwritten by "systemic bug". The refusal
+  now names both, and the description states that a take fills the whole
+  lot. `auction_buy` fails the same way and names the currency it
+  charges in and what the account holds — but never a price, which is a
+  GDA curve this module does not hold.
+
+### Surface
+
+- **`lens_roster` is served.** Agents saw the scaffold's roster call
+  succeed in their own transcripts and tried to call it; it was not a
+  tool. 1:1 wrapper, envelope verbatim.
+- **`get_all_strategy_statuses` summarizes.** The upstream endpoint is
+  global — every container on the service, for every account — and ran
+  ~370 KB, capped by the client on 23 of 23 calls, so the agent never
+  saw a complete answer. The default is one row per strategy for kamis
+  this account owns, from an on-chain ownership read; `full=true`
+  returns the upstream answer whole, as does any shape the summarizer
+  does not recognise. The old docstring claimed the endpoint was
+  scoped to the account. It never was.
+- **Transient RPC classes are absorbed.** A refused `eth_call`
+  ("historical version not found ... invalid height") was being reported
+  as `"transaction dry-run reverted: ..."` — a revert that never
+  happened. It is retried once and only a second failure is reported. A
+  stale account sequence ("account sequence mismatch, expected 30, got
+  28") joins the pre-broadcast retry class, and `listing_buy` — the tool
+  it was observed on — now uses the retrying sender.
+- **The handshake publishes provenance.** `instructions` carries
+  `schema_version` and `error_snippets` beside `tools_hash`. The snippet
+  flag changes no name, description, schema or hash, so a client cannot
+  infer it from the surface; unstated, the harness half of a deployment
+  is unrecordable.
+- **The SDK's settings warning is silenced** at the one construction
+  that emits it. It was reaching client run logs on stderr as though
+  this server had reported a problem.
+
+### Dependency pin
+
+`kami-lens` re-pinned `a0a3e1e` (0.2.0) -> `1d7a960` (0.4.0). The
+declared pin had lagged the deployed daemon by two minor versions with
+no row saying so; `lens_roster` exists only from 0.3.0, so serving it
+and correcting the pin are the same change.
+
+### Verified, not changed
+
+- `lens_quests`' description already names the account-state fields the
+  0.4.0 query serves (`accepted`, `complete`, `requirementsMet`,
+  `objectivesMet`, per-objective progress). The standing true-up item
+  from 2.1.0 is closed with no edit.
+- `get_expected_objective` was reported as showing "generic/wrong
+  objective text". The catalog rows for every quest the run record names
+  match what the arms burned on-chain exactly: quest 9 "Give 3 Scrap
+  Metal" (1005 x3), 14 "Give 5 Wooden Sticks" (1001 x5), 15 "Give 5
+  Stone" (1002 x5), 16 "Give 5 Scrap Metal" (1005 x5). No row is wrong;
+  nothing changed.
+- `requirements.txt` pins `web3==7.16.0`; the suite for this release ran
+  on 7.15.0 on the development machine. Recorded, not upgraded — a pin
+  change means re-running the suite on it, which is its own change.
+
 ## [2.2.0] — mechanics snippets on error results
 
 MINOR. No tool, parameter, schema or description changes: the surface is

@@ -46,9 +46,9 @@ MCP client (any KamiBench agent) --MCP--> executor (server.py) --> kami-lens dae
 
 ## Tool surface
 
-The server exposes **101 tools**. Every tool carries exactly one class
+The server exposes **102 tools**. Every tool carries exactly one class
 tag, and the four classes partition the surface completely:
-**ACT 55 / PERCEIVE 30 / OUTSOURCE 9 / META 7**. The class is not a
+**ACT 55 / PERCEIVE 31 / OUTSOURCE 9 / META 7**. The class is not a
 filing convenience — it says what the tool touches and what calling it
 can cost you. The counts, and the class of each tool, are contract rows
 checked by the suite ([`SPEC.md`](SPEC.md) §P1). The authoritative,
@@ -280,7 +280,7 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`2.2.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
+Current: **`3.0.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
 reads served as thin `kami-lens` wrappers with verbatim envelope
 pass-through; every tool class-tagged ACT / PERCEIVE / OUTSOURCE /
 META; three non-conflatable transaction terminal states (a confirmed

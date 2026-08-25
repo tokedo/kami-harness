@@ -166,6 +166,17 @@ def room_info(idx: int) -> dict:
     }
 
 
+def neighbors(idx: int) -> list[int]:
+    """Sorted room indices adjacent to `idx` in the catalog graph.
+
+    This is the same adjacency BFS routes over: catalog data, not chain
+    truth (catalogs/rooms.csv is a community export and can drift), so a
+    caller quoting it must say where it came from. Unknown room: [].
+    """
+    _load()
+    return sorted(_adjacency.get(idx, ()))
+
+
 def all_rooms() -> list[int]:
     """Sorted list of known (In Game) room indices."""
     _load()

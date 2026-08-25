@@ -323,7 +323,12 @@ class TestUseItemBatchMatrix:
         )
         assert r["used"] == 2 and r["planned"] == 4
         assert "REVERTED" in r["error"]
-        assert len(r["txs"]) == 2
+        # Three transactions reached the chain: two landed, one landed
+        # and reverted. All three spent gas, so all three are reported.
+        assert len(r["txs"]) == 3
+        assert r["txs"][-1]["status"] == "reverted"
+        assert r["txs"][-1]["tx_hash"] == "0xdead3"
+        assert r["tx_hash"] == "0xdead3"
 
     def test_all_fail_raises(self, accounts, validation_ok, monkeypatch):
         calls = []
@@ -488,10 +493,21 @@ class TestStopHarvestBatch:
     read as success, and the whole-tx revert/timeout paths are the
     sender-layer terminal states."""
 
-    def _install(self, txchain, states: dict[int, str]):
-        txchain.registry["system.harvest.stop"] = FakeTxContract(
-            {"executeBatchedAllowFailure": lambda ids: b""}
-        )
+    def _install(self, txchain, states: dict[int, str], skip: tuple = ()):
+        """`skip` names kamis whose per-item dry-run reverts, which is
+        how a cooldown reaches the gate now instead of becoming a
+        gas-spending silent skip inside the batch."""
+        skip_hids = {server._harvest_entity_id(k) for k in skip}
+
+        def typed(hid):
+            if hid in skip_hids:
+                raise Exception("execution reverted: kami on cooldown")
+            return b""
+
+        txchain.registry["system.harvest.stop"] = FakeTxContract({
+            "executeBatchedAllowFailure": lambda ids: b"",
+            "executeTyped": typed,
+        })
         by_hid = {
             server._harvest_entity_id(k): v for k, v in states.items()
         }
@@ -510,7 +526,7 @@ class TestStopHarvestBatch:
         with pytest.raises(server.BatchTxError) as ei:
             server.stop_harvest_batch([45, 46], account="testa")
         msg = str(ei.value)
-        assert "1 of 2 harvest stops did not take effect" in msg
+        assert "1 of 2 submitted harvest stops did not take effect" in msg
         assert "gas was spent" in msg
         assert "ACTIVE" in msg  # per-kami outcome present
 
@@ -521,6 +537,28 @@ class TestStopHarvestBatch:
         )
         assert r["stopped_count"] == 1 and r["failed_count"] == 1
         assert r["per_kami"][46]["stopped"] is False
+        # The landed hash is a structured field, not error prose.
+        assert r["tx_hash"]
+
+    def test_doomed_item_is_skipped_before_the_batch(self, accounts, txchain):
+        """A per-item dry-run failure is a free skip, not a gas-spending
+        silent skip inside the allow-failure batch."""
+        self._install(txchain, {45: "INACTIVE"}, skip=(46,))
+        r = server.stop_harvest_batch([45, 46], account="testa")
+        assert r["skipped_count"] == 1
+        assert r["per_kami"][46]["status"] == "skipped"
+        assert "cooldown" in r["per_kami"][46]["reason"]
+        # The skipped kami was never in the batch, so it is not a failure
+        # (SPEC X6) and the call returns normally.
+        assert r["stopped_count"] == 1 and r["failed_count"] == 0
+        assert r["tx_hash"]
+
+    def test_all_skipped_sends_no_transaction(self, accounts, txchain):
+        self._install(txchain, {}, skip=(45, 46))
+        r = server.stop_harvest_batch([45, 46], account="testa")
+        assert r["skipped_count"] == 2
+        assert r["tx_hash"] is None
+        assert txchain.broadcasts == []
 
     def test_whole_batch_revert_raises(self, accounts, txchain):
         self._install(txchain, {45: "ACTIVE"})
@@ -566,7 +604,11 @@ class TestSequentialLoopsMatrix:
             server.level_to(45, 5, account="testa", allow_partial=True)
         )
         assert r["levels_gained"] == 1 and r["reached_level"] == 4
-        assert len(r["txs"]) == 1
+        # The reverted level-up is a transaction: it has a hash and
+        # spent gas, and reporting only the successes undercounts.
+        assert len(r["txs"]) == 2
+        assert r["txs"][-1]["status"] == "reverted"
+        assert r["tx_hash"] == "0xdead2"
 
     def test_allocate_skills_mixed_default_raises(
         self, accounts, validation_ok, monkeypatch
@@ -583,15 +625,12 @@ class TestSequentialLoopsMatrix:
     def test_travel_mixed_default_raises(
         self, accounts, validation_ok, monkeypatch
     ):
-        async def fake_acct(account):
-            return {}
-
-        monkeypatch.setattr(server, "_api_get_account", fake_acct)
         monkeypatch.setattr(
-            server, "_extract_account_state",
-            lambda raw: {"room": 1, "stamina": 100, "stamina_max": 100,
-                         "inventory": []},
+            server, "_read_account_view",
+            lambda aid: ({"index": 1, "name": "t", "stamina": 100,
+                          "room": 1}, ""),
         )
+        monkeypatch.setattr(server, "_sp_item_balances", lambda aid: [])
         monkeypatch.setattr(
             server, "rooms_graph",
             SimpleNamespace(
@@ -611,15 +650,12 @@ class TestSequentialLoopsMatrix:
     def test_travel_mixed_allow_partial_returns(
         self, accounts, validation_ok, monkeypatch
     ):
-        async def fake_acct(account):
-            return {}
-
-        monkeypatch.setattr(server, "_api_get_account", fake_acct)
         monkeypatch.setattr(
-            server, "_extract_account_state",
-            lambda raw: {"room": 1, "stamina": 100, "stamina_max": 100,
-                         "inventory": []},
+            server, "_read_account_view",
+            lambda aid: ({"index": 1, "name": "t", "stamina": 100,
+                          "room": 1}, ""),
         )
+        monkeypatch.setattr(server, "_sp_item_balances", lambda aid: [])
         monkeypatch.setattr(
             server, "rooms_graph",
             SimpleNamespace(
@@ -741,16 +777,13 @@ class TestRevertInvariant:
         async def fake_api(path, account):
             return {"progress": {"level": 1}}
 
-        async def fake_acct(account):
-            return {}
-
         monkeypatch.setattr(server, "_api_get", fake_api)
-        monkeypatch.setattr(server, "_api_get_account", fake_acct)
         monkeypatch.setattr(
-            server, "_extract_account_state",
-            lambda raw: {"room": 1, "stamina": 100, "stamina_max": 100,
-                         "inventory": []},
+            server, "_read_account_view",
+            lambda aid: ({"index": 1, "name": "t", "stamina": 100,
+                          "room": 1}, ""),
         )
+        monkeypatch.setattr(server, "_sp_item_balances", lambda aid: [])
         monkeypatch.setattr(
             server, "rooms_graph",
             SimpleNamespace(

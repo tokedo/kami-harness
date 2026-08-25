@@ -228,7 +228,7 @@ its per-item result instead of raising.
 World-state reads. They sign nothing and change no remote state.
 
 23 of them are thin wrappers over the local **kami-lens** daemon
-(pinned release `a0a3e1e`, recorded as `server.KAMI_LENS_PIN`). A wrapper
+(pinned release `1d7a960`, recorded as `server.KAMI_LENS_PIN`). A wrapper
 does argument mapping, exactly one socket request, and envelope
 pass-through: the daemon's `{data, untrusted, meta}` reaches the caller
 verbatim, with only the transport keys `id` and `ok` removed. Nothing is

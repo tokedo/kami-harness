@@ -1,7 +1,7 @@
-"""Tool-contract surface checks for the 2.0.0 interface.
+"""Tool-contract surface checks for the 3.0.0 interface.
 
-Verifies the advertised tool count (101 = 84 at v1.5.1 − 17 removed
-reads + 23 kami-lens wrappers + kamibots_enable_strategies + 8 ACT
+Verifies the advertised tool count (102 = 84 at v1.5.1 − 17 removed
+reads + 24 kami-lens wrappers + kamibots_enable_strategies + 8 ACT
 additions + the 2 pool swap tools), the surface taxonomy (ACT/PERCEIVE/OUTSOURCE/META), the
 EXPOSURE.md row coverage for READ tools (with the deferred rows), the
 shared standing sentences on READ descriptions, schema portability
@@ -49,14 +49,14 @@ ALLOW_PARTIAL_TOOLS = {
     "sacrifice_kami_batch",
 }
 
-# H2: one wrapper per kami-lens query at pin a0a3e1e (0.2.0).
+# H2: one wrapper per kami-lens query at pin 1d7a960 (0.4.0).
 LENS_TOOLS = {
     "lens_kami", "lens_account", "lens_party", "lens_node", "lens_room",
     "lens_inventory", "lens_item", "lens_items", "lens_config",
     "lens_merchant", "lens_phase", "lens_leaderboard", "lens_killers",
     "lens_battles", "lens_trades", "lens_auctions", "lens_quests",
     "lens_market", "lens_portal", "lens_transfers", "lens_feed",
-    "lens_chat", "lens_status",
+    "lens_chat", "lens_status", "lens_roster",
 }
 
 # H3/H3.1: new ACT tools (liquidation, gacha, chat send; the post-sweep
@@ -86,7 +86,7 @@ def _tools():
 
 
 def test_schema_version():
-    assert SCHEMA_VERSION == "2.2.0"
+    assert SCHEMA_VERSION == "3.0.0"
 
 
 def test_readme_current_version_matches_schema_version():
@@ -105,7 +105,7 @@ def test_tool_surface_count():
     assert V150_TOOLS <= names
     assert H3_ACT_TOOLS <= names
     assert "store_operator_key" not in names
-    assert len(names) == 101
+    assert len(names) == 102
 
 
 def test_removed_tools_absent():
@@ -117,7 +117,7 @@ def test_lens_wrapper_set():
     names = set(_tools())
     assert LENS_TOOLS <= names
     assert {n for n in names if n.startswith("lens_")} == LENS_TOOLS
-    assert len(LENS_TOOLS) == 23
+    assert len(LENS_TOOLS) == 24
 
 
 def test_taxonomy_covers_registry_exactly():
@@ -126,7 +126,7 @@ def test_taxonomy_covers_registry_exactly():
     counts = {}
     for cls in server.TOOL_CLASSES.values():
         counts[cls] = counts.get(cls, 0) + 1
-    assert counts == {"ACT": 55, "PERCEIVE": 30, "OUTSOURCE": 9, "META": 7}
+    assert counts == {"ACT": 55, "PERCEIVE": 31, "OUTSOURCE": 9, "META": 7}
     assert server.READ_TOOLS <= names
     # every lens wrapper is PERCEIVE
     for n in LENS_TOOLS:
@@ -306,7 +306,14 @@ def test_tools_hash_present_and_deterministic():
     h = server.TOOLS_HASH
     assert re.fullmatch(r"[0-9a-f]{64}", h)
     assert server.compute_tools_hash() == h  # deterministic recompute
-    assert server.mcp._mcp_server.instructions == f"tools_hash={h}"
+    # The handshake publishes surface identity plus the provenance a
+    # client cannot infer from the surface: the contract version, and
+    # whether the optional error-snippet capability is on (it changes no
+    # schema, description or hash, so it has to be stated to be recorded).
+    assert server.mcp._mcp_server.instructions == (
+        f"tools_hash={h} schema_version={SCHEMA_VERSION} "
+        f"error_snippets={'on' if server.ERROR_SNIPPETS else 'off'}"
+    )
     assert server.mcp._mcp_server.version == SCHEMA_VERSION
 
 
@@ -408,7 +415,7 @@ def test_surface_identical_across_capability_flags():
         )
         if baseline is None:
             baseline = payload
-            assert payload["count"] == 101
+            assert payload["count"] == 102
             assert payload["tools_hash"] == server.TOOLS_HASH
             continue
         assert json.dumps(payload, sort_keys=True) == json.dumps(

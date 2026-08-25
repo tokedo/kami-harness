@@ -19,6 +19,7 @@ rows below go missing.
 | `lens_kami` | PERCEIVE | one kami's live vitals/traits/skills | official web client kami panel | kami-lens daemon socket | 2026-07-23 |
 | `lens_account` | PERCEIVE | account identity, room, stamina, roster | official web client account panel | kami-lens daemon socket | 2026-07-23 |
 | `lens_party` | PERCEIVE | one account's kamis with vitals | official web client party view | kami-lens daemon socket | 2026-07-23 |
+| `lens_roster` | PERCEIVE | one line per kami (index, state, HP) + the account's room | official web client party sidebar | kami-lens daemon socket | 2026-08-25 |
 | `lens_node` | PERCEIVE | node occupancy; opt-in occupant vitals + liquidation preview | official web client node/liquidation view | kami-lens daemon socket | 2026-07-23 |
 | `lens_room` | PERCEIVE | room occupancy (accounts + kamis) | official web client room view | kami-lens daemon socket | 2026-07-23 |
 | `lens_inventory` | PERCEIVE | any account's item balances | official web client inventory panel | kami-lens daemon socket | 2026-07-23 |
@@ -42,8 +43,8 @@ rows below go missing.
 | `get_expected_objective` | PERCEIVE | quest catalog expectations (documentation, not chain truth) | community quest catalog export | local catalogs/ CSVs | ≤ v1.5.1 (2026-07-19); lens migration n/a (local catalog) |
 | `check_quest_completable` | PERCEIVE | act-guard: would quest-complete revert now | official web client complete button state | chain staticCall | ≤ v1.5.1 (2026-07-19); kept native as an ACT pre-check |
 | `quest_state` | PERCEIVE | one quest's on-chain state discriminated | official web client quest log | chain component reads | ≤ v1.5.1 (2026-07-19); kept native as an ACT pre-check |
-| `get_scavenge_points` | PERCEIVE | per-account scavenge points + claimable tiers | official web client scavenge panel | chain component reads | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (no lens scavenge query at pin a0a3e1e) |
-| `get_scavenge_droptable` | PERCEIVE | node droptable weights/probabilities | official web client scavenge panel | Kamibots nodes endpoint (node metadata) + chain component reads (weights) | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (no lens scavenge query at pin a0a3e1e) |
+| `get_scavenge_points` | PERCEIVE | per-account scavenge points + claimable tiers | official web client scavenge panel | chain component reads | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (no lens scavenge query at pin 1d7a960) |
+| `get_scavenge_droptable` | PERCEIVE | node droptable weights/probabilities | official web client scavenge panel | Kamibots nodes endpoint (node metadata) + chain component reads (weights) | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (no lens scavenge query at pin 1d7a960) |
 | `get_item_orderbook` | PERCEIVE | one item's complete order book | in-game World Order Book (kwob) | chain event-scan + component reads | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (per-item book exceeds lens_trades at this pin) |
 | `pool_swap_quote` | PERCEIVE | priced quote for one pool swap: amount out, min received, price impact | in-game swap panel quote | chain component reads (live reserves + fee) | 2.1.0 (2026-08-07); kept native as an ACT pre-check — the perception layer carries pool reserves, the per-trade quote is the act's own |
 | `get_tier` | OUTSOURCE | account tier/tax/slots at the strategy service | Kamibots dashboard | Kamibots API | ≤ v1.5.1 (2026-07-19) |
@@ -59,10 +60,10 @@ rows below go missing.
 
 | Read | Status | Reason |
 |---|---|---|
-| guild-members | deferred | the Kamibots guild-members read left the surface with the world-state read removal (2026-07-23); no lens guild query exists at pin `a0a3e1e` |
+| guild-members | deferred | the Kamibots guild-members read left the surface with the world-state read removal (2026-07-23); no lens guild query exists at pin `1d7a960` |
 | general-leaderboards | deferred | the Kamibots `/api/leaderboards/{harvest,kill}` read left the surface (2026-07-23; upstream answered 500s in 2026-07); `lens_leaderboard` serves mirror Score components only |
 | quest-status-natives | superseded | get_active_quests and get_quest_status left the surface in the 2.0.0 budget trim (2026-07-23, pre-approved): lens_quests and quest_state serve the same reads |
-| windowed-killers | deferred | `lens_killers` is the all-time ranking; the time-windowed variant is upstream ApiKey-gated at lens pin `a0a3e1e` and is not served |
+| windowed-killers | deferred | `lens_killers` is the all-time ranking; the time-windowed variant is upstream ApiKey-gated at lens pin `1d7a960` and is not served |
 
 ## ACT coverage — game actions not served at this version
 

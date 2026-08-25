@@ -115,14 +115,14 @@ never return an empty result in its place. ACT, OUTSOURCE, and META
 tools do not depend on it.
 
 This server version is built against kami-lens release **0.2.0**, pinned
-at commit `a0a3e1e` and recorded as `KAMI_LENS_PIN` in
+at commit `1d7a960` and recorded as `KAMI_LENS_PIN` in
 [`executor/server.py`](executor/server.py). kami-lens is not published
 to npm or a container registry, so build it from the repository:
 
 ```bash
 git clone https://github.com/tokedo/kami-lens
 cd kami-lens
-git checkout a0a3e1e        # the pin this server version is built against
+git checkout 1d7a960        # the pin this server version is built against
 npm install && npm run build
 node dist/cli.js daemon      # long-running: sync daemon + query socket
 ```
