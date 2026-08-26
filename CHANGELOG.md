@@ -29,6 +29,81 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [3.1.0] — the secret store, and stdout stops carrying diagnostics
+
+MINOR. **102 tools**, registry mass **69,993**, `tools_hash`
+`b7eebb88...f1f8` (Python 3.13), `SCHEMA_VERSION` **3.1.0**. The
+surface is byte-identical to 3.0.0 — no tool added, removed, renamed,
+reworded or reschematized, so a client's recorded fingerprint does not
+move. It is MINOR rather than PATCH because two texts an agent can see
+do change: `create_operator_wallet`'s `key_saved` field and the
+missing-key errors now name where a secret actually lives instead of
+saying `.env`.
+
+### A pluggable secret store
+
+`executor/secrets_store.py` is now the only reader and the only writer
+of a secret. Ported from kami-hybrid-play (`65b96e6`), which had been
+running it since 2026-08-12, with the backend default inverted.
+
+- **Nothing changes unless you configure it.** `KAMI_SECRETS_BACKEND`
+  defaults to `envfile`: the keys file plus the process environment,
+  which is what every version through 3.0.0 did. The `keychain` backend
+  — macOS generic-password items `kami-mcp/<NAME>` — is opt-in, and the
+  names it protects come from a names-only manifest (one name per line,
+  no values) derived from the keys file's own name: `.env` ->
+  `.secrets.names` beside it. **No manifest, nothing protected, no
+  Keychain call.** A machine with no keys still prints exactly one line,
+  the same "No accounts loaded" warning it always printed.
+- **Names are the interface; values are not.** A secret value never
+  enters `os.environ`, argv, stdout, a tool result, or an exception —
+  including when the exception is *about* that secret. What a message
+  carries is the name and its resolved location, `where(name)`: a file
+  path, or `macOS Keychain (kami-mcp/<NAME>)`. A missing protected
+  secret raises naming only names, even when the value is sitting in the
+  keys file unread. An ast scan over both modules is the standing check
+  that no future f-string interpolates a value; the one admitted
+  interpolation is the command fed to `security` over **stdin**, where
+  `ps` cannot see it.
+- **The generated operator key stops being published.**
+  `create_operator_wallet` used to assign its fresh private key into
+  `os.environ`, where every child process would inherit it. It is stored
+  and cached, and that line is gone.
+- `_load_accounts` scans the store rather than `os.environ`. Keys
+  exported directly into the environment still load exactly as before,
+  which is also how the test suite's synthetic accounts work.
+- An unrecognised `KAMI_SECRETS_BACKEND` now fails loudly. A typo used
+  to be indistinguishable from `keychain`, which is the wrong way for
+  that particular mistake to fail.
+
+### stdout is the transport, not a log
+
+The six `_load_accounts` messages — the loaded-accounts line, the
+roster cross-check warnings, the legacy-credential note, the
+no-accounts warning — were written to **stdout**, which under the stdio
+transport is the JSON-RPC channel itself. They go to stderr. No wording
+changed. The suite now asserts an empty stdout rather than assuming it.
+
+### The lens pin has one home
+
+`server.KAMI_LENS_PIN` was read by no code path, and held the 0.4.0
+commit under a comment that said 0.2.0 — a duplicate declaration that
+nothing could fail on. It is deleted; `SPEC.md` D1 is the single place
+the compatible lens version is stated, and the docs that pointed at the
+constant point there instead. `SETUP.md` carried the same 0.2.0/0.4.0
+contradiction and is corrected.
+
+### Doc counts, derived rather than remembered
+
+`executor/README.md` and `SETUP.md` still described the 2.1.0 surface:
+101 tools, PERCEIVE 29/30, 37 non-mutating, ACT 54. The live values are
+102 / PERCEIVE 31 / 39 non-mutating / ACT 55, and the numbers here were
+taken from the registry dump, not from each other. `executor/README.md`
+was also missing three tool ROWS — `pool_swap`, `pool_swap_quote`
+(2.1.0) and `lens_roster` (3.0.0) — so its per-class headers had been
+agreeing with a stale table; the rows are restored. `SPEC.md` P7 said 38
+served EXPOSURE rows where CI requires one per READ tool, which is 39.
+
 ## [3.0.0] — hash integrity, the pool trap, the travel cluster, snippets
 
 MAJOR. **102 tools** (`lens_roster` added), registry mass **69,993**

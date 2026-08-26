@@ -6,6 +6,7 @@ tx-sender stubs from conftest. No keys, network, or chain access.
 """
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -21,18 +22,28 @@ _UP = _LABEL.upper()
 
 
 @pytest.fixture()
-def onboard_env(tmp_path, monkeypatch):
-    """Temp keys file + temp roster path + empty registry, clean env."""
-    keys = tmp_path / ".env"
-    keys.write_text("")
+def onboard_env(secret_store, tmp_path, monkeypatch):
+    """Temp keys file + temp roster path + empty registry, clean env.
+
+    The keys file comes from the `secret_store` fixture: these tests
+    generate real operator keypairs and persist them, so the store must
+    be pointed away from the real keys file before the first write.
+    """
+    keys = secret_store
     roster = tmp_path / "roster.yaml"
-    monkeypatch.setattr(server, "_KEYS_PATH", keys)
     monkeypatch.setattr(server, "_ROSTER_PATH", roster)
     monkeypatch.setattr(server, "_accounts", {})
     for suffix in ("_OWNER_KEY", "_OPERATOR_KEY",
                    "_KAMIBOTS_API_KEY", "_PRIVY_ID"):
         monkeypatch.delenv(f"{_UP}{suffix}", raising=False)
     return SimpleNamespace(keys=keys, roster=roster)
+
+
+def test_onboarding_never_reaches_the_real_keys_file(onboard_env):
+    """The fixture, asserted: a generated key cannot land in ~/."""
+    import secrets_store
+    assert secrets_store.keys_path() == onboard_env.keys
+    assert str(Path.home()) not in str(secrets_store.keys_path())
 
 
 class TestCreateOperatorWallet:

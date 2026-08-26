@@ -33,7 +33,7 @@ Kamigotchi perception and action as tools; any MCP client can drive it.
   transactions through the `MAINNET_RPC_URL` endpoint; it is part of the
   environment definition and is recorded in run manifests, and the
   server fails at startup when it is unset.
-- **kami-lens**: world-state reads (the 29 PERCEIVE tools) are answered
+- **kami-lens**: world-state reads (the 31 PERCEIVE tools) are answered
   by a **local** [kami-lens](https://github.com/tokedo/kami-lens)
   daemon that you run yourself — there is no hosted read service. It is
   a Node.js daemon and ships a Docker Compose sample; you need one of
@@ -90,7 +90,37 @@ cp accounts/roster.yaml.template accounts/roster.yaml
 ```
 
 The server cross-checks `~/.blocklife-keys/.env` against
-`accounts/roster.yaml` on startup and warns on mismatches.
+`accounts/roster.yaml` on startup and warns on mismatches (on stderr —
+stdout is the JSON-RPC transport and carries protocol only).
+
+### Where secrets actually come from
+
+Every key, API credential and token is resolved through
+[`executor/secrets_store.py`](executor/secrets_store.py), which has two
+backends. **You do not have to configure any of this**: the default is
+the keys file you just created, which is what every earlier version did.
+
+| backend | what it uses |
+|---|---|
+| `envfile` (default) | `~/.blocklife-keys/.env`, or `KAMI_KEYS_FILE` |
+| `keychain` | the macOS login Keychain — generic-password items `kami-mcp/<NAME>`, account = your login user — for the names a manifest marks protected; everything else still comes from the keys file |
+
+The manifest is a **names-only** file (one variable name per line, no
+values) sitting beside the keys file: the keys file's name with a
+trailing `.env` removed, plus `.secrets.names`. So
+`~/.blocklife-keys/.env` looks for `~/.blocklife-keys/.secrets.names`.
+**If it does not exist, nothing is protected and no Keychain call is
+ever made.** Set `KAMI_SECRETS_BACKEND=keychain` and write that manifest
+to move the named keys into the Keychain; `ALLOW_ENV_SECRETS=1` is the
+escape hatch that lets a protected name fall back to the keys file, with
+a warning.
+
+Under either backend, secret values are held in the server process only:
+they are never exported to the process environment (so no child process
+inherits them), never returned by a tool, and never printed. Names and
+locations are — an error tells you *which* variable is missing and
+*where* it should be, never what it holds. `env.template` documents
+every switch.
 
 ## 6. (Optional) Enable secret-file guardrails
 
@@ -107,16 +137,16 @@ outside the client's tool surface.
 
 ## 7. Install and run kami-lens (required for world-state reads)
 
-The 29 PERCEIVE tools are thin wrappers over a **local** kami-lens
-daemon: 23 of them are one socket request each, passed straight back to
+The 31 PERCEIVE tools are thin wrappers over a **local** kami-lens
+daemon: 24 of them are one socket request each, passed straight back to
 the caller. Until the daemon is running, those tools raise
 `LensUnavailableError` — they never fall back to a hosted service and
 never return an empty result in its place. ACT, OUTSOURCE, and META
 tools do not depend on it.
 
-This server version is built against kami-lens release **0.2.0**, pinned
-at commit `1d7a960` and recorded as `KAMI_LENS_PIN` in
-[`executor/server.py`](executor/server.py). kami-lens is not published
+This server version is built against kami-lens release **0.4.0**, pinned
+at commit `1d7a960` and declared in [`SPEC.md`](SPEC.md) D1 — the one
+place that pin is stated. kami-lens is not published
 to npm or a container registry, so build it from the repository:
 
 ```bash
@@ -286,10 +316,13 @@ tool reference.
 ## Troubleshooting
 
 ### `Account 'main' not found. Available: ...`
-The server scanned `~/.blocklife-keys/.env` for `*_OPERATOR_KEY` /
+The server scanned the secret store for `*_OPERATOR_KEY` /
 `*_OWNER_KEY` pairs. The label you passed (e.g. `main`) didn't match.
 Check that `MAIN_OPERATOR_KEY=…` (uppercased) is set in
-`~/.blocklife-keys/.env`.
+`~/.blocklife-keys/.env` — or, on the `keychain` backend, that
+`security find-generic-password -s kami-mcp/MAIN_OPERATOR_KEY` finds it.
+The startup report on stderr names every secret it resolved and where
+each one came from.
 
 ### PERCEIVE reads fail with `LensUnavailableError`
 The kami-lens daemon from step 7 is not running, or the server is
@@ -327,7 +360,7 @@ out-of-gas on node-change waves).
 - [`README.md`](README.md) — the environment interface specification:
   tool surface, world-knowledge docs, and world model.
 - [`executor/README.md`](executor/README.md) — the full MCP tool
-  reference (101 tools, by class).
+  reference (102 tools, by class).
 - [`integration/system-ids.md`](integration/system-ids.md) and
   [`integration/entity-ids.md`](integration/entity-ids.md) — if you want
   to extend the interface with new tools.

@@ -96,10 +96,10 @@ Example config (Claude Code's `.mcp.json` shown):
 
 ## Available tools
 
-The registry advertises **101 tools**. Every tool carries exactly
+The registry advertises **102 tools**. Every tool carries exactly
 one class tag — `ACT` / `PERCEIVE` / `OUTSOURCE` / `META` — and the four
 classes partition the surface completely:
-**ACT 55 / PERCEIVE 30 / OUTSOURCE 9 / META 7**.
+**ACT 55 / PERCEIVE 31 / OUTSOURCE 9 / META 7**.
 The tags live in `server.TOOL_CLASSES`; the counts are contract rows
 checked by the suite ([SPEC.md](../SPEC.md) §P1).
 
@@ -107,8 +107,8 @@ The tables below are generated from the live registry: each row is a
 tool's registered name, its parameter names in schema order, and the
 first line of its description. The full description — argument
 semantics, gas limits, failure modes — is what the MCP client receives
-on `tools/list`, and is the authority. `37` tools are non-mutating
-(`server.READ_TOOLS`): all 29 PERCEIVE, plus the OUTSOURCE and META
+on `tools/list`, and is the authority. `39` tools are non-mutating
+(`server.READ_TOOLS`): all 31 PERCEIVE, plus the OUTSOURCE and META
 reads marked below.
 
 ### Pre-transaction validation (all game-system writes)
@@ -151,7 +151,7 @@ Multi-transaction tools raise `BatchTxError` naming **every** per-item
 outcome, successes included, and state that successful items are final
 on-chain and must not be resubmitted.
 
-### ACT — 54 tools
+### ACT — 55 tools
 
 Signs and broadcasts at least one transaction. Gameplay writes use the
 operator wallet; registration, minting, and value-bearing trades use the
@@ -194,6 +194,7 @@ owner wallet (noted per tool).
 | `move_to_room(room_index, account)` | Move the account to a different room. Costs stamina. |
 | `name_kami(kami_id, name, account)` | Name or rename a kami. Costs 1 Holy Dust. Kami must be in room 11. |
 | `newbie_vendor_buy(kami_index, max_price_eth, account)` | Buy one kami from the newbie vendor with ETH (system.newbievendor.buy). One purchase per account, ever. |
+| `pool_swap(item_in, item_out, amount_in, min_amount_out, account)` | Swap one item against MUSU in a constant-product pool. |
 | `register_account(name, account)` | Register the in-game account: one owner-signed transaction that creates the account entity, sets the display name, and binds the operator address. |
 | `revive_kami(kami_id, method, account)` | Revive a DEAD kami to RESTING via one of the game's revive paths. |
 | `sacrifice_kami(kami_id, account)` | PERMANENTLY sacrifice a kami at the Temple of the Wheel (room 19). |
@@ -223,12 +224,13 @@ issues concurrent write-txs on the same wallet. Thirteen tools expose
 `allow_partial` (default `false`): with it set, a mixed batch returns
 its per-item result instead of raising.
 
-### PERCEIVE — 29 tools
+### PERCEIVE — 31 tools
 
 World-state reads. They sign nothing and change no remote state.
 
-23 of them are thin wrappers over the local **kami-lens** daemon
-(pinned release `1d7a960`, recorded as `server.KAMI_LENS_PIN`). A wrapper
+24 of them are thin wrappers over the local **kami-lens** daemon
+(release `1d7a960` / 0.4.0, declared in [`SPEC.md`](../SPEC.md) D1). A
+wrapper
 does argument mapping, exactly one socket request, and envelope
 pass-through: the daemon's `{data, untrusted, meta}` reaches the caller
 verbatim, with only the transport keys `id` and `ok` removed. Nothing is
@@ -273,9 +275,11 @@ serves them at this pin: `quest_state` and `check_quest_completable`
 | `lens_portal(account_index)` | Token portal history for an account, plus open withdrawals. |
 | `lens_quests(account_index)` | Quest registry; with account_index, that account's accepted quests and completion state. |
 | `lens_room(room_index)` | Room occupancy: accounts currently in the room, each with its kamis ({id, index, name, kamis[{id, index, name, state}]}). |
+| `lens_roster(account_index)` | Compact roster: one line per kami (index, state, HP) plus where the account is. |
 | `lens_status()` | kami-lens daemon status: sync state, live block, stream health, degraded flags, per-feed service health, and the daemon's version and configuration. |
 | `lens_trades(account_index)` | Open chain trades; with account_index, that account's trade history and open offers. |
 | `lens_transfers(account_index)` | Item transfer history for an account. |
+| `pool_swap_quote(item_in, item_out, amount_in, slippage_bps)` | Price a MUSU-item pool swap before sending it. Reads only. |
 | `quest_state(quest_index, account)` | Discriminated read of a quest's on-chain state for the account. |
 
 ### OUTSOURCE — 9 tools

@@ -86,7 +86,7 @@ def _tools():
 
 
 def test_schema_version():
-    assert SCHEMA_VERSION == "3.0.0"
+    assert SCHEMA_VERSION == "3.1.0"
 
 
 def test_readme_current_version_matches_schema_version():

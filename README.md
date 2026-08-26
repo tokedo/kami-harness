@@ -36,9 +36,12 @@ MCP client (any KamiBench agent) --MCP--> executor (server.py) --> kami-lens dae
   not answer until that daemon is running — see [`SETUP.md`](SETUP.md).
 - **Action** — transaction tools perform harvesting, movement, leveling,
   equipment, crafting, trading, quests, and scavenging.
-- **Secrets boundary** — the server reads owner/operator keys from
-  `~/.blocklife-keys/.env` (outside the repo) and signs on the client's
-  behalf. The client never sees a key.
+- **Secrets boundary** — the server reads owner/operator keys through
+  a pluggable secret store (default: `~/.blocklife-keys/.env`, outside
+  the repo; optionally the macOS Keychain) and signs on the client's
+  behalf. Key material stays inside the server process — it is never
+  exported to the environment, returned by a tool, or printed. The
+  client never sees a key.
 - **Versioned** — the tool contract carries a `SCHEMA_VERSION`
   ([`executor/schema_version.py`](executor/schema_version.py)), surfaced to
   clients as the MCP `server_version` in the initialize handshake. See
@@ -54,7 +57,7 @@ can cost you. The counts, and the class of each tool, are contract rows
 checked by the suite ([`SPEC.md`](SPEC.md) §P1). The authoritative,
 per-tool reference is [`executor/README.md`](executor/README.md).
 
-**ACT — 54 tools.** Signed on-chain transactions into the game:
+**ACT — 55 tools.** Signed on-chain transactions into the game:
 harvesting, movement, leveling, equipment, crafting, trading, quests,
 scavenging, gacha, and PvP liquidation. Every game-system write
 validates its mechanically-determinable preconditions against chain
@@ -68,7 +71,7 @@ its hash rather than guessing. A returned result never carries
 `craft_item`, `create_trade`, `complete_quest`, `liquidate_kami`,
 `level_and_allocate_batch`.
 
-**PERCEIVE — 29 tools.** World-state reads. They sign nothing and change
+**PERCEIVE — 31 tools.** World-state reads. They sign nothing and change
 no remote state. 23 of them are thin wrappers over the local
 [kami-lens](https://github.com/tokedo/kami-lens) daemon — a headless
 Kamigotchi client that keeps a live mirror of on-chain state and
@@ -280,7 +283,7 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`3.0.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
+Current: **`3.1.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
 reads served as thin `kami-lens` wrappers with verbatim envelope
 pass-through; every tool class-tagged ACT / PERCEIVE / OUTSOURCE /
 META; three non-conflatable transaction terminal states (a confirmed

@@ -19,7 +19,32 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # the module imports keyless; nothing in the offline suite connects to it.
 os.environ.setdefault("MAINNET_RPC_URL", "http://127.0.0.1:9/offline-test")
 
+import secrets_store  # noqa: E402
 import server  # noqa: E402
+
+
+@pytest.fixture()
+def secret_store(tmp_path, monkeypatch):
+    """Point the secret store at a temp keys file for the whole test.
+
+    Every test that exercises a path which READS or WRITES a secret must
+    take this fixture. Without it a writer under test would set_key into
+    the real ~/.blocklife-keys/ file, and a reader would see whatever
+    keys the developer's machine happens to hold. Yields the temp keys
+    file. The manifest points at a path that does not exist, so nothing
+    is protected and no Keychain call is reachable.
+    """
+    monkeypatch.setenv("KAMI_SECRETS_BACKEND", "envfile")
+    keys = tmp_path / ".env"
+    keys.write_text("")
+    original = (secrets_store.KEYS_PATH, secrets_store.MANIFEST_PATH)
+    secrets_store.configure(
+        keys_file=keys, manifest=tmp_path / "absent.secrets.names"
+    )
+    yield keys
+    secrets_store.KEYS_PATH, secrets_store.MANIFEST_PATH = original
+    secrets_store.reset()
+
 
 # Well-known local-dev throwaway keys (standard anvil/hardhat test keys;
 # never funded on any real network, not secrets).

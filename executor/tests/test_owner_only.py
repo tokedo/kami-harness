@@ -29,12 +29,16 @@ class TestOwnerOnlyLoad:
     """The exact v1.3.0 reproduction: an env with only MAIN_OWNER_KEY."""
 
     @pytest.fixture()
-    def load_output(self, monkeypatch, tmp_path, capsys):
+    def load_output(self, secret_store, monkeypatch, tmp_path, capsys):
         monkeypatch.setattr(server, "_accounts", {})
         monkeypatch.setattr(server, "_ROSTER_PATH", tmp_path / "roster.yaml")
         monkeypatch.setattr(server.os, "environ", {"MAIN_OWNER_KEY": KEY_A})
         server._load_accounts()
-        return capsys.readouterr().out
+        captured = capsys.readouterr()
+        # The registry report is diagnostics, not protocol: stdout is the
+        # stdio JSON-RPC transport and must carry nothing but JSON-RPC.
+        assert captured.out == ""
+        return captured.err
 
     def test_loads_account_without_skip_warning(self, load_output):
         assert "skipping account" not in load_output

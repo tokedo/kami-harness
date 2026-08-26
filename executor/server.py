@@ -1,13 +1,16 @@
 """
 Kamigotchi MCP Executor — the environment-interface server.
 
-Reads private keys from ~/.blocklife-keys/.env (outside the repo).
+Reads private keys through executor/secrets_store.py: by default the
+keys file at ~/.blocklife-keys/.env (outside the repo), optionally the
+macOS Keychain for names a manifest marks protected.
 Exposes game actions as MCP tools. The connected MCP client calls tools
 over MCP; this server handles secrets, API auth, and transaction signing.
 The client never sees private keys.
 
-Multi-account: keys file holds {LABEL}_OPERATOR_KEY / {LABEL}_OWNER_KEY
-pairs. accounts/roster.yaml (in-repo) maps labels to public addresses.
+Multi-account: the secret store holds {LABEL}_OPERATOR_KEY /
+{LABEL}_OWNER_KEY pairs. accounts/roster.yaml (in-repo) maps labels to
+public addresses.
 All per-account tools accept an `account` label parameter (default "main").
 
 Architecture:
@@ -32,13 +35,13 @@ import eth_abi
 import httpx
 import pydantic
 import yaml
-from dotenv import load_dotenv, set_key
 from eth_account.messages import encode_defunct
 from mcp.server.fastmcp import FastMCP
 from web3 import Web3
 from web3.exceptions import TimeExhausted
 
 import rooms_graph
+import secrets_store
 from schema_version import SCHEMA_VERSION
 
 # ---------------------------------------------------------------------------
@@ -46,10 +49,16 @@ from schema_version import SCHEMA_VERSION
 # ---------------------------------------------------------------------------
 
 _REPO = Path(__file__).resolve().parent.parent
-_KEYS_PATH = Path.home() / ".blocklife-keys" / ".env"
 _ROSTER_PATH = _REPO / "accounts" / "roster.yaml"
 
-load_dotenv(_KEYS_PATH)
+# Secrets resolve through the store, never through this module directly.
+# Its default backend is the keys file (~/.blocklife-keys/.env, or
+# KAMI_KEYS_FILE), so a deployment that configures nothing behaves
+# exactly as every earlier version did. Non-secret config from that file
+# is exported to os.environ by load(); key material never is. The
+# resolved location of any given name is secrets_store.where(name) —
+# this module holds no second copy of the path.
+secrets_store.load()
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -427,15 +436,19 @@ _accounts: dict[str, _Account] = {}
 
 
 def _load_accounts() -> None:
-    """Scan .env for *_OWNER_KEY / *_OPERATOR_KEY entries, build registry.
+    """Scan the secret store for *_OWNER_KEY / *_OPERATOR_KEY entries,
+    build the registry.
 
     An owner key alone is a loadable account: the entry has no operator
     wallet, operator paths raise until create_operator_wallet generates
     one. This is the starting state of a fresh deployment (owner wallet
     funded, operator not yet created).
+
+    Every message here goes to stderr: stdout is the stdio JSON-RPC
+    transport and carries nothing but protocol.
     """
     labels: set[str] = set()
-    for key in os.environ:
+    for key in secrets_store.known_names():
         if key.endswith("_OPERATOR_KEY"):
             labels.add(key.removesuffix("_OPERATOR_KEY").lower())
         elif key.endswith("_OWNER_KEY"):
@@ -443,22 +456,23 @@ def _load_accounts() -> None:
 
     for label in sorted(labels):
         up = label.upper()
-        op_key = os.environ.get(f"{up}_OPERATOR_KEY")
-        own_key = os.environ.get(f"{up}_OWNER_KEY")
-        api_key = os.environ.get(f"{up}_KAMIBOTS_API_KEY")
-        privy_id = os.environ.get(f"{up}_PRIVY_ID")
+        op_key = secrets_store.get(f"{up}_OPERATOR_KEY")
+        own_key = secrets_store.get(f"{up}_OWNER_KEY")
+        api_key = secrets_store.get(f"{up}_KAMIBOTS_API_KEY")
+        privy_id = secrets_store.get(f"{up}_PRIVY_ID")
         _accounts[label] = _Account(label, op_key, own_key, api_key, privy_id)
 
     # Migrate legacy global credentials to first account that lacks them
-    legacy_api = os.environ.get("KAMIBOTS_API_KEY")
-    legacy_privy = os.environ.get("PRIVY_ID")
+    legacy_api = secrets_store.get("KAMIBOTS_API_KEY")
+    legacy_privy = secrets_store.get("PRIVY_ID")
     if legacy_api or legacy_privy:
         for acct in _accounts.values():
             if not acct.api_key and legacy_api:
                 acct.api_key = legacy_api
                 print(f"NOTE: Migrated legacy KAMIBOTS_API_KEY to '{acct.label}'. "
                       f"Re-run register_kamibots(account='{acct.label}') to "
-                      f"write {acct.label.upper()}_KAMIBOTS_API_KEY to .env.")
+                      f"write {acct.label.upper()}_KAMIBOTS_API_KEY to .env.",
+                      file=sys.stderr)
             if not acct.privy_id and legacy_privy:
                 acct.privy_id = legacy_privy
                 break  # only assign legacy creds to one account
@@ -470,9 +484,11 @@ def _load_accounts() -> None:
         roster_labels = set((roster.get("accounts") or {}).keys())
         env_labels = set(_accounts.keys())
         for lbl in roster_labels - env_labels:
-            print(f"WARNING: '{lbl}' in roster.yaml but no keys in .env")
+            print(f"WARNING: '{lbl}' in roster.yaml but no keys in .env",
+                  file=sys.stderr)
         for lbl in env_labels - roster_labels:
-            print(f"WARNING: '{lbl}' has keys in .env but not in roster.yaml")
+            print(f"WARNING: '{lbl}' has keys in .env but not in roster.yaml",
+                  file=sys.stderr)
 
     if _accounts:
         registered = [l for l, a in _accounts.items() if a.api_key]
@@ -480,12 +496,14 @@ def _load_accounts() -> None:
             l if a.has_operator else f"{l} (owner-only)"
             for l, a in _accounts.items()
         ]
-        print(f"Loaded {len(_accounts)} account(s): {', '.join(names)}")
+        print(f"Loaded {len(_accounts)} account(s): {', '.join(names)}",
+              file=sys.stderr)
         if registered:
-            print(f"  Kamibots registered: {', '.join(registered)}")
+            print(f"  Kamibots registered: {', '.join(registered)}",
+                  file=sys.stderr)
     else:
         print("WARNING: No accounts loaded. Fill .env with *_OWNER_KEY / "
-              "*_OPERATOR_KEY entries.")
+              "*_OPERATOR_KEY entries.", file=sys.stderr)
 
 
 _load_accounts()
@@ -1020,7 +1038,8 @@ def _require_registered_owner(account: str) -> int:
     if not acct.owner_addr:
         raise ValueError(
             f"Account '{account}' has no owner key. "
-            f"Set {account.upper()}_OWNER_KEY in .env."
+            f"Set {account.upper()}_OWNER_KEY in "
+            f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
         )
     eid = int(acct.owner_addr, 16)
     if acct.owner_addr in _owner_registered_cache:
@@ -1786,7 +1805,8 @@ def _send_batch_tx(
         if not acct.owner_key:
             raise ValueError(
                 f"Account '{account}' has no owner key. "
-                f"Set {account.upper()}_OWNER_KEY in .env."
+                f"Set {account.upper()}_OWNER_KEY in "
+            f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
             )
         signer_addr, signer_key, role = acct.owner_addr, acct.owner_key, "owner"
     else:
@@ -1886,7 +1906,8 @@ def _send_tx_owner(
     if not acct.owner_key:
         raise ValueError(
             f"Account '{account}' has no owner key. "
-            f"Set {account.upper()}_OWNER_KEY in .env."
+            f"Set {account.upper()}_OWNER_KEY in "
+            f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
         )
     addr = _resolve_system(system_id)
     contract = w3.eth.contract(address=addr, abi=abi)
@@ -2461,10 +2482,11 @@ async def _strategy_api(
 # while the daemon is degraded or catching up.
 # ---------------------------------------------------------------------------
 
-# Pinned kami-lens release this server version is built against
-# (kami-lens 0.2.0). Recorded configuration, surfaced alongside the
-# socket path; lens_status reports the running daemon's own version.
-KAMI_LENS_PIN = "1d7a960"
+# The kami-lens release this server version is built against is
+# declared in SPEC.md D1 and nowhere else. A module constant nobody
+# reads is how the previous declaration went stale: it held the 0.4.0
+# commit under a comment saying 0.2.0, and no test could tell.
+# lens_status reports the running daemon's own version.
 
 
 def _default_lens_socket() -> str:
@@ -2735,24 +2757,28 @@ def create_operator_wallet(account: str) -> dict:
             f"Label '{account}' must be alphanumeric/underscore."
         )
     up = label.upper()
-    if os.environ.get(f"{up}_OPERATOR_KEY"):
+    if secrets_store.get(f"{up}_OPERATOR_KEY"):
         acct = _accounts.get(label)
         addr = f" ({acct.operator_addr})" if acct else ""
         raise ValueError(
             f"Account '{label}' already has an operator key{addr}. "
             f"Rotation via system.account.set.operator is not implemented."
         )
-    owner_key = os.environ.get(f"{up}_OWNER_KEY")
+    owner_key = secrets_store.get(f"{up}_OWNER_KEY")
     if not owner_key:
         raise ValueError(
-            f"No {up}_OWNER_KEY in {_KEYS_PATH} — the owner wallet's key "
-            f"must exist there before an operator can be created for "
-            f"'{label}'."
+            f"No {up}_OWNER_KEY in "
+            f"{secrets_store.where(f'{up}_OWNER_KEY')} — the owner "
+            f"wallet's key must exist there before an operator can be "
+            f"created for '{label}'."
         )
     new = w3.eth.account.create()
     op_key = "0x" + new.key.hex().removeprefix("0x")
-    set_key(str(_KEYS_PATH), f"{up}_OPERATOR_KEY", op_key)
-    os.environ[f"{up}_OPERATOR_KEY"] = op_key
+    # put() persists it (keys file, or the Keychain when the name is
+    # protected) and caches it in-process. It deliberately does NOT go
+    # into os.environ: a private key never enters this process's
+    # environment, where any child would inherit it.
+    secrets_store.put(f"{up}_OPERATOR_KEY", op_key)
     # Upgrade in place: _load_accounts registers owner-only labels, so
     # the label may already be live. Credentials assigned only in memory
     # (legacy migration) must survive the rebuild.
@@ -2760,9 +2786,9 @@ def create_operator_wallet(account: str) -> dict:
     _accounts[label] = _Account(
         label, op_key, owner_key,
         (existing.api_key if existing else None)
-        or os.environ.get(f"{up}_KAMIBOTS_API_KEY"),
+        or secrets_store.get(f"{up}_KAMIBOTS_API_KEY"),
         (existing.privy_id if existing else None)
-        or os.environ.get(f"{up}_PRIVY_ID"),
+        or secrets_store.get(f"{up}_PRIVY_ID"),
     )
     roster = _roster_add_account(
         label, _accounts[label].owner_addr, new.address
@@ -2771,7 +2797,8 @@ def create_operator_wallet(account: str) -> dict:
         "account": label,
         "operator_address": new.address,
         "owner_address": _accounts[label].owner_addr,
-        "key_saved": f"{up}_OPERATOR_KEY -> {_KEYS_PATH}",
+        "key_saved": f"{up}_OPERATOR_KEY -> "
+                     f"{secrets_store.where(f'{up}_OPERATOR_KEY')}",
         "roster": roster,
     }
 
@@ -2796,7 +2823,8 @@ def register_account(name: str, account: str = "main") -> dict:
     if not acct.owner_key:
         raise ValueError(
             f"Account '{account}' has no owner key. "
-            f"Set {account.upper()}_OWNER_KEY in .env."
+            f"Set {account.upper()}_OWNER_KEY in "
+            f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
         )
     # Resolved before the dry-run try below so a missing operator wallet
     # raises its own error, not a wrapped "would revert".
@@ -2858,7 +2886,8 @@ async def register_kamibots(account: str = "main") -> dict:
     if not acct.owner_key:
         raise ValueError(
             f"Account '{account}' has no owner key. "
-            f"Set {account.upper()}_OWNER_KEY in .env."
+            f"Set {account.upper()}_OWNER_KEY in "
+            f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
         )
 
     timestamp = int(time.time())
@@ -2893,10 +2922,10 @@ async def register_kamibots(account: str = "main") -> dict:
 
     if api_key:
         acct.api_key = api_key
-        set_key(str(_KEYS_PATH), f"{up}_KAMIBOTS_API_KEY", api_key)
+        secrets_store.put(f"{up}_KAMIBOTS_API_KEY", api_key)
     if privy_id:
         acct.privy_id = privy_id
-        set_key(str(_KEYS_PATH), f"{up}_PRIVY_ID", privy_id)
+        secrets_store.put(f"{up}_PRIVY_ID", privy_id)
 
     return {
         "registered": True,
@@ -2905,7 +2934,8 @@ async def register_kamibots(account: str = "main") -> dict:
         "api_key_saved": bool(api_key),
         "privy_id_saved": bool(privy_id),
         "message": f"Credentials saved as {up}_KAMIBOTS_API_KEY and "
-        f"{up}_PRIVY_ID.",
+        f"{up}_PRIVY_ID in "
+        f"{secrets_store.where(f'{up}_KAMIBOTS_API_KEY')}.",
     }
 
 
@@ -2964,7 +2994,8 @@ def fund_operator(amount_eth: str, account: str = "main") -> dict:
     if not acct.owner_key:
         raise ValueError(
             f"Account '{account}' has no owner key. "
-            f"Set {account.upper()}_OWNER_KEY in .env."
+            f"Set {account.upper()}_OWNER_KEY in "
+            f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
         )
     value = w3.to_wei(Decimal(amount_eth), "ether")
     balance = w3.eth.get_balance(acct.owner_addr)
@@ -3119,7 +3150,8 @@ if not MAINNET_RPC_URL:
         "(bridge_eth_from_mainnet, bridge_status) sign and track Ethereum "
         "mainnet transactions through this endpoint; it is part of the "
         "environment definition and is recorded in run manifests, so it "
-        f"must be configured explicitly in {_KEYS_PATH} (or the process "
+        f"must be configured explicitly in {secrets_store.keys_path()} "
+        "(or the process "
         "environment). There is no default public endpoint."
     )
 MAINNET_CHAIN_ID = 1
@@ -3294,7 +3326,8 @@ def bridge_eth_from_mainnet(
     if not acct.owner_key:
         raise ValueError(
             f"Account '{account}' has no owner key. "
-            f"Set {account.upper()}_OWNER_KEY in .env."
+            f"Set {account.upper()}_OWNER_KEY in "
+            f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
         )
     amount = Decimal(amount_eth)
     if amount != amount.quantize(Decimal("0.000001")):
@@ -7095,7 +7128,8 @@ def transfer_items(
         raise ValueError(
             f"source account '{account}' has no owner key; "
             f"system.item.transfer requires the owner wallet. "
-            f"Set {account.upper()}_OWNER_KEY in .env."
+            f"Set {account.upper()}_OWNER_KEY in "
+            f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
         )
     if bool(to_account) == bool(to_address):
         raise ValueError(
@@ -8820,7 +8854,8 @@ def _send_gacha_reveal_tx(account: str, ids: list[int]) -> dict:
     if not acct.owner_addr:
         raise ValueError(
             f"Account '{account}' has no owner key. "
-            f"Set {account.upper()}_OWNER_KEY in .env."
+            f"Set {account.upper()}_OWNER_KEY in "
+            f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
         )
     contract = w3.eth.contract(
         address=_resolve_system("system.kami.gacha.reveal"),

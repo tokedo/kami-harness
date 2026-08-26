@@ -91,7 +91,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.0.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.1.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -242,7 +242,7 @@ softened, and the pre-snippet text is unchanged.
 
 ### P7 — EXPOSURE.md as the exposure-precedent registry
 
-- `EXPOSURE.md` holds one row per READ tool on the live registry — **38
+- `EXPOSURE.md` holds one row per READ tool on the live registry — **39
   served rows** at this ref — with columns: Tool, Class, Exposure,
   Precedent, Serving path, Admitted.
 - It additionally holds *deferred* rows (reads deliberately not served
@@ -258,12 +258,16 @@ softened, and the pre-snippet text is unchanged.
 
 ### D1 — kami-lens daemon
 
-- **Pin:** `1d7a960` (kami-lens release 0.4.0), recorded as
-  `server.KAMI_LENS_PIN`. **Correction at this version:** the declared
-  pin had been `a0a3e1e` (0.2.0) while deployments ran 0.4.0 — the
-  declaration lagged the deployed daemon by two minor versions and no
-  row said so. `lens_roster` exists only from 0.3.0, so serving it and
-  correcting the pin are the same change.
+- **Pin:** `1d7a960` (kami-lens release 0.4.0). **This row is the only
+  place the compatible lens version is stated.** It had been duplicated
+  in a `server.KAMI_LENS_PIN` constant that no code path read; the
+  constant held the 0.4.0 commit under a comment saying 0.2.0, and
+  nothing could fail on the contradiction. The constant is deleted at
+  3.1.0 and the declaration lives here, where the spec version row
+  records every change to it. (At 3.0.0 the declared pin was corrected
+  from `a0a3e1e` (0.2.0) to `1d7a960`, having lagged the deployed daemon
+  by two minor versions; `lens_roster` exists only from 0.3.0, so
+  serving it and correcting the pin were the same change.)
 - **Transport:** local AF_UNIX stream socket, one newline-delimited JSON
   request and one response per connection, 30-second timeout. Path from
   `KAMI_LENS_SOCKET`, else the daemon's own platform default
@@ -354,23 +358,62 @@ softened, and the pre-snippet text is unchanged.
   LayerZero → Initia L1 → IBC path lands native gas ETH at the same
   owner address, typically ~5 min and up to ~20 min observed.
 
-### D5 — `.env` key injection contract
+### D5 — key injection contract (pluggable secret store)
 
-- **Location:** `~/.blocklife-keys/.env`, deliberately outside the
-  repository.
+Every secret this module holds is resolved through
+`executor/secrets_store.py`. The store is the only reader and the only
+writer; no other module opens the keys file or the Keychain.
+
+- **Names, not values, are the interface.** A secret VALUE never enters
+  `os.environ`, argv, stdout, a tool return value, or an exception
+  message — including on the failure paths. What is stated is the NAME
+  and its resolved location (`secrets_store.where(name)`: a file path,
+  or `macOS Keychain (kami-mcp/<NAME>)`).
+- **Backends.** `KAMI_SECRETS_BACKEND` selects `envfile` (**the
+  default**) or `keychain`; any other value fails loudly rather than
+  resolving to one of them by accident. Under `envfile` every read and
+  write is the keys file plus the process environment — byte-for-byte
+  the behaviour of every version through 3.0.0. Under `keychain`,
+  protected names are macOS generic-password items `kami-mcp/<NAME>`
+  with the login user as account, and everything else still comes from
+  the keys file.
+- **Keys file:** `~/.blocklife-keys/.env` by default (`KAMI_KEYS_FILE`),
+  deliberately outside the repository. Parsed tolerantly: `KEY = value`
+  spacing, an optional `export` prefix, single- or double-quoted values
+  (what `python-dotenv`'s `set_key` writes).
+- **Which names are protected** is a names-only manifest — one name per
+  line, no values — at `KAMI_SECRETS_MANIFEST`, defaulting to a sibling
+  of the keys file: its name with a trailing `.env` removed, plus
+  `.secrets.names` (`~/.blocklife-keys/.env` ->
+  `~/.blocklife-keys/.secrets.names`; `hybrid.env` ->
+  `hybrid.secrets.names`). **An absent manifest protects nothing**, so a
+  deployment that configures none of this makes no Keychain call at all.
+- **A protected name that resolves nowhere is fatal at startup**
+  (`MissingSecretError`, naming only names). `ALLOW_ENV_SECRETS=1` lets
+  it fall back to the keys file / process environment, warned on stderr.
 - **Read:** `{LABEL}_OPERATOR_KEY` and `{LABEL}_OWNER_KEY` (label
-  uppercased). A label present with only `{LABEL}_OWNER_KEY` loads as an
-  owner-only account — it is visible in `list_accounts` and
-  `get_gas_balance`, and every operator path raises a factual
-  no-operator-wallet error.
-- **Written back by the server:** `{LABEL}_OPERATOR_KEY` (by
-  `create_operator_wallet`, which generates the keypair in-process),
-  `{LABEL}_KAMIBOTS_API_KEY` and `{LABEL}_PRIVY_ID` (by
-  `register_kamibots`).
+  uppercased), plus `{LABEL}_KAMIBOTS_API_KEY` and `{LABEL}_PRIVY_ID`.
+  A label present with only `{LABEL}_OWNER_KEY` loads as an owner-only
+  account — it is visible in `list_accounts` and `get_gas_balance`, and
+  every operator path raises a factual no-operator-wallet error.
+  Secret-shaped names present in the process environment are read too,
+  which is how a deployment that exports a key directly, and the test
+  suite's synthetic accounts, load identically to a keys-file entry.
+- **Written back by the server** through the store:
+  `{LABEL}_OPERATOR_KEY` (by `create_operator_wallet`, which generates
+  the keypair in-process), `{LABEL}_KAMIBOTS_API_KEY` and
+  `{LABEL}_PRIVY_ID` (by `register_kamibots`). Each lands wherever its
+  name resolves — keys file, or Keychain when protected.
+- **Non-secret config** from the keys file (`RPC_URL`,
+  `MAINNET_RPC_URL`, the capability flags) IS exported to `os.environ`,
+  by `setdefault`, so an existing process value wins. Secret-shaped
+  names are not, so a child process cannot inherit key material.
 - `accounts/roster.yaml` maps labels to public addresses. Private key
   material never appears in any tool return value.
-- **Assumption:** the file is readable and writable by the server
-  process and is not indexed by any connected client.
+- **Assumption:** the keys file is readable and writable by the server
+  process and is not indexed by any connected client; on the `keychain`
+  backend, that `/usr/bin/security` exists and the login keychain is
+  unlocked.
 
 ### D6 — local catalogs
 
@@ -404,7 +447,15 @@ softened, and the pre-snippet text is unchanged.
 | A snippet states no advice, never lengthens past its bound, never hides a subject silently, reports only facts it read, and never introduces the `-32000` marker retry routes on | `test_error_snippets.py::TestSnippetGuards`, `::TestSnippetBehaviour` |
 | The three snippets an agent sees are the pinned wordings | `test_error_snippets.py::TestSnippetExamples` (harvest_start on a HARVESTING kami, harvest_collect on a RESTING kami, a dry-run revert — asserted verbatim) |
 | An `allow_partial` return keeps its documented shape with the flag on | `test_error_snippets.py::TestSnippetBehaviour::test_batch_error_leaves_the_returned_payload_untouched` |
-| `SCHEMA_VERSION == "3.0.0"` | `test_tool_surface.py::test_schema_version` |
+| `SCHEMA_VERSION == "3.1.0"` | `test_tool_surface.py::test_schema_version` |
+| The default secrets backend is `envfile`, and no code path reaches the Keychain under it — not load, not get, not put, not with a manifest present | `test_secrets_store.py::TestEnvfileIsTheDefault` (the Keychain helpers are replaced with raisers) |
+| An unrecognised `KAMI_SECRETS_BACKEND` fails loudly instead of resolving to a backend | `test_secrets_store.py::TestEnvfileIsTheDefault::test_unknown_backend_fails_loudly` |
+| The protected-names manifest is the keys file's name with a trailing `.env` removed plus `.secrets.names`, alongside it; an absent manifest protects nothing | `test_secrets_store.py::TestManifestPath` |
+| Non-secret config from the keys file reaches `os.environ`; secret-shaped names never do | `test_secrets_store.py::TestLoadExportsConfigOnly` |
+| A missing protected secret names the NAME and never the value, even when the value is sitting in the keys file | `test_secrets_store.py::TestMissingProtectedSecret::test_raises_naming_only_the_name` |
+| No f-string, log line or exception in the store or the server interpolates a secret value; the one admitted interpolation is the Keychain write's stdin command | `test_secrets_store.py::TestNoValueInterpolation` (ast scan of both modules, plus the pinned exemption) |
+| A secret written through the store round-trips: put() then a fresh process reads the same value back, from the Keychain when the name is protected | `test_secrets_store.py::TestPutRouting`, and the opt-in live smoke `test_keychain_live.py` (writes one throwaway item, reads it back through a fresh server import, deletes it, asserts rc 44) |
+| `_load_accounts` writes nothing to stdout — the stdio JSON-RPC transport carries protocol only | `test_owner_only.py::TestOwnerOnlyLoad` (asserts the registry report on stderr and an empty stdout) |
 | Docstrings are mechanism-only: no advisory or endorsement language in either direction | **partially enforced** — `test_tool_surface.py::test_h3_docstrings_stay_mechanical` covers 8 ACT tools against a banned-phrase list; `::test_enable_strategies_docstring_facts` covers 1 tool against a second list. The remaining 92 tools are **unenforced** |
 | No deployment-context references in agent-visible tool descriptions | **unenforced** — no scrub scan exists in this repository. Verified by hand at this ref: all 101 descriptions are clean |
 | Every READ description carries the untrusted-data sentence; every lens description names its serving path; non-read tools carry neither | `test_tool_surface.py::test_read_descriptions_carry_standing_sentence` |
@@ -566,3 +617,4 @@ the wording ("tools whose harness state gate accepts X") says so.
 | 4 | 2026-08-07 | Re-pinned to `da11b28`: out-of-gas reverts are now identified from receipt arithmetic before any replay, after a live probe showed the production RPC ignores the `gas` field in `eth_call` (a call priced at 3,083,548 by `eth_estimate_gas` succeeds through `eth_call` at gas=30,000), which makes replay unable to reach that class on this chain. Code and tests only — P1 mass 69,900, P1 count 101, P2 `tools_hash` and all class counts unchanged. |
 | 5 | 2026-08-17 | Re-pinned to `2ce4268` (SCHEMA_VERSION 2.2.0). Adds the flag-gated mechanics snippet on error results: P4 gains its paragraph (courtesy on the honest channel, contents, bounds, results-only), P6 gains `KAMI_ERROR_SNIPPETS` and widens the surface-identity claim to it, P1 notes that the snippet's tool-name pointers are not the routing mechanism, and deviation X9 `error-text-mechanics-snippet` argues that admission. The "tools_hash stable across capability flags" invariant moves from **unenforced** to `test_tool_surface.py::test_surface_identical_across_capability_flags` (8 flag combinations, count + mass + hash + every description), and six invariant rows are added for the single-source state table, subject derivation, snippet guards and the pinned snippet wordings. No tool, parameter, schema or description changes: P1 mass 69,900, P1 count 101, P2 `tools_hash` and all class counts unchanged. **Correction:** P3 stated `SCHEMA_VERSION = "2.0.0"` while the module and the invariant row said 2.1.0; P3 now reads 2.2.0. |
 | 6 | 2026-08-25 | Re-pinned to `7da193c` (SCHEMA_VERSION **3.0.0**). **MAJOR by P3's own rule**, not the 2.3.0 the build brief labelled it: `get_all_strategy_statuses` changes return shape, and new pre-send gates move failures that were on-chain reverts into `PreTxValidationError`. Five families. (A) Multi-transaction hash integrity: every landed leg is reported on failure as well as success, the hash-bearing failure channel is named in P4 (the MCP error path carries no structured content), receipt fields precede truncation, `scavenge_claim_and_reveal` gains a top-level `txs` and returns its revealed loot decoded from the reveal receipt, and `stop_harvest_batch` dry-runs each item before batching and routes through the standard sender (it previously built, signed and sent inline with no dry-run, no gas check and no send-error wrapping). (B) Pool availability: read from the pool entity's `IsDisabled` component. The world-config flags the run record blamed (`POOL_ENABLED`, `POOL_SWAP_ENABLED`) **do not exist**: a config read returns 0 for an absent field, so the fabricated name confirmed itself, and this version reads the entity and names no config key. (C) `travel_to_room` reads room, stamina and SP+ balances from chain state, leaving deviation X2; state-read failures name their cause and retry once; `use_items` defaults to **False** and consumes only against a computed deficit. (D) Snippet true-ups: the unread-preconditions list is per call, `level_up_kami` states level and XP, `harvest_start` states the node's room, `take_trade` gains a whole-lot balance gate, `auction_buy` names its currency and holding, and the unreachable-room refusal — which had been dropping its snippet entirely on the re-raise — names the catalog adjacency. (E) `lens_roster` served (P1 count 101 -> 102, PERCEIVE 30 -> 31, `READ_TOOLS` 38 -> 39, EXPOSURE 37 -> 38 served rows); `get_all_strategy_statuses` summarized to the account's own kamis with `full=true` for the raw answer; transient-RPC and stale-sequence classes absorbed. D1 re-pinned `a0a3e1e` (0.2.0) -> `1d7a960` (0.4.0), correcting a declared pin that had lagged the deployed daemon by two minor versions. Registry-mass budget 70,000 -> 71,000 by operator ruling for the named capability `lens_roster`, with P1 mass 69,900 -> 69,993; P2 `tools_hash` `7fc11fe9...5262` -> `b7eebb88...f1f8`, and the handshake `instructions` now also carries `schema_version` and `error_snippets`. |
+| 7 | 2026-08-26 | Re-pinned to `<CODE_SHA>` (SCHEMA_VERSION **3.1.0**). **MINOR**: no tool, parameter, schema or description changes — P1 count 102, P1 mass 69,993 and P2 `tools_hash` `b7eebb88...f1f8` are all unchanged, and the surface fingerprint of a 3.0.0 deployment and a 3.1.0 one is identical — but two agent-visible texts change: `create_operator_wallet`'s `key_saved` field and the missing-key errors now name the RESOLVED location of a secret rather than the literal `.env`. Four families. (A) D5 rewritten: key injection becomes a pluggable secret store (`executor/secrets_store.py`, ported from kami-hybrid-play `65b96e6`) with `envfile` as the DEFAULT backend and `keychain` as an opt-in, a names-only protected-names manifest derived from the keys-file name, and the standing rule that a secret VALUE never enters `os.environ`, argv, stdout, a result, or an exception. A deployment that configures nothing behaves exactly as 3.0.0 did and makes no Keychain call. `_load_accounts` scans the store instead of `os.environ`; `create_operator_wallet` and `register_kamibots` write through it; the generated operator key stops being assigned into `os.environ`. (B) The six `_load_accounts` messages moved from stdout — the stdio JSON-RPC transport — to stderr. (C) The dead `server.KAMI_LENS_PIN` constant is deleted; D1 is now the single declaration of the compatible lens version (the constant held the 0.4.0 commit under a comment saying 0.2.0). (D) Doc-count drift corrected against the live registry, and `executor/README.md` regains the three tool rows it was missing (`pool_swap`, `pool_swap_quote`, `lens_roster`). **Correction:** P7 stated 38 served EXPOSURE rows while the file holds — and CI requires — one row per READ tool, which is 39. |
