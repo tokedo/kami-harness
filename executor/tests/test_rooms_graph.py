@@ -82,3 +82,78 @@ def test_all_rooms_reachable_from_room_1():
         except ValueError:
             unreachable.append(r)
     assert not unreachable, f"Rooms unreachable from room 1: {unreachable}"
+
+
+# ---------------------------------------------------------------------------
+# Gates (catalogs/room-gates.csv)
+#
+# The catalog is a live extract, so these pin the SHAPE and the two rows
+# whose behaviour a caller depends on, not the whole table: a world
+# update that adds a gate must not fail the suite, but one that changes
+# how a gate is reported must.
+# ---------------------------------------------------------------------------
+
+
+def test_ungated_exit_reports_no_gates():
+    assert rooms_graph.gates_on(10, 35) == []
+
+
+def test_quest_gate_is_reported_on_every_inbound_exit():
+    """Room 15's gate is generic: it applies from all three entrances,
+    which is why routing around it is impossible and a plan through any
+    of them strands the account."""
+    for src in (11, 16, 18):
+        gates = rooms_graph.gates_on(src, 15)
+        assert len(gates) == 1
+        assert gates[0]["type"] == "QUEST"
+        assert gates[0]["index"] == 35
+
+
+def test_item_gate_carries_its_threshold():
+    gates = rooms_graph.gates_on(72, 88)
+    assert [g["type"] for g in gates] == ["ITEM"]
+    assert gates[0]["index"] == 100004
+    assert gates[0]["value"] == "0x1"
+
+
+def test_gate_rows_are_well_formed():
+    seen = set()
+    for a, b in rooms_graph.gated_edges():
+        for g in rooms_graph.gates_on(a, b):
+            assert g["type"] in {"QUEST", "ITEM", "COMPLETE_COMP"}, (
+                f"unknown gate type {g['type']!r} on {a}->{b}: server.py's "
+                f"evaluator handles three types and must learn any fourth"
+            )
+            assert isinstance(g["index"], int)
+            assert g["value"] != ""
+            seen.add(g["type"])
+    assert seen == {"QUEST", "ITEM", "COMPLETE_COMP"}
+
+
+def test_every_gated_edge_exists_in_the_graph():
+    """A gate on an edge BFS cannot walk would be dead data — and worse,
+    a gate BFS walks that the catalog does not carry is a strand."""
+    for a, b in rooms_graph.gated_edges():
+        assert b in rooms_graph.neighbors(a)
+
+
+def test_blocked_edges_are_routed_around():
+    """The whole point: an alternative exists, so BFS takes it."""
+    unblocked = rooms_graph.shortest_path(10, 37)
+    assert unblocked == [10, 35, 48, 9, 36, 25, 37]
+    detour = rooms_graph.shortest_path(10, 37, blocked={(36, 25)})
+    assert detour[0] == 10 and detour[-1] == 37
+    assert (36, 25) not in list(zip(detour, detour[1:]))
+
+
+def test_no_alternative_raises():
+    """Room 15's three entrances all carry the same gate, so blocking
+    them disconnects it entirely — the case that must refuse, not plan."""
+    assert rooms_graph.shortest_path(10, 15)[-1] == 15
+    with pytest.raises(ValueError):
+        rooms_graph.shortest_path(10, 15, blocked={(11, 15), (16, 15), (18, 15)})
+
+
+def test_blocked_does_not_leak_between_calls():
+    rooms_graph.shortest_path(10, 37, blocked={(36, 25)})
+    assert rooms_graph.shortest_path(10, 37) == [10, 35, 48, 9, 36, 25, 37]

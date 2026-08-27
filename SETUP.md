@@ -148,14 +148,14 @@ never return an empty result in its place. ACT, OUTSOURCE, and META
 tools do not depend on it.
 
 This server version is built against kami-lens release **0.5.1**, pinned
-at commit `f07b578` and declared in [`SPEC.md`](SPEC.md) D1 — the one
+at commit `8b74007` and declared in [`SPEC.md`](SPEC.md) D1 — the one
 place that pin is stated. kami-lens is not published
 to npm or a container registry, so build it from the repository:
 
 ```bash
 git clone https://github.com/tokedo/kami-lens
 cd kami-lens
-git checkout f07b578        # the pin this server version is built against
+git checkout 8b74007        # the pin this server version is built against
 npm install && npm run build
 node dist/cli.js daemon      # long-running: sync daemon + query socket
 ```
@@ -350,11 +350,16 @@ The owner key in `.env` doesn't match the owner address in
 `roster.yaml`, or the owner address isn't the on-chain owner of the
 operator. Recheck both.
 
-### A large `harvest_start` batch runs out of gas
-Default gas limits assume a 20-kami batch fits in Yominet's lane gas
-limit. For >20 kamis, split into smaller batches at the call site.
-`harvest_start`'s gas limit is 3M (raised from 1.5M after observed
-out-of-gas on node-change waves).
+### A large harvest batch is refused before it is sent
+Yominet caps a single transaction's gas limit at **31,500,000** (its
+per-transaction lane cap, below the 45,000,000 block limit). From 3.4.0
+the harness provisions harvest gas as base + per-kami, measured from
+on-chain usage, so the per-call maxima are **31 kamis for
+`harvest_start`, 15 for `harvest_stop`, 17 for `harvest_collect`** — a
+13-kami team is one start transaction and one stop transaction. A larger
+list is refused pre-send, naming the number that fits; split at the call
+site. The harness never splits for you: one tool call is one
+transaction, because an agent's plan/act accounting depends on it.
 
 ---
 

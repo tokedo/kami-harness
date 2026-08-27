@@ -642,8 +642,9 @@ class TestSequentialLoopsMatrix:
         monkeypatch.setattr(
             server, "rooms_graph",
             SimpleNamespace(
-                shortest_path=lambda a, b: [1, 2, 3],
+                shortest_path=lambda a, b, blocked=None: [1, 2, 3],
                 move_cost=lambda p: 5 * (len(p) - 1),
+                gates_on=lambda a, b: [],
             ),
         )
         monkeypatch.setattr(
@@ -667,8 +668,9 @@ class TestSequentialLoopsMatrix:
         monkeypatch.setattr(
             server, "rooms_graph",
             SimpleNamespace(
-                shortest_path=lambda a, b: [1, 2, 3],
+                shortest_path=lambda a, b, blocked=None: [1, 2, 3],
                 move_cost=lambda p: 5 * (len(p) - 1),
+                gates_on=lambda a, b: [],
             ),
         )
         monkeypatch.setattr(
@@ -786,8 +788,9 @@ class TestRevertInvariant:
         monkeypatch.setattr(
             server, "rooms_graph",
             SimpleNamespace(
-                shortest_path=lambda a, b: [1, 2],
+                shortest_path=lambda a, b, blocked=None: [1, 2],
                 move_cost=lambda p: 5 * (len(p) - 1),
+                gates_on=lambda a, b: [],
             ),
         )
         for sysid in ("system.kami.equip", "system.kami.unequip",

@@ -18,6 +18,7 @@ Architecture:
 """
 
 import asyncio
+import contextlib
 import csv
 import hashlib
 import json
@@ -90,6 +91,13 @@ ERROR_SNIPPETS = os.environ.get("KAMI_ERROR_SNIPPETS", "").strip().lower() in (
 # ---------------------------------------------------------------------------
 
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
+# Yominet charges `maxFeePerGas` AS OFFERED and refunds nothing, so an
+# over-offer is a pure loss: wallets offering 5.0 Mwei pay 2x for nothing
+# (observed in the community 2026-08-16). 2,500,000 wei is the live base
+# fee as of 2026-08-27 (eth_gasPrice = baseFee = 2,500,000). The constant
+# is deliberately the FLOOR and is NOT read from chain: if the base fee
+# rises, a send fails loudly as underpriced rather than silently
+# overpaying every transaction, and failing loudly is the safe mode.
 _GAS_PRICE = {"maxFeePerGas": 2_500_000, "maxPriorityFeePerGas": 0}
 
 # ---------------------------------------------------------------------------
@@ -121,11 +129,23 @@ _GAS_PRICE = {"maxFeePerGas": 2_500_000, "maxPriorityFeePerGas": 0}
 # cannot fit in a block.
 # ---------------------------------------------------------------------------
 
-# Highest gas any single transaction may be provisioned. Under the
-# 45,000,000 block limit with margin: a transaction provisioned above the
-# block limit is unmineable, so the batch that would need it is rejected
-# pre-send with a split instruction rather than broadcast to die.
-MAX_TX_GAS = 40_000_000
+# Highest gas any single transaction may be provisioned.
+#
+# This is the chain's PER-TRANSACTION LANE CAP, not the block gas limit.
+# The value was 40,000,000 — chosen as margin under the 45,000,000 block
+# limit — which is ABOVE what the RPC actually accepts, so this module's
+# own refusal never fired first and its split instruction was wrong: a
+# 13-kami harvest_stop was refused here with "Split into calls of at most
+# 10", and the 10-kami retry was then refused by the chain with
+#   tx gas limit 40000000 exceeds max lane gas limit 31500000
+# (live, 2026-08-27). A ceiling above the lane cap cannot reject anything
+# the lane rejects, so every "at most N" this module states has to be
+# derived from the lane cap instead.
+#
+# Corroboration (kami-oracle, 2026-08-27): across 1,805,172 transactions
+# since 2026-06-01 the maximum observed gas_used is 20,087,787 and ZERO
+# transactions exceed 31,500,000.
+MAX_TX_GAS = 31_500_000
 
 _GAS_CEILINGS = {
     # -- system.account.register: p50 883,040 / p99 883,112 / max 892,864
@@ -217,26 +237,66 @@ _GAS_CEILINGS = {
     "newbie_vendor_buy": 8_000_000,
     # -- system.pool: p50 714,821 / p99 854,317 / max 881,129
     "pool_swap": 1_400_000,
-    # The three harvest ceilings below are PER KAMI: the single-kami path
-    # sends them as the whole limit, and the batch path multiplies them by
-    # the number of kamis the transaction settles.
+    # The three harvest families below are BASE + PER KAMI, not a flat
+    # per-kami constant. They were flat (start 3,000,000 / stop 4,000,000
+    # / collect 4,000,000, multiplied by the batch size) and that shape is
+    # wrong for this cost curve: harvest gas is dominated by a large FIXED
+    # term, so a constant big enough for a single kami over-provisions
+    # every batch — 13 kamis could not be started or stopped in one
+    # transaction, and the docstrings promised they could — while a
+    # constant small enough to batch under-provisions the single-kami
+    # call, which is the most common call in the table by two orders of
+    # magnitude.
     #
-    # -- system.harvest.start: p50 1,611,201 / p99 8,320,655 / max
-    # 18,390,430. p99 and max are batch-inflated, so p50 is the
-    # single-kami figure; 3,000,000 clears 1.5x it.
-    "harvest_start": 3_000_000,
-    # -- system.harvest.stop: p50 2,597,439 / p99 14,785,900 / max
-    # 20,087,787. The maximum is ~7.7x the single-kami median — a
-    # full-roster batch stop. 4,000,000 clears 1.5x p50.
-    "harvest_stop": 4_000_000,
-    # -- system.harvest.collect: p50 2,359,919 / p99 2,479,603 / max
-    # 16,906,695. The narrow p50/p99 band is single-kami collects; the
-    # max is a batch. THE headline defect: 2,000,000 against a 2,359,919
-    # median, on both the single and the per-kami batch path. Raised to
-    # match its sibling harvest_stop, which does strictly more work (it
-    # collects AND stops) and has never failed at 4,000,000.
-    "harvest_collect": 4_000_000,
+    # Measured from kami-oracle on 2026-08-27 over SUCCESSFUL
+    # (receipt status=1) transactions since 2026-06-01, joining raw_tx to
+    # kami_action on tx_hash and counting DISTINCT kami_id per tx to
+    # recover the batch size. p95 is per batch size; the pair below holds
+    # ~1.3x p95 across the whole measured range of n.
+    #
+    # -- system.harvest.start: n=1 p95 1,636,037 (349,296 tx);
+    # n=12 p95 9,339,266 (857 tx); n=25 p95 18,385,855 (67 tx).
+    # 1,300,000 + 950,000n = 1.38x at n=1, 1.36x at n=12, 1.36x at n=25.
+    "harvest_start_base": 1_300_000,
+    "harvest_start_per_item": 950_000,
+    # -- system.harvest.stop: n=1 p95 2,645,724 (366,809 tx);
+    # n=12 p95 19,029,290 (1,321 tx).
+    # 1,600,000 + 1,950,000n = 1.34x at n=1, 1.31x at n=12.
+    "harvest_stop_base": 1_600_000,
+    "harvest_stop_per_item": 1_950_000,
+    # -- system.harvest.collect: n=1 p95 2,465,867 (37,805 tx);
+    # n=12 p95 16,844,165 (35 tx).
+    # 1,600,000 + 1,700,000n = 1.34x at n=1, 1.31x at n=12.
+    # The 3.2.0-era note stands: this was once 2,000,000 against a
+    # 2,359,919 median and failed 12 of 12 attempts on-chain, every one
+    # diagnosed as an unexplained empty revert.
+    "harvest_collect_base": 1_600_000,
+    "harvest_collect_per_item": 1_700_000,
 }
+
+
+def _harvest_gas(key: str, count: int) -> int:
+    """Provisioned gas for a `count`-kami harvest call of family `key`.
+
+    One derivation for the single-kami path and the batch path: the
+    single path is simply count=1. Refuses over MAX_TX_GAS with the
+    split instruction, same as every other batch family.
+    """
+    return _batch_gas(
+        _GAS_CEILINGS[f"{key}_base"],
+        _GAS_CEILINGS[f"{key}_per_item"],
+        count,
+        "kamis",
+    )
+
+
+def _harvest_max_per_call(key: str) -> int:
+    """How many kamis of family `key` fit in one transaction's lane."""
+    return max(
+        1,
+        (MAX_TX_GAS - _GAS_CEILINGS[f"{key}_base"])
+        // _GAS_CEILINGS[f"{key}_per_item"],
+    )
 
 
 def _batch_gas(base: int, per_item: int, count: int, what: str) -> int:
@@ -253,8 +313,9 @@ def _batch_gas(base: int, per_item: int, count: int, what: str) -> int:
         fits = max(1, (MAX_TX_GAS - base) // per_item)
         raise PreTxValidationError(
             f"{count} {what} in one transaction needs about {gas:,} gas, "
-            f"more than the {MAX_TX_GAS:,} ceiling a single transaction "
-            f"may provision (the chain's block gas limit is 45,000,000). "
+            f"more than the {MAX_TX_GAS:,} this chain accepts as a single "
+            f"transaction's gas limit (its per-transaction lane cap; the "
+            f"block gas limit is 45,000,000). "
             f"Split into calls of at most {fits} {what}."
         )
     return gas
@@ -368,6 +429,15 @@ _UINT_VALUE_ABI = json.loads(
     '[{"type":"function","name":"safeGet",'
     '"inputs":[{"name":"entity","type":"uint256"}],'
     '"outputs":[{"type":"uint256"}],"stateMutability":"view"}]'
+)
+# A Stat component (health, power, harmony, violence) is the four-int32
+# struct (base, shift, boost, sync). `sync` is the depletable current
+# value; the other three describe the maximum.
+_STAT_VALUE_ABI = json.loads(
+    '[{"type":"function","name":"safeGet",'
+    '"inputs":[{"name":"entity","type":"uint256"}],'
+    '"outputs":[{"type":"int32"},{"type":"int32"},'
+    '{"type":"int32"},{"type":"int32"}],"stateMutability":"view"}]'
 )
 _UINT32_VALUE_ABI = json.loads(
     '[{"type":"function","name":"safeGet",'
@@ -1548,6 +1618,15 @@ def _mechanics_snippet(
                 f"Gas ceiling for this call: _GAS_CEILINGS['{ceiling_key}'] "
                 f"= {_GAS_CEILINGS[ceiling_key]:,}."
             )
+        elif ceiling_key and f"{ceiling_key}_base" in _GAS_CEILINGS:
+            # base + per_item families have no single constant to quote.
+            tail.append(
+                f"Gas ceiling for this call: "
+                f"_GAS_CEILINGS['{ceiling_key}_base'] "
+                f"{_GAS_CEILINGS[f'{ceiling_key}_base']:,} + "
+                f"['{ceiling_key}_per_item'] "
+                f"{_GAS_CEILINGS[f'{ceiling_key}_per_item']:,} per kami."
+            )
         if unread_facts:
             sentence = _unread_facts_sentence(read_facts)
             if sentence:
@@ -1832,6 +1911,7 @@ def _send_batch_tx(
     use_owner: bool = False,
     return_receipt: bool = False,
     ceiling_key: str | None = None,
+    gas_base: int = 0,
 ) -> dict:
     """Build, sign, send a batch/named-function transaction.
 
@@ -1843,6 +1923,12 @@ def _send_batch_tx(
     eth_call dry-run. The batch call is atomic on-chain; a confirmed
     revert raises OnChainRevertError, a receipt timeout raises
     TxUnconfirmedError.
+
+    Gas is `gas_base + gas_per_item * count`. `gas_base` defaults to 0 —
+    the historical shape — but a family whose cost curve has a large
+    fixed term must pass it, or the constant that fits a single entity
+    over-provisions every batch (see the harvest entries in
+    _GAS_CEILINGS).
     """
     if args and isinstance(args[0], list) and not args[0]:
         raise PreTxValidationError(
@@ -1866,7 +1952,7 @@ def _send_batch_tx(
     contract = w3.eth.contract(address=addr, abi=abi)
     fn = getattr(contract.functions, fn_name)(*args)
     count = max(len(args[0]) if isinstance(args[0], list) else 1, 1)
-    gas = _batch_gas(0, gas_per_item, count, "entities")
+    gas = _batch_gas(gas_base, gas_per_item, count, "entities")
 
     if use_owner:
         _require_registered_owner(account)
@@ -1930,7 +2016,11 @@ def _send_tx_retry(
             if attempt < retries - 1 and any(
                 m in str(e) for m in _RETRY_ROUTING_MARKERS
             ):
-                time.sleep(1)
+                # 1s, 2s, 4s. A wider backoff only helps a sequence that
+                # is stale because the node is behind; it cannot help a
+                # sequence that is stale because ANOTHER signer is using
+                # the same key (see CHANGELOG 3.4.0).
+                time.sleep(2 ** attempt)
                 continue
             raise
 
@@ -2605,6 +2695,21 @@ class LensUnavailableError(RuntimeError):
         )
 
 
+class LensNotReadyError(LensUnavailableError):
+    """The daemon is up but its mirror is not: state != LIVE.
+
+    Its own class because the alternative is what the daemon used to do
+    — answer `NOT_FOUND: node 9 not in mirror` while it was still at
+    SETUP 0%, which reads as "that node does not exist" and sends a
+    caller hunting a missing entity instead of waiting for a sync. A
+    subclass of LensUnavailableError because that is what it IS: no
+    world answer is available yet, and nothing here is an empty result.
+    """
+
+    def __init__(self, message: str):
+        super().__init__(message, daemon_state="not-live")
+
+
 class LensQueryError(ValueError):
     """A lens query answered with an error; code + message pass through
     (BAD_ARGS, NOT_FOUND, KAMIDEN_UNAVAILABLE, CHAT_DISABLED, ...)."""
@@ -2667,6 +2772,8 @@ def _lens_request(
         err = resp.get("error") or {}
         code = str(err.get("code") or "INTERNAL")
         message = str(err.get("message") or "")
+        if code == "NOT_READY":
+            raise LensNotReadyError(message)
         if code == "NOT_FOUND" and "mirror not initialized" in message:
             raise LensUnavailableError(message, daemon_state="starting")
         raise LensQueryError(code, message)
@@ -2796,9 +2903,6 @@ def create_operator_wallet(account: str) -> dict:
     carries only the public address. Refuses to overwrite an existing
     operator key. The new operator is bound on-chain later by
     register_account.
-
-    Args:
-        account: Account label.
     """
     label = account.lower()
     if not label.replace("_", "").isalnum():
@@ -3629,9 +3733,6 @@ async def get_all_strategy_statuses(
 @mcp.tool()
 async def get_strategy_status(kami_id: int, account: str = "main") -> dict:
     """Strategy status for a specific kami. Cached 15s server-side.
-
-    Args:
-        kami_id: Kami token index.
     """
     return await _strategy_api(
         "GET", f"/api/strategies/status/{kami_id}", None, account
@@ -3681,18 +3782,22 @@ def lens_kami(kami_index: int, stats: bool = False) -> dict:
 
 
 @mcp.tool()
-def lens_account(account_key: str = "", prose: bool = False) -> dict:
+def lens_account(
+    account_key: str = "", prose: bool = False, identity_only: bool = False
+) -> dict:
     """Account by on-chain index or name: identity, room, stamina
-    (current/total), kami roster.
+    (current/total), kami roster. identity_only omits the roster.
 
     Args:
         account_key: Account index (digits) or account name. Empty:
             the daemon's default operator, if set.
         prose: If true, includes player-authored prose fields (bio).
+        identity_only: Identity, room and stamina only; no roster.
     """
-    return _lens_request(
-        "account", [account_key] if account_key else [], prose=prose
-    )
+    args: list = [account_key] if account_key else []
+    if identity_only:
+        args.append("--slim")
+    return _lens_request("account", args, prose=prose)
 
 
 @mcp.tool()
@@ -3739,6 +3844,7 @@ def lens_node(
     attacker_kami_index: int = -1,
     full: bool = False,
     stats: bool = False,
+    eligible_only: bool = False,
 ) -> dict:
     """Harvest node with its ACTIVE harvests (occupant identities),
     first 50 by kami index; harvestsTotal/harvestsServed count them.
@@ -3747,9 +3853,9 @@ def lens_node(
     hpRatePerHr, musuAccrued, cooldownSec); attacker_kami_index (any
     kami; requires with_vitals) adds a liquidation preview per
     non-attacker row (eligible, threshold, spoils, salvage, recoil).
+    eligible_only keeps only rows the attacker can liquidate now.
 
     Args:
-        node_index: Harvest node index.
         with_vitals: Include occupant vitals.
         attacker_kami_index: Kami index for the liquidation preview
             (-1 omits it).
@@ -3757,6 +3863,7 @@ def lens_node(
             description. Large: node 86 with vitals is ~1 MB.
         stats: Add the stat block (as lens_kami) per occupant.
             Requires with_vitals.
+        eligible_only: Only liquidation-eligible rows.
     """
     args: list = [node_index]
     if attacker_kami_index >= 0:
@@ -3766,9 +3873,13 @@ def lens_node(
     if full:
         args.append("--full")
     # Not pre-validated against with_vitals: the daemon owns that rule
-    # and answers BAD_ARGS for it (P5 verbatim pass-through).
+    # and answers BAD_ARGS for it (P5 verbatim pass-through). Same for
+    # --eligible-only, which the daemon refuses without --with-vitals
+    # AND an attacker argument.
     if stats:
         args.append("--stats")
+    if eligible_only:
+        args.append("--eligible-only")
     return _lens_request("node", args)
 
 
@@ -3834,7 +3945,6 @@ def lens_config(field_name: str, array: bool = False) -> dict:
     """One on-chain game-config field value.
 
     Args:
-        field_name: Config field name.
         array: If true, decode the value as a packed array.
     """
     args: list = [field_name]
@@ -3905,7 +4015,6 @@ def lens_battles(kami_index: int, before_ms: int = -1) -> dict:
     """Battle history and stats for a kami.
 
     Args:
-        kami_index: Kami token index.
         before_ms: Page back from this ms timestamp (-1 for latest).
     """
     args: list = [kami_index]
@@ -4031,7 +4140,6 @@ def lens_chat(
     CHAT_DISABLED and contacts nothing.
 
     Args:
-        room_index: Room index.
         before_ms: Page back from this ms timestamp (-1 for latest).
         size: Page size (-1 default; requires before_ms).
         oversize: Serve message bodies withheld for size.
@@ -4053,8 +4161,9 @@ def lens_chat(
 @mcp.tool()
 def lens_status() -> dict:
     """kami-lens daemon status: sync state, live block, blocks behind
-    chain head (blockLag), stream health, degraded flags, per-feed
-    service health, and the daemon's version and configuration."""
+    chain head (blockLag), stream health, degraded and feedsDegraded
+    flags, per-feed service health, and the daemon's version and
+    configuration."""
     return _lens_request("status")
 
 
@@ -4286,11 +4395,88 @@ _ABI_AUCTION_BUY = json.loads(
 )
 
 
+def _kami_last_synced_hp(kami_index: int) -> int | None:
+    """The kami's HP as of its last on-chain sync. None if unreadable.
+
+    component.stat.health is the (base, shift, boost, sync) Stat struct;
+    `sync` — the fourth word — is the depletable current value, clamped
+    to 0 <= sync <= total.
+
+    ONE-WAY SOUNDNESS. Health is not updated in real time: it is
+    recomputed lazily by LibKami.sync(id) whenever the kami acts, so the
+    stored value is the HP at the kami's last transaction. A HARVESTING
+    kami only LOSES health between syncs (harvest strain drains it), so:
+
+        sync == 0  =>  current HP is 0. Refusing is always correct.
+        sync  > 0  =>  inconclusive; it may have drained to 0 since.
+
+    That is why this read gates rather than decides. The pre-send
+    eth_call dry-run stays the backstop for the second case, and its
+    bare `kami starving..` is re-raised with the mechanic attached.
+    Reading the live value would mean reproducing the drain curve here;
+    it is not needed to catch the case this gate exists for — a kami
+    zeroed by liquidation recoil is zeroed BY a transaction, so its
+    stored sync is already 0.
+    """
+    try:
+        comp = w3.eth.contract(
+            address=_resolve_component("component.stat.health"),
+            abi=_STAT_VALUE_ABI,
+        )
+        return int(comp.functions.safeGet(_kami_entity_id(kami_index)).call()[3])
+    except Exception:
+        return None
+
+
+_STARVING_MECHANIC = "feed first"
+
+
+def _starving_detail(kami_index: int) -> str:
+    """The one wording both harvest tools use for a starving kami."""
+    return f"kami {kami_index} is starving (HP 0): {_STARVING_MECHANIC}"
+
+
+@contextlib.contextmanager
+def _starving_revert_named(kami_ids: list[int], account: str, action: str):
+    """Re-raise a bare `kami starving..` revert with the remedy attached.
+
+    The pre-send validator catches the kamis whose STORED health is 0.
+    A kami that drained to 0 since its last sync passes that gate and
+    fails in the eth_call dry-run instead, where the chain's own text is
+    `kami starving..` and says nothing about what to do. Same mechanic,
+    same sentence, whichever gate caught it.
+    """
+    try:
+        yield
+    except PreTxValidationError as e:
+        if "starving" not in str(e.detail):
+            raise
+        which = ", ".join(str(k) for k in kami_ids)
+        raise PreTxValidationError(
+            f"{e.detail} — a kami of ({which}) is at HP 0 and cannot stop "
+            f"or collect a harvest: {_STARVING_MECHANIC}",
+            mechanics={
+                "subjects": [{"kami_id": k} for k in kami_ids],
+                "attempted": action,
+                "requires": "HP above 0",
+                "account": account,
+                "read_facts": ("HP",),
+                "unread_facts": True,
+            },
+        ) from None
+
+
 def _validate_active_harvests(
     kami_ids: list[int], account: str, action: str
 ) -> None:
     """Shared harvest_stop/harvest_collect gate: non-empty batch,
-    registered account, each kami owned with an ACTIVE harvest entity."""
+    registered account, each kami owned with an ACTIVE harvest entity,
+    and not starving.
+
+    The chain enforces the last one through LibKami.verifyHealthy, which
+    BOTH HarvestStopSystem and HarvestCollectSystem call, and reverts
+    with the bare string `kami starving..` — which says nothing about
+    the remedy. Catching it here costs one component read and no gas."""
     if not kami_ids:
         raise PreTxValidationError(
             f"kami_ids is empty; {action} requires at least one kami"
@@ -4299,6 +4485,7 @@ def _validate_active_harvests(
     problems: list[str] = []
     subjects: list[dict] = []
     state_failed = False
+    starving_failed = False
     for k in kami_ids:
         if _kami_owner_id(k) != aid:
             problems.append(f"kami #{k} is not owned by account '{account}'")
@@ -4312,13 +4499,28 @@ def _validate_active_harvests(
             )
             subjects.append({"kami_id": k, "harvest_state": hstate})
             state_failed = True
+            continue
+        if _kami_last_synced_hp(k) == 0:
+            problems.append(_starving_detail(k))
+            subjects.append({"kami_id": k, "harvest_state": hstate})
+            starving_failed = True
     if problems:
+        requires = None
+        if state_failed:
+            requires = "harvest ACTIVE"
+        elif starving_failed:
+            requires = "HP above 0"
         raise PreTxValidationError(
             "; ".join(problems),
             mechanics={
                 "subjects": subjects,
                 "attempted": action,
-                "requires": "harvest ACTIVE" if state_failed else None,
+                "requires": requires,
+                # No unread-preconditions sentence here: this gate has
+                # never emitted one, and the sentence's job is to correct
+                # the paths that DO — see _starving_revert_named, which
+                # passes read_facts=("HP",) when re-raising the dry-run's
+                # own snippet so it stops listing HP as unread.
             },
         )
 
@@ -4328,7 +4530,7 @@ def harvest_start(kami_ids: list[int], node_index: int, account: str = "main") -
     """Start harvesting for one or more kamis at a node.
 
     Kamis must be in the same room as the node and not already
-    harvesting; multiple kamis go in one batch transaction.
+    harvesting; multiple kamis go in one batch transaction (at most 31).
 
     Validates before signing (no gas spent on failure): kami_ids
     non-empty, account registered, each kami owned and RESTING, then an
@@ -4350,16 +4552,16 @@ def harvest_start(kami_ids: list[int], node_index: int, account: str = "main") -
             return _send_tx(
                 account, "system.harvest.start", _ABI_HARVEST_START,
                 [entity_ids[0], node_index, 0, 0],
-                gas_limit=_GAS_CEILINGS["harvest_start"],
+                gas_limit=_harvest_gas("harvest_start", 1),
                 ceiling_key="harvest_start",
             )
-        # Batch: _send_batch_tx multiplies this by the number of kamis the
-        # transaction settles.
+        # Batch: _send_batch_tx applies base + per_item x kamis settled.
         return _send_batch_tx(
             account, "system.harvest.start", _ABI_HARVEST_START,
             "executeBatched", [entity_ids, node_index, 0, 0],
-            _GAS_CEILINGS["harvest_start"],
+            _GAS_CEILINGS["harvest_start_per_item"],
             ceiling_key="harvest_start",
+            gas_base=_GAS_CEILINGS["harvest_start_base"],
         )
     except PreTxValidationError as e:
         # The chain reports the first gate that failed and stops. The
@@ -4386,29 +4588,32 @@ def harvest_start(kami_ids: list[int], node_index: int, account: str = "main") -
 def harvest_stop(kami_ids: list[int], account: str = "main") -> dict:
     """Stop active harvests and auto-collect rewards.
 
-    Multiple kamis go in one batch transaction; rewards + scavenge
-    points are distributed on stop.
+    Multiple kamis go in one batch transaction (at most 15); rewards +
+    scavenge points are distributed on stop.
 
     Validates before signing (no gas spent on failure): kami_ids
     non-empty, account registered, each kami owned with an ACTIVE
-    harvest, then an eth_call dry-run.
+    harvest and above 0 HP, then an eth_call dry-run.
 
     Args:
         kami_ids: Kami token indices whose harvests to stop.
     """
     _validate_active_harvests(kami_ids, account, "harvest_stop")
     h_ids = [_harvest_entity_id(k) for k in kami_ids]
-    if len(h_ids) == 1:
-        return _send_tx(
+    with _starving_revert_named(kami_ids, account, "harvest_stop"):
+        if len(h_ids) == 1:
+            return _send_tx(
+                account, "system.harvest.stop", _ABI_HARVEST_STOP,
+                [h_ids[0]], gas_limit=_harvest_gas("harvest_stop", 1),
+                ceiling_key="harvest_stop",
+            )
+        result = _send_batch_tx(
             account, "system.harvest.stop", _ABI_HARVEST_STOP,
-            [h_ids[0]], gas_limit=_GAS_CEILINGS["harvest_stop"],
+            "executeBatched", [h_ids],
+            _GAS_CEILINGS["harvest_stop_per_item"],
             ceiling_key="harvest_stop",
+            gas_base=_GAS_CEILINGS["harvest_stop_base"],
         )
-    result = _send_batch_tx(
-        account, "system.harvest.stop", _ABI_HARVEST_STOP,
-        "executeBatched", [h_ids], _GAS_CEILINGS["harvest_stop"],
-        ceiling_key="harvest_stop",
-    )
     result["kamis"] = kami_ids
     return result
 
@@ -4418,28 +4623,32 @@ def harvest_collect(kami_ids: list[int], account: str = "main") -> dict:
     """Collect rewards from active harvests WITHOUT stopping them.
 
     Partial collection — kamis keep harvesting; rewards + scavenge
-    points are distributed. Multiple kamis go in one batch transaction.
+    points are distributed. Multiple kamis go in one batch transaction
+    (at most 17).
 
     Validates before signing (no gas spent on failure): kami_ids
     non-empty, account registered, each kami owned with an ACTIVE
-    harvest, then an eth_call dry-run.
+    harvest and above 0 HP, then an eth_call dry-run.
 
     Args:
         kami_ids: Kami token indices whose harvests to collect.
     """
     _validate_active_harvests(kami_ids, account, "harvest_collect")
     h_ids = [_harvest_entity_id(k) for k in kami_ids]
-    if len(h_ids) == 1:
-        return _send_tx(
+    with _starving_revert_named(kami_ids, account, "harvest_collect"):
+        if len(h_ids) == 1:
+            return _send_tx(
+                account, "system.harvest.collect", _ABI_HARVEST_COLLECT,
+                [h_ids[0]], gas_limit=_harvest_gas("harvest_collect", 1),
+                ceiling_key="harvest_collect",
+            )
+        result = _send_batch_tx(
             account, "system.harvest.collect", _ABI_HARVEST_COLLECT,
-            [h_ids[0]], gas_limit=_GAS_CEILINGS["harvest_collect"],
+            "executeBatched", [h_ids],
+            _GAS_CEILINGS["harvest_collect_per_item"],
             ceiling_key="harvest_collect",
+            gas_base=_GAS_CEILINGS["harvest_collect_base"],
         )
-    result = _send_batch_tx(
-        account, "system.harvest.collect", _ABI_HARVEST_COLLECT,
-        "executeBatched", [h_ids], _GAS_CEILINGS["harvest_collect"],
-        ceiling_key="harvest_collect",
-    )
     result["kamis"] = kami_ids
     return result
 
@@ -4502,6 +4711,159 @@ _SP_ITEM_IDS = {21201, 21202, 21203, 21204, 21205, 21206}
 # on-chain ACCOUNT_STAMINA config is a packed uint32 array, and unpacking
 # it is upstream's encoding, not a fact this module holds.
 _ACCOUNT_STAMINA_CAP = 100
+
+
+def _evaluate_room_gate(gate: dict, account_id: int) -> bool | None:
+    """Does this account satisfy one room-exit gate? None = unevaluable.
+
+    Mirrors LibConditional.check for the three condition types the live
+    world puts on room exits. Sources: kamigotchi-gdd
+    mechanics/utility/conditionals.md (condition shape, AND over all
+    conditions, operator table), mechanics/world/rooms.md (a gate's
+    conditions are the union of the destination's generic gates and the
+    source-specific ones), catalogs/rooms/README.md (the per-type
+    meanings quoted below). The gdd is documentation, not contract
+    source, and it does not document LibGetter's type dispatch, so each
+    branch below was verified against live chain state on 2026-08-27 at
+    block 32,650,458 using an account whose crossings are known: it had
+    walked through the room-68 gate (goal complete -> True) and had
+    reverted `AccMove: inaccessible room` at the room-15 gate (quest 35
+    not completed -> False).
+
+      QUEST         BOOL_IS on the account's own quest instance —
+                    keccak256("quest.instance", questIndex, accountId),
+                    IsComplete set. `value` is unused for BOOL_*.
+      ITEM          CURR_MIN on the account's inventory balance of
+                    `index`, threshold `value`.
+      COMPLETE_COMP BOOL_IS on a GLOBAL goal entity carried whole in
+                    `value` (keccak256("goal", n) upstream). This is a
+                    community-completion flag, not an account fact: an
+                    account that never contributed still passes.
+
+    Returns None — never False — when the read fails or the type is one
+    this module does not implement. The caller must treat that as "not
+    known to be passable" and SAY so: a gate silently downgraded to
+    False is a false refusal, and one silently upgraded to True is the
+    stranding this whole path exists to prevent.
+    """
+    kind = (gate.get("type") or "").strip()
+    raw = str(gate.get("value") or "").strip()
+    try:
+        if kind == "QUEST":
+            q_id = _quest_entity_id(int(gate["index"]), account_id)
+            comp = w3.eth.contract(
+                address=_resolve_component("component.is.complete"),
+                abi=_BOOL_COMPONENT_ABI,
+            )
+            return bool(comp.functions.has(q_id).call())
+        if kind == "ITEM":
+            need = int(raw, 16) if raw.lower().startswith("0x") else int(raw)
+            balance = _inventory_balance(account_id, int(gate["index"]))
+            return balance >= max(1, need)
+        if kind == "COMPLETE_COMP":
+            comp = w3.eth.contract(
+                address=_resolve_component("component.is.complete"),
+                abi=_BOOL_COMPONENT_ABI,
+            )
+            return bool(comp.functions.has(int(raw, 16)).call())
+    except Exception:
+        return None
+    return None
+
+
+def _gate_phrase(g: dict) -> str:
+    """One gate as text: type, index and the catalog's own wording.
+
+    The `text` the catalog carries is templated upstream and is wrong on
+    the COMPLETE_COMP rows (nine distinct goals all read "Gate at Scrap
+    Paths unlocked"), so the type and index lead and the text trails as
+    a label rather than as the identification.
+    """
+    where = f"{g['type']}"
+    if g.get("index"):
+        where += f" {g['index']}"
+    txt = (g.get("text") or "").strip()
+    return f"{where} ({txt})" if txt else where
+
+
+def _plan_gates(
+    current_room: int, target_room: int, account_id: int
+) -> tuple[list[int] | None, list[dict], list[dict]]:
+    """Shortest path this ACCOUNT can actually walk, plus the gate record.
+
+    BFS over the whole graph, evaluate every gate on the resulting path
+    against the account, drop the edges it cannot cross, and BFS again —
+    until a path survives or none does. Each distinct gate is read once.
+
+    Returns (path or None, gated_hops on that path, blocking gates).
+    `blocking` is empty when a path was found; when it is not, it names
+    the gates on the FIRST path — the one an ungated planner would have
+    marched the account down, spending stamina and gas per hop until the
+    chain refused the gated one.
+    """
+    blocked: set[tuple[int, int]] = set()
+    cache: dict[tuple, bool | None] = {}
+    first_blocking: list[dict] | None = None
+    # The first BFS runs on the whole graph, so an unknown room or a
+    # genuinely disconnected target still raises ValueError to the
+    # caller's existing handler rather than being reported as a gate.
+    path = rooms_graph.shortest_path(current_room, target_room)
+    while True:
+        hops: list[dict] = []
+        blocking: list[dict] = []
+        newly_blocked = False
+        for a, b in zip(path, path[1:]):
+            for gate in rooms_graph.gates_on(a, b):
+                key = (gate["type"], gate["index"], gate["value"])
+                if key not in cache:
+                    cache[key] = _evaluate_room_gate(gate, account_id)
+                verdict = cache[key]
+                rec = {
+                    "from": a,
+                    "to": b,
+                    "type": gate["type"],
+                    "index": gate["index"],
+                    "text": gate["text"],
+                    "passable": True if verdict is True
+                    else (False if verdict is False else "unknown"),
+                }
+                hops.append(rec)
+                if verdict is not True:
+                    blocking.append(rec)
+                    if (a, b) not in blocked:
+                        blocked.add((a, b))
+                        newly_blocked = True
+        if first_blocking is None:
+            first_blocking = blocking
+        if not newly_blocked:
+            return path, hops, []
+        # Re-plan around the edges just ruled out. This terminates:
+        # every pass adds at least one edge to a set bounded by the
+        # graph, and BFS raises once the remainder disconnects.
+        try:
+            path = rooms_graph.shortest_path(current_room, target_room, blocked)
+        except ValueError:
+            return None, hops, first_blocking
+
+
+def _gate_refusal_text(
+    current_room: int, target_room: int, blocking: list[dict]
+) -> str:
+    """Why no route exists for this account, naming each blocking gate."""
+    parts = []
+    for g in blocking:
+        if g["passable"] == "unknown":
+            parts.append(
+                f"{g['from']}->{g['to']} gate could not be evaluated "
+                f"({_gate_phrase(g)})"
+            )
+        else:
+            parts.append(f"{g['from']}->{g['to']} blocked by {_gate_phrase(g)}")
+    return (
+        f"no route from room {current_room} to room {target_room} that this "
+        f"account can walk: " + "; ".join(parts) + ". Nothing was sent and "
+        f"no stamina was spent."
+    )
 
 
 def _read_account_view(account_id: int) -> tuple[dict | None, str]:
@@ -4570,9 +4932,10 @@ async def travel_to_room(
 
     BFS over the static room graph plans hops (5 stamina each); each hop
     is its own transaction through the standard validation gates. Room,
-    stamina and SP+ holdings are read from chain state per call. With
-    use_items=true the plan inserts SP+ item uses, but only against a
-    deficit it computes. A step failure
+    stamina and SP+ holdings are read from chain state per call. Gated
+    exits are checked against this account on chain and routed around;
+    with no route the call refuses instead of stranding the account
+    part-way. A step failure
     mid-path raises with every executed step (completed hops are final
     — the account really moved); allow_partial=true returns that
     partial result instead. A plan that cannot reach the target on
@@ -4581,9 +4944,8 @@ async def travel_to_room(
 
     Args:
         target_room: Destination room index (catalogs/rooms.csv).
-        use_items: If True, consume SP+ items to cover a stamina
-            deficit the plan actually has. Default False.
-        dry_run: If True, return the plan without executing.
+        dry_run: If True, return the plan (with gated_hops) without
+            executing.
     """
     # Registration gate: an unregistered operator otherwise surfaces as
     # an opaque state-read failure. Each executed hop additionally runs
@@ -4620,9 +4982,20 @@ async def travel_to_room(
             "hops": 0,
         }
 
-    # --- Pathfind ---
+    # --- Pathfind, around the gates this account cannot cross ---
+    #
+    # The static graph cannot see access conditions: a plan over it once
+    # dry-ran as feasible, executed three hops (15 stamina, ~2.7M gas)
+    # and then reverted `AccMove: inaccessible room` on hop 4, leaving
+    # the account on a side branch. The gate cannot be pre-checked by
+    # eth_call from where the account stands either — the move system
+    # takes only the destination and checks reachability from the
+    # CURRENT room first, so a probe of a later hop returns `unreachable`
+    # and never reaches the gate. So the gates are evaluated directly.
     try:
-        path = rooms_graph.shortest_path(current_room, target_room)
+        path, gated_hops, blocking = _plan_gates(
+            current_room, target_room, aid
+        )
     except ValueError as e:
         return {
             "error": str(e),
@@ -4631,6 +5004,23 @@ async def travel_to_room(
                 "target_room": target_room,
             },
         }
+
+    if path is None:
+        refusal = _gate_refusal_text(current_room, target_room, blocking)
+        if dry_run:
+            return {
+                "dry_run": True,
+                "feasible": False,
+                "path": [],
+                "hops": 0,
+                "plan": [],
+                "gated_hops": gated_hops,
+                "blocked_by": blocking,
+                "partial_reason": refusal,
+                "stamina_have": stamina,
+                "final_room_if_executed": current_room,
+            }
+        raise PreTxValidationError(refusal)
 
     needed = rooms_graph.move_cost(path)
 
@@ -4711,6 +5101,7 @@ async def travel_to_room(
             "stamina_have": stamina,
             "stamina_after_plan": sim_stamina,
             "feasible": plan_reaches_target,
+            "gated_hops": gated_hops,
             "items_to_use": [
                 {"item_id": iid, "count": c} for iid, c in items_to_use.items()
             ],
@@ -4747,6 +5138,17 @@ async def travel_to_room(
                     f"hop {moves_executed + 1} to room {step['room']} "
                     f"failed: {e}"
                 )
+                # The chain's word for a gate is bare. Name the gate the
+                # catalog holds for exactly this edge, so the failure is
+                # actionable instead of merely accurate.
+                if "AccMove: inaccessible room" in str(e):
+                    gates = rooms_graph.gates_on(final_room, step["room"])
+                    if gates:
+                        exec_error += (
+                            " — catalogs/room-gates.csv gates "
+                            f"{final_room}->{step['room']} on "
+                            + "; ".join(_gate_phrase(g) for g in gates)
+                        )
                 # A hop that landed and reverted spent gas and has a
                 # hash. Dropping it here makes the payload disagree with
                 # the chain, and a consumer keyed on tx hashes silently
@@ -4951,7 +5353,6 @@ def feed_kami(kami_id: int, food_item_id: int, account: str = "main") -> dict:
     dry-run.
 
     Args:
-        kami_id: Kami token index.
         food_item_id: Food item ID (e.g. 11302=burger, 50hp; the
             item registry via lens_items has the full list).
     """
@@ -5008,7 +5409,6 @@ def revive_kami(
     cost, then an eth_call dry-run.
 
     Args:
-        kami_id: Kami token index.
         method: Revive path (default "onyx").
     """
     aid = _require_registered_operator(account)
@@ -5054,9 +5454,6 @@ def level_up_kami(kami_id: int, account: str = "main") -> dict:
     Validates before signing (no gas spent on failure): account
     registered, kami owned, then an eth_call dry-run — insufficient XP
     surfaces as a validation error with the chain's reason.
-
-    Args:
-        kami_id: Kami token index.
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "level_up_kami")
@@ -5101,7 +5498,6 @@ def name_kami(kami_id: int, name: str, account: str = "main") -> dict:
     uniqueness).
 
     Args:
-        kami_id: Kami token index.
         name: New name (1-16 bytes, globally unique).
     """
     name_bytes = len(name.encode())
@@ -5126,7 +5522,6 @@ def upgrade_skill(kami_id: int, skill_index: int, account: str = "main") -> dict
     tier gates).
 
     Args:
-        kami_id: Kami token index.
         skill_index: Skill index from catalogs/skills.csv.
     """
     aid = _require_registered_operator(account)
@@ -5154,7 +5549,6 @@ def allocate_skills(
     non-empty, account registered, kami owned, then per-tx dry-runs.
 
     Args:
-        kami_id: Kami token index.
         skill_plan: [{"skill_index": int, "points": int}, ...];
             lower tiers first.
     """
@@ -5223,7 +5617,6 @@ async def level_to(
     registered, kami owned, then per-tx dry-runs.
 
     Args:
-        kami_id: Kami token index.
         target_level: Desired level.
     """
     aid = _require_registered_operator(account)
@@ -5528,7 +5921,6 @@ def use_item_batch(
     dry-runs.
 
     Args:
-        kami_id: Kami token index.
         item_id: Item ID (e.g. 11411 XP potion, 11302 Burger).
         count: Number of uses.
     """
@@ -5618,10 +6010,6 @@ def equip_item(kami_id: int, item_index: int, account: str = "main") -> dict:
     Validates before signing (no gas spent on failure): account
     registered, kami owned, item held, then an eth_call dry-run
     (state, slot occupancy).
-
-    Args:
-        kami_id: Kami token index.
-        item_index: Item index from inventory.
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "equip_item")
@@ -5643,7 +6031,6 @@ def unequip_item(kami_id: int, slot_type: str, account: str = "main") -> dict:
     occupancy).
 
     Args:
-        kami_id: Kami token index.
         slot_type: Equipment slot name (e.g. "Kami_Pet_Slot").
     """
     aid = _require_registered_operator(account)
@@ -7607,8 +7994,9 @@ def stop_harvest_batch(
         _ABI_HARVEST_STOP_BATCH,
         "executeBatchedAllowFailure",
         [harvest_ids],
-        _GAS_CEILINGS["harvest_stop"],
+        _GAS_CEILINGS["harvest_stop_per_item"],
         ceiling_key="harvest_stop",
+        gas_base=_GAS_CEILINGS["harvest_stop_base"],
     )
 
     # Post-tx verification: read each kami's harvest.state component.
@@ -7697,9 +8085,6 @@ def accept_quest(quest_index: int, account: str = "main") -> dict:
     Validates before signing (no gas spent on failure): account
     registered, quest not already accepted or completed, then an
     eth_call dry-run (prerequisites, location).
-
-    Args:
-        quest_index: Quest index to accept.
     """
     aid = _require_registered_operator(account)
     owned, completed = _quest_owned_completed(
@@ -7728,9 +8113,6 @@ def complete_quest(quest_index: int, account: str = "main") -> dict:
     registered, quest accepted and not already completed, then an
     eth_call dry-run — unmet objectives surface with the chain's
     reason.
-
-    Args:
-        quest_index: Quest index of the active quest.
     """
     aid = _require_registered_operator(account)
     q_id = _quest_entity_id(quest_index, aid)
@@ -7760,9 +8142,6 @@ def check_quest_completable(quest_index: int, account: str = "main") -> dict:
 
     Returns completable=True when all objectives are met; otherwise the
     chain's reason.
-
-    Args:
-        quest_index: Quest index to check.
     """
     acc_id = _account_entity_id(account)
     q_id = _quest_entity_id(quest_index, acc_id)
@@ -7880,9 +8259,6 @@ def get_expected_objective(quest_index: int) -> dict:
     catalog rows (catalogs/quests/) for a quest — objective type,
     target index, value — so the needed actions are explicit.
     check_quest_completable / quest_state read the chain.
-
-    Args:
-        quest_index: Quest index to look up.
     """
     _load_quest_catalog()
     quest = _QUEST_CATALOG.get(quest_index)
@@ -7942,9 +8318,6 @@ def drop_quest(quest_index: int, account: str = "main") -> dict:
     Validates before signing (no gas spent on failure): account
     registered, quest accepted and not completed, then an eth_call
     dry-run.
-
-    Args:
-        quest_index: Quest index of the active quest.
     """
     aid = _require_registered_operator(account)
     q_id = _quest_entity_id(quest_index, aid)
@@ -7993,7 +8366,6 @@ def burn_items(
     holds each amount, then an eth_call dry-run.
 
     Args:
-        item_indices: Item indices to burn.
         amounts: Amounts to burn, parallel to item_indices.
     """
     if not item_indices:
@@ -8053,7 +8425,6 @@ def craft_item(
     stamina).
 
     Args:
-        recipe_index: Recipe index.
         amount: Crafts in this transaction (multiplies inputs/outputs).
     """
     if amount < 1:
@@ -8211,9 +8582,6 @@ def get_scavenge_points(node_index: int, account: str = "main") -> dict:
     Reads the per-account scavenge instance and the node's tier cost
     from chain components; 0 points if the account never harvested
     there.
-
-    Args:
-        node_index: Harvest node index.
     """
     instance_id = _scavenge_instance_id(node_index, account)
     registry_id = _scavenge_registry_id(node_index)
@@ -8256,7 +8624,6 @@ async def get_scavenge_droptable(
     overestimates rare drops 4-5x.
 
     Args:
-        node_index: Harvest node index.
         account: Account label (API auth header).
     """
     nodes = await _api_get("/api/playwright/nodes", account)
@@ -8486,9 +8853,6 @@ def scavenge_claim(node_index: int, account: str = "main") -> dict:
     Validates before signing (no gas spent on failure): account
     registered, accumulated points cover at least one tier at the node,
     then an eth_call dry-run.
-
-    Args:
-        node_index: Harvest node index.
     """
     _require_registered_operator(account)
     points_info = get_scavenge_points(node_index, account)
@@ -8554,9 +8918,6 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
     commit_ids for droptable_reveal; the claim is final either way.
     Both legs' hashes are in `txs` either way; `revealed_items` carries
     what the rolls granted.
-
-    Args:
-        node_index: Harvest node index.
     """
     # Step 1: Claim (scavenge_claim's own validation gates apply; a
     # claim that reverts on-chain raises from scavenge_claim itself).
@@ -8951,8 +9312,9 @@ def liquidate_kami(
     remainder joins the attacker's own harvest bounty as spoils (scaled
     by attacker power), and the rest is destroyed. The attacker takes
     recoil damage (scaled by victim violence and the attacker's
-    accumulated harvest strain), the attacker's liquidation cooldown
-    resets, and the attacker's account receives 1 Obol (item 1015).
+    accumulated harvest strain), possibly to 0 HP, where it cannot stop
+    or collect until fed; the attacker's liquidation cooldown resets,
+    and the attacker's account receives 1 Obol (item 1015).
     lens_node with with_vitals=true and attacker_kami_index previews
     eligibility, threshold, spoils, salvage, and recoil per occupant.
 

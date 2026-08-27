@@ -182,9 +182,9 @@ owner wallet (noted per tool).
 | `gacha_reroll(kami_ids, account)` | Reroll kamis: deposit owned kamis into the gacha pool for random replacements (commit + reveal in one call). |
 | `gacha_reveal(commit_ids, account)` | Manually reveal gacha commit(s) — recovery path. |
 | `gacha_use(amount, account)` | Spend Gacha Tickets to mint new kamis (commit + reveal in one call). |
-| `harvest_collect(kami_ids, account)` | Collect rewards from active harvests WITHOUT stopping them. |
-| `harvest_start(kami_ids, node_index, account)` | Start harvesting for one or more kamis at a node. |
-| `harvest_stop(kami_ids, account)` | Stop active harvests and auto-collect rewards. |
+| `harvest_collect(kami_ids, account)` | Collect rewards from active harvests WITHOUT stopping them (at most 17 per call). |
+| `harvest_start(kami_ids, node_index, account)` | Start harvesting for one or more kamis at a node (at most 31 per call). |
+| `harvest_stop(kami_ids, account)` | Stop active harvests and auto-collect rewards (at most 15 per call). |
 | `level_and_allocate_batch(targets, account, allow_partial)` | Batch level-up and skill allocation across many kamis in one call. |
 | `level_to(kami_id, target_level, account, allow_partial)` | Level up a kami repeatedly until it reaches target_level. |
 | `level_up_kami(kami_id, account)` | Level up a kami if it has enough XP. Grants 1 skill point. |
@@ -208,7 +208,7 @@ owner wallet (noted per tool).
 | `take_trade(trade_id, account)` | Take (execute) a pending trade as the taker. Owner wallet. |
 | `transfer_items(item_indices, amounts, to_account, to_address, account)` | Transfer in-world items to another account via system.item.transfer. |
 | `transfer_kami(kami_ids, to_account, to_address, account)` | Transfer in-world kami(s) to another account via system.kami.send. |
-| `travel_to_room(target_room, account, use_items, dry_run, allow_partial)` | Travel to a target room via the shortest path, consuming stamina and optionally using SP+ items to extend range. |
+| `travel_to_room(target_room, account, use_items, dry_run, allow_partial)` | Travel to a target room via the shortest path, consuming stamina and optionally using SP+ items to extend range. Gated exits are checked against the account and routed around; with no route the call refuses rather than stranding it. |
 | `unequip_all_batch(kami_ids, slot_type, account, delay_seconds, allow_partial)` | Unequip a slot from many kamis (server-side loop, dry-run gated). |
 | `unequip_item(kami_id, slot_type, account)` | Unequip an item from a kami slot. Kami must be RESTING. |
 | `upgrade_skill(kami_id, skill_index, account)` | Upgrade a skill on a kami by 1 point. Costs 1 SP. Kami must be RESTING. |
@@ -229,7 +229,7 @@ its per-item result instead of raising.
 World-state reads. They sign nothing and change no remote state.
 
 24 of them are thin wrappers over the local **kami-lens** daemon
-(release `f07b578` / 0.5.1, declared in [`SPEC.md`](../SPEC.md) D1). A
+(release `8b74007` / 0.5.2, declared in [`SPEC.md`](../SPEC.md) D1). A
 wrapper
 does argument mapping, exactly one socket request, and envelope
 pass-through: the daemon's `{data, untrusted, meta}` reaches the caller
@@ -255,7 +255,7 @@ serves them at this pin: `quest_state` and `check_quest_completable`
 | `get_item_orderbook(item_index, side)` | Order book for one item — every open trade, all makers. Read-only. |
 | `get_scavenge_droptable(node_index, account)` | Read on-chain scavenge droptable + correctly compute drop probabilities. |
 | `get_scavenge_points(node_index, account)` | Check accumulated scavenge points + claimable tiers for a node. |
-| `lens_account(account_key, prose)` | Account by on-chain index or name: identity, room, stamina (current/total), kami roster. |
+| `lens_account(account_key, prose, identity_only)` | Account by on-chain index or name: identity, room, stamina (current/total), kami roster. identity_only omits the roster. |
 | `lens_auctions(item_index)` | Chain auctions with current GDA price; with item_index, that item's buy history. |
 | `lens_battles(kami_index, before_ms)` | Battle history and stats for a kami. |
 | `lens_chat(room_index, before_ms, size, oversize)` | Room chat page (player-authored messages). |
@@ -269,7 +269,7 @@ serves them at this pin: `quest_state` and `check_quest_completable`
 | `lens_leaderboard(board_type, epoch, item_index, full)` | Score leaderboard rows {rank, account{id, index?, name?}, value}, first 50; rowsTotal/rowsServed count them. |
 | `lens_market(account_index, full)` | KamiSwap listings and bids, first 50 of each (listingsTotal/listingsServed, bidsTotal/bidsServed); with account_index, that account's order history. |
 | `lens_merchant(npc_index, full)` | NPC merchants; with npc_index, that merchant's full listing catalog with prices. Prices are viewer-independent; purchase gating is served as text, never applied. |
-| `lens_node(node_index, with_vitals, attacker_kami_index, full, stats)` | Harvest node with its ACTIVE harvests (occupant identities), first 50 by kami index; harvestsTotal/harvestsServed count them. |
+| `lens_node(node_index, with_vitals, attacker_kami_index, full, stats, eligible_only)` | Harvest node with its ACTIVE harvests (occupant identities), first 50 by kami index; harvestsTotal/harvestsServed count them. eligible_only keeps only rows the attacker can liquidate now. |
 | `lens_party(account_index, full, stats)` | Party report for an account: kamis with full vitals, first 50 by kami index; kamisTotal/kamisServed count them. |
 | `lens_phase()` | World day/night phase (36-hour cycle): {phase, name, cycleHour, secondsToNext, next, at}. |
 | `lens_portal(account_index)` | Token portal history for an account, plus open withdrawals. |

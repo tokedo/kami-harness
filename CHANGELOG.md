@@ -29,6 +29,220 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [3.4.0] — travel that cannot strand, honest batch caps, the starving stop
+
+MINOR. **102 tools**, registry mass **71,012**, `tools_hash`
+`e7b0e942...9c09` (Python 3.13), `SCHEMA_VERSION` **3.4.0**. Two new
+*optional* parameters and no new tool, so existing callers keep working
+— but descriptions moved, so the fingerprint moved.
+
+Every item below came from one operator's play session on this stack.
+Each was a real cost paid on-chain, not a code review finding.
+
+### `travel_to_room` cannot strand the account
+
+A plan from room 75 to room 37 dry-ran as `feasible: true`, executed
+three hops (15 stamina, ~2.7M gas), and then reverted `AccMove:
+inaccessible room` on hop 4 — a QUEST gate on the 18 -> 15 exit that the
+BFS over `catalogs/rooms.csv` cannot see. It happened twice the same
+day; the second time the same gate sat on 11 -> 15.
+
+The obvious fix — dry-run every hop before hop 1 — **does not work**,
+and finding that out is what shaped this release. `system.account.move`
+takes only a destination and reads the account's current room from
+chain state, and it checks *reachability before accessibility*. An
+`eth_call` for hop 4 issued from hop 1's position therefore fails as
+`AccMove: unreachable room` and never reaches the gate at all. The two
+reverts are distinct and both are on record in run telemetry.
+
+So the gates are evaluated directly instead:
+
+- **`catalogs/room-gates.csv`** is new: eleven rows, extracted from the
+  kami-lens `room` query (daemon `f07b578`) over all 70 in-game rooms,
+  deduplicated — the daemon emits an exit row per adjacency *and* per
+  special exit, so 52 of its 196 exit records were duplicate `(from,
+  to)` pairs. It gates 25 of the graph's 144 directed edges.
+- `rooms_graph.gates_on(from, to)` answers which gates guard an exit,
+  and `shortest_path` gained a `blocked` argument. The module stays
+  chain-free: a gate is a condition on an ACCOUNT, and this module
+  cannot read accounts.
+- `travel_to_room` evaluates each gate on its plan against the calling
+  account on chain — `QUEST` against the account's own quest instance,
+  `ITEM` against its inventory balance, `COMPLETE_COMP` against a global
+  goal entity — drops the edges it cannot cross, and re-plans. Each
+  distinct gate is read once. **With no route left it refuses pre-send
+  with `PreTxValidationError`**, naming every blocking gate by type and
+  index: zero gas, zero stamina.
+- A gate that cannot be evaluated — a failed read, or a condition type
+  this module does not implement — is reported as `gate could not be
+  evaluated` and treated as impassable. It is never silently passed, and
+  never silently downgraded to a refusal-worthy `false`.
+- `dry_run=True` reports `gated_hops` with `passable: true | false |
+  "unknown"` per gated hop.
+- A mid-path `AccMove: inaccessible room` now names the gate the catalog
+  holds for exactly that edge. The chain's own word for a gate is bare.
+
+There is **no `allow_gated` flag**. An escape hatch would be a parameter
+an agent calling with defaults never finds, and P1 is explicit that
+routing lives in descriptions. Evaluating the condition is the answer;
+offering to ignore it is not.
+
+The gate semantics were verified live at block 32,650,458 against an
+account whose crossings were known: it had walked through the room-68
+goal gate (True) and had reverted at the room-15 quest gate (False).
+Note what `COMPLETE_COMP` actually means — those nine gates read a
+*community* goal's completion flag, so an account that never
+contributed still passes them.
+
+### Batch gas ceilings, from measurement
+
+Measured live on 3.3.0: `harvest_start` really costs ~0.74M gas/kami
+(a 10-kami call used 7,422,463) against a 3,000,000/kami ceiling, and
+`harvest_stop` ~1.5M (a 7-kami call used 10,673,299) against 4,000,000.
+The ceilings were ~4x actual, so a 13-kami start and a 13-kami stop each
+needed two transactions while three docstrings promised one.
+
+Re-measured from kami-oracle on 2026-08-27 over receipt-status=1
+transactions since 2026-06-01, joining `raw_tx` to `kami_action` on
+`tx_hash` and counting distinct kamis per transaction to recover the
+batch size. The result changed the SHAPE, not just the numbers:
+
+**Harvest gas is base + slope x n with a large fixed term.** A flat
+per-kami constant cannot serve that curve. One big enough for a single
+kami over-provisions every batch; one small enough to batch
+under-provisions the single-kami call — which is the most common call in
+the whole table, 349,296 starts and 366,809 stops at n=1 in this window
+alone. A flat 2,000,000 for `harvest_stop` would have been 24% under its
+single-kami p95 and broken the commonest call on the surface.
+
+So `_send_batch_tx` gained a `gas_base` term, and the three families
+became base + per_item, each ~1.3x the measured p95 across the whole
+range of n:
+
+| family | base | per kami | n=1 vs p95 | n=12 vs p95 | max per call |
+|---|---|---|---|---|---|
+| `harvest_start` | 1,300,000 | 950,000 | 1.38x | 1.36x | **31** |
+| `harvest_stop` | 1,600,000 | 1,950,000 | 1.34x | 1.31x | **15** |
+| `harvest_collect` | 1,600,000 | 1,700,000 | 1.34x | 1.31x | **17** |
+
+A 13-kami team is now one start transaction and one stop transaction,
+and each constant cites its measurement — date, batch size, p95, tx
+count — in the table comment.
+
+**`MAX_TX_GAS` 40,000,000 -> 31,500,000.** The old value was chosen as
+margin under the 45,000,000 block limit, but Yominet refuses a gas limit
+above a **per-transaction lane cap of 31,500,000** — so this module's
+own ceiling sat above the one that actually binds and could never reject
+what the lane rejects. That is why the split instruction was wrong in
+the field: a 13-kami stop was refused here with "Split into calls of at
+most 10", and the 10-kami retry was then refused by the chain with `tx
+gas limit 40000000 exceeds max lane gas limit 31500000`. Corroborated
+from the oracle: across 1,805,172 transactions since 2026-06-01 the
+maximum observed `gas_used` is 20,087,787 and none exceeds 31,500,000.
+Every "at most N" the surface states is now derived from the lane cap.
+
+**Not auto-splitting.** A tool call stays one transaction. An agent's
+plan/act accounting depends on that, and a tool that quietly became two
+transactions would break it silently.
+
+### A starving kami cannot stop or collect
+
+`harvest_stop` on a kami at 0 HP reverts with a bare `kami starving..`,
+and the harness pre-validated only that the harvest was ACTIVE.
+`harvest_collect` shares the revert: `LibKami.verifyHealthy` gates both
+systems, so the check went into `_validate_active_harvests`, which is
+already the shared gate for the two of them.
+
+The read is `component.stat.health` — the four-int32 `(base, shift,
+boost, sync)` Stat struct — taking `sync`, the depletable current value.
+No new dependency: it is a chain component read, not a lens call, which
+matters because ACT tools deliberately do not depend on the daemon.
+
+It is **sound one way and the code says so**. Health syncs lazily, so
+the stored value is the HP at the kami's last transaction, and a
+harvesting kami only loses health between syncs. `sync == 0` therefore
+proves starvation and refusing is always right; `sync > 0` is
+inconclusive. The eth_call dry-run stays the backstop for the second
+case, and its bare revert is re-raised with the same sentence the
+pre-send gate uses — `feed first`, one wording for both paths, whichever
+caught it. An unreadable HP never manufactures a refusal.
+
+`liquidate_kami` now states that recoil can leave the attacker at 0 HP,
+where it cannot stop or collect until fed — which is exactly how the
+operator's kami got there.
+
+Known gap, deliberately out of scope: `harvest_start` also requires HP
+above 0 and does not pre-check it; it validates through
+`_require_kamis_owned`, a different path.
+
+### lens 0.5.2 passthroughs
+
+**The lens pin advances `f07b578` (0.5.1) -> `8b74007` (0.5.2).** Unlike
+the previous two advances this one did not lag: the harness release and
+the lens release were built against each other, and the flag spellings
+below were confirmed against the pushed commit.
+
+One of them exists because of this build. Measuring Family D against the
+running 0.5.1 daemon showed that its **socket silently honoured
+undeclared flags**: `account 3379 --slim` returned the whole roster and
+`node … --eligible-only` returned an unfiltered list, both `ok: true`
+with no error, while the CLI refused the same tokens outright. 0.5.0 had
+given the CLI a declared argument vocabulary and never given the socket
+the same treatment — and the socket is the path this harness and its
+agents actually use. 0.5.2 puts the rule in one module for both paths.
+That is why Family D is not servable below `8b74007`: against a 0.5.1
+daemon these two parameters do not fail, they are ignored, and the
+caller gets a wrong-but-plausible answer to a question it did not ask.
+
+- `lens_node` gains `eligible_only` (-> `--eligible-only`). Not
+  pre-validated: the daemon owns the rule that it needs `--with-vitals`
+  and an attacker argument, and answers `BAD_ARGS` for it (P5).
+- `lens_account` gains `identity_only` (-> `--slim`): identity, room and
+  stamina, no roster. Resolving a target account's name previously cost
+  a whole roster — a 4-attacker world scan touched 77 accounts, and one
+  164-kami account tripped the tool-result cap outright.
+- `lens_status` names `feedsDegraded` beside `degraded`, so a session
+  gate learns both arrays exist.
+- **`NOT_READY` is its own error class**, `LensNotReadyError`, a
+  subclass of `LensUnavailableError`. Before it, a world read against a
+  daemon stuck at `SETUP 0%` answered `NOT_FOUND: node 9 not in mirror`
+  — which reads as "that node does not exist" and sends a caller hunting
+  a missing entity instead of waiting for a sync.
+- `meta.asOf`, `cooldownUntil` and `margin` are payload fields and pass
+  through untouched; no description spends a word on them. `margin` is
+  the one worth knowing about without being told: the liquidation
+  preview's `eligible` flag once said yes at a 4-HP margin and the chain
+  then said `kami lacks violence (weak)`, so a caller wanting certainty
+  reads the margin rather than trusting the flag.
+
+### Docs and one retry
+
+- The sequence-mismatch backoff in `_send_tx_retry` widens from a flat
+  1s to **1/2/4s** over its three attempts. Recorded honestly: the
+  failure that prompted it was an operator key shared with the web
+  client, and **no retry policy fixes that** — two signers racing the
+  same nonce is not a transient RPC condition. The wider backoff helps
+  only the case where the node itself is behind.
+- `_GAS_PRICE` gains a comment recording that Yominet charges
+  `maxFeePerGas` as offered with no refund (wallets offering 5.0 Mwei
+  pay 2x for nothing, observed 2026-08-16), that 2,500,000 wei is the
+  live base fee as of 2026-08-27, and that the constant is deliberately
+  the floor and is NOT read from chain: a raised base fee then fails
+  loudly as underpriced, which is the safe mode.
+- Two harness docs were wrong about death and are corrected.
+  `systems/health.md` said a kami "dies when HP reaches 0" and listed
+  harvest strain as a cause of death; it does not — 0 HP is starving,
+  the state is unchanged, and only `LibKami.kill()` kills.
+  `integration/api/harvesting.md` said a kami at zero HP "is
+  liquidated"; it is liquidat**able**. `README.md`'s catalog table
+  claimed `rooms.csv` carries gates, which it never has.
+- Registry mass **71,643 -> 71,012**, 988 characters of headroom against
+  the unchanged 72,000 budget. The additions cost 434 characters; 1,065
+  were reclaimed first from `Args:` glosses that restated a parameter
+  name the schema already carries (`quest_index: Quest index to
+  accept.`, and eleven copies of `kami_id: Kami token index.`). **The
+  budget was not raised** — this release pays for itself.
+
 ## [3.3.0] — the lens 0.5.1 passthroughs, and the honest caps
 
 MINOR. **102 tools**, registry mass **71,643**, `tools_hash`

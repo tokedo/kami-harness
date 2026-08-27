@@ -154,7 +154,8 @@ CSV reference data — some is loaded directly by tools (e.g.
 | [items.csv](catalogs/items.csv) | Items: type, tradability, stats |
 | [skills.csv](catalogs/skills.csv) | Skill trees: effects, costs, tiers, exclusions |
 | [recipes.csv](catalogs/recipes.csv) | Crafting recipes: inputs, outputs, stamina cost |
-| [rooms.csv](catalogs/rooms.csv) | Room map: coordinates, exits, gates |
+| [rooms.csv](catalogs/rooms.csv) | Room map: coordinates and special exits |
+| [room-gates.csv](catalogs/room-gates.csv) | Room-exit access conditions (quest / item / goal), per destination |
 | [shop-listings.csv](catalogs/shop-listings.csv) | NPC shop items and prices |
 | [scavenge-droptables.csv](catalogs/scavenge-droptables.csv) | Node scavenge reward tables |
 | [quests/](catalogs/quests/) | Quests, objectives, requirements, rewards |
@@ -283,7 +284,7 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`3.3.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
+Current: **`3.4.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
 reads served as thin `kami-lens` wrappers with verbatim envelope
 pass-through; every tool class-tagged ACT / PERCEIVE / OUTSOURCE /
 META; three non-conflatable transaction terminal states (a confirmed

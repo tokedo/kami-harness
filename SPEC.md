@@ -52,7 +52,7 @@ this registry says *what holds*, not *how it is built*.
   carries `server._LENS_SERVING_SENTENCE`. Non-read tools carry neither.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **71,643 characters** at this ref, against a `REGISTRY_MASS_BUDGET`
+  **71,012 characters** at this ref, against a `REGISTRY_MASS_BUDGET`
   of 72,000. The budget is capacity that has to be earned: every
   character is spent out of the agent's context before it acts, so the
   ceiling rises only for named capability, never to make room for
@@ -67,7 +67,12 @@ this registry says *what holds*, not *how it is built*.
   tightened because it reads better and did not fund the raise — at
   3.3.0 the two standing sentences below were shortened for a 711-
   character reclaim, and that reclaim was spent on the capability
-  before the raise was asked for.
+  before the raise was asked for. **3.4.0 asked for no raise**: its
+  four families cost 434 characters and 1,065 were reclaimed first,
+  from `Args:` glosses that restated a parameter name the schema
+  already carries (`quest_index: Quest index to accept.`, and eleven
+  copies of `kami_id: Kami token index.`). A gloss that adds a
+  mechanic — a range, a sentinel, a catalog pointer — was kept.
 - Registry mass and `tools_hash` are **interpreter-dependent**: both are
   computed from schemas that the interpreter's own JSON and typing
   machinery generates, so a different Python version can yield different
@@ -88,7 +93,7 @@ this registry says *what holds*, not *how it is built*.
 - The MCP `initialize` handshake carries it in the `instructions` field
   as the exact string `tools_hash=<64 hex chars>`.
 - Value at this ref (Python 3.13):
-  `f3734714d5ab1153a76bfaa1ef818320d65ad2c730be9c8d27bfdc33427eac43`.
+  `e7b0e942ddd69f93c982692e54935b15bfd6f16473fdc9b392a3960692849c09`.
 - The MCP `initialize` handshake additionally carries
   `schema_version=<SCHEMA_VERSION>` and `error_snippets=<on|off>` in the
   same `instructions` field, space-separated after the hash. The
@@ -99,7 +104,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.3.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.4.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -291,7 +296,7 @@ softened, and the pre-snippet text is unchanged.
 
 ### D1 — kami-lens daemon
 
-- **Pin:** `f07b578` (kami-lens release 0.5.1). **This row is the only
+- **Pin:** `8b74007` (kami-lens release 0.5.2). **This row is the only
   place the compatible lens version is stated.** It had been duplicated
   in a `server.KAMI_LENS_PIN` constant that no code path read; the
   constant held the 0.4.0 commit under a comment saying 0.2.0, and
@@ -314,7 +319,31 @@ softened, and the pre-snippet text is unchanged.
   positionals, so at 0.5.0 `party --full` with no account argument
   answered `BAD_ARGS` — which is exactly the request
   `lens_party(full=True)` emits on its `-1` default. Family B is not
-  servable below this pin.
+  servable below the 0.5.1 pin.
+- **The 0.5.1 -> 0.5.2 advance at 3.4.0 is what Family D wraps**, and
+  unlike the previous two advances this pin did NOT lag the daemon: the
+  harness release and the lens release were built against each other.
+  Four additions ride on it. (a) `node --eligible-only` filters the
+  liquidation preview to rows the attacker can take now and reports
+  `harvestsEligible`; the daemon owns its `--with-vitals`-plus-attacker
+  rule and answers `BAD_ARGS` for a violation, which passes through per
+  P5. (b) `account --slim` serves identity with no roster and no chain
+  read — the read that made resolving a target account's name cost a
+  whole roster. (c) `status.feedsDegraded` is the per-feed array beside
+  the chain-only `degraded`. (d) `NOT_READY` replaces the `NOT_FOUND`
+  a pre-LIVE daemon used to answer, and is wrapped here as its own
+  error class (EXPOSURE's error-class table).
+- **The socket honoured undeclared flags silently below this pin.**
+  0.5.0 gave the CLI a declared argument vocabulary and made an unknown
+  option a usage error, but the SOCKET — the path this harness and its
+  agents actually use — kept accepting anything: at 0.5.1 `account 3379
+  --slim` returned the whole roster and `node … --eligible-only`
+  returned an unfiltered list, both with `ok: true` and no error, while
+  the CLI refused the same tokens. Measured here during the 3.4.0 build
+  and fixed in 0.5.2, where one module owns the rule for both paths.
+  This is why Family D is not servable below `8b74007`: against a 0.5.1
+  daemon its two flags do not fail, they are ignored, and the caller
+  gets a wrong-but-plausible answer to a question it did not ask.
 - **Transport:** local AF_UNIX stream socket, one newline-delimited JSON
   request and one response per connection, 30-second timeout. Path from
   `KAMI_LENS_SOCKET`, else the daemon's own platform default
@@ -479,7 +508,13 @@ writer; no other module opens the keys file or the Keychain.
 
 | claim | enforcement |
 |---|---|
-| Registry description mass ≤ 72,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget` (71,643 at this ref, on Python 3.13) |
+| Registry description mass ≤ 72,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget` (71,012 at this ref, on Python 3.13) |
+| Harvest batch gas clears the measured p95 at every observed batch size, provisions a single kami, and fits 13 kamis in one transaction | `test_gas_ceilings.py::TestHarvestCeilings` (p95 per batch size pinned from the 2026-08-27 kami-oracle extract; the flat-constant shape is what these rows forbid) |
+| `MAX_TX_GAS` is the chain's per-transaction lane cap, and every stated per-call maximum is derived from it | `test_gas_ceilings.py::TestBlockLimitGuard::test_max_tx_gas_is_the_lane_cap`, `TestHarvestCeilings::test_docstring_caps_match_the_arithmetic` (the docstring's "(at most N)" must equal `_harvest_max_per_call`, and N+1 must be refused) |
+| A gated room exit is evaluated against the calling account before any hop is sent; with no ungated route the call refuses pre-send, and a gate that cannot be evaluated is never silently passed | `test_h340_families.py::TestGatedPlanning`, `::TestGateEvaluation` |
+| Every gate type in `catalogs/room-gates.csv` has an evaluator, and every gated edge exists in the routing graph | `test_rooms_graph.py::test_gate_rows_are_well_formed`, `::test_every_gated_edge_exists_in_the_graph` (a fourth gate type fails the suite rather than routing an account into a revert) |
+| A kami at 0 stored HP is refused pre-send by both `harvest_stop` and `harvest_collect`, with one wording, and an unreadable HP refuses nothing | `test_h340_families.py::TestStarvingGate` |
+| `NOT_READY` is its own error class and never reads as a missing entity | `test_h340_families.py::TestLens052Passthroughs::test_not_ready_is_its_own_error_class`, `::test_not_ready_never_reads_as_a_missing_entity` |
 | The registry advertises exactly 102 tools | `test_tool_surface.py::test_tool_surface_count` |
 | Every registered tool is class-tagged, and no tag names an absent tool | `test_tool_surface.py::test_taxonomy_covers_registry_exactly` (also pins ACT 55 / PERCEIVE 31 / OUTSOURCE 9 / META 7) |
 | Tools removed at this version stay absent | `test_tool_surface.py::test_removed_tools_absent` |
@@ -557,8 +592,8 @@ EXPOSURE row carrying serving path and migration note:
 | `get_expected_objective` | local `catalogs/quests/` | documentation, not chain truth; no lens equivalent by design |
 | `check_quest_completable` | chain `staticCall` | act-guard: answers "would quest-complete revert right now" |
 | `quest_state` | chain component reads | act-guard: discriminates the on-chain quest state |
-| `get_scavenge_points` | chain component reads | no lens scavenge query at pin `f07b578` |
-| `get_scavenge_droptable` | Kamibots node metadata + chain weights | no lens scavenge query at pin `f07b578` |
+| `get_scavenge_points` | chain component reads | no lens scavenge query at pin `8b74007` |
+| `get_scavenge_droptable` | Kamibots node metadata + chain weights | no lens scavenge query at pin `8b74007` |
 | `get_item_orderbook` | chain event-scan + component reads | per-item book exceeds `lens_trades` at this pin |
 | `get_gas_balance` | Yominet + mainnet RPC | wallet infrastructure |
 | `list_accounts` | local roster / env | local configuration |
@@ -580,10 +615,10 @@ scheme this module does not hold. The tool's `account` parameter is
 also described as an API auth header, so replacing the read moves a
 description and therefore the surface hash. It is deferred to a
 hash-moving release, with the EXPOSURE row already carrying the lens
-deferral at pin `f07b578`. 3.3.0 is a hash-moving release and does not
-take it: the reward entity IDs still have no on-chain derivation in
-this module, so the deferral is about the missing derivation, not about
-the hash.
+deferral at pin `8b74007`. 3.3.0 and 3.4.0 are both hash-moving
+releases and neither takes it: the reward entity IDs still have no
+on-chain derivation in this module, so the deferral is about the
+missing derivation, not about the hash.
 
 Two tools were removed from this deviation by doing exactly what it
 prescribes — an on-chain read, not a fallback. `travel_to_room` was the

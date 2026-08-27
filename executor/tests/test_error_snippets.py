@@ -276,9 +276,12 @@ class TestSnippetBehaviour:
             )
         msg = str(ei.value)
         assert "likely ran out of gas" in msg
+        # harvest_collect is a base + per_item family, so there is no
+        # single constant to quote and the snippet names both terms.
         assert (
-            "Gas ceiling for this call: _GAS_CEILINGS['harvest_collect'] "
-            "= 4,000,000." in msg
+            "Gas ceiling for this call: "
+            "_GAS_CEILINGS['harvest_collect_base'] 1,600,000 + "
+            "['harvest_collect_per_item'] 1,700,000 per kami." in msg
         )
         assert "kami #123: state RESTING, harvest entity unset." in msg
 

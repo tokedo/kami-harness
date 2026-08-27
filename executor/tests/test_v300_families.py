@@ -246,8 +246,9 @@ class TestTravelReadsChainState:
         monkeypatch.setattr(
             server, "rooms_graph",
             SimpleNamespace(
-                shortest_path=lambda a, b: [1, 2, 3],
+                shortest_path=lambda a, b, blocked=None: [1, 2, 3],
                 move_cost=lambda p: 5 * (len(p) - 1),
+                gates_on=lambda a, b: [],
             ),
         )
         r = asyncio.run(
@@ -277,8 +278,9 @@ class TestTravelReadsChainState:
         monkeypatch.setattr(
             server, "rooms_graph",
             SimpleNamespace(
-                shortest_path=lambda a, b: [1, 2, 3, 4],
+                shortest_path=lambda a, b, blocked=None: [1, 2, 3, 4],
                 move_cost=lambda p: 5 * (len(p) - 1),
+                gates_on=lambda a, b: [],
             ),
         )
         r = asyncio.run(

@@ -46,11 +46,19 @@ healRate ≈ (Harmony + 20) * 0.6 / 3600   HP/sec
 
 HP is capped at maxHP.
 
+## Zero HP is not death
+
+A Kami at 0 HP is **starving**, not dead: its state is unchanged, it
+keeps its harvest, and feeding it restores it. What it cannot do at 0 HP
+is act — `LibKami.verifyHealthy` gates the harvest systems, so
+`harvest_stop` and `harvest_collect` both revert `kami starving..` until
+it is fed. Harvest strain drains HP to 0 and stops there; it never kills.
+
 ## Death
 
-A Kami dies when HP reaches 0. Causes:
-- **Harvest strain** — HP drained to 0 while harvesting
-- **Liquidation** — killed by another player (see [liquidation.md](liquidation.md))
+A Kami dies only when a system calls `LibKami.kill()`. Causes:
+- **Liquidation** — killed by another player while at or below the kill
+  threshold, which requires an attacker (see [liquidation.md](liquidation.md))
 - **Sacrifice** — voluntary permanent death (see [gacha.md](gacha.md))
 
 ### Dead State

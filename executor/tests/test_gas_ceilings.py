@@ -43,11 +43,19 @@ OBSERVED = {
     "cast_item": (3_773_000, 2_323_182, "p99 2,515,613 / max 2,578,486"),
     "newbie_vendor_buy": (7_806_000, 2_360_307, "p99 5,204,448 (n=6)"),
     "pool_swap": (1_281_000, 714_821, "p99 854,317 / max 881,129"),
-    # Per-kami ceilings: the batch path multiplies these by batch size,
-    # so the floor is the single-kami requirement.
-    "harvest_start": (2_416_000, 1_611_201, "p50 x1.5; p99/max batch-inflated"),
-    "harvest_stop": (3_896_000, 2_597_439, "p50 x1.5; p99/max batch-inflated"),
-    "harvest_collect": (3_539_000, 2_359_919, "p99 2,479,603 single-collect"),
+    # The three harvest families are base + per_item, not flat per-kami
+    # constants — see HARVEST below and TestHarvestCeilings.
+}
+
+# kami-oracle, measured 2026-08-27 over receipt-status=1 transactions
+# since 2026-06-01, joining raw_tx to kami_action on tx_hash and counting
+# DISTINCT kami_id per tx to recover the batch size.
+# key -> {batch size: (p95, tx count)}
+HARVEST = {
+    "harvest_start": {1: (1_636_037, 349_296), 12: (9_339_266, 857),
+                      25: (18_385_855, 67)},
+    "harvest_stop": {1: (2_645_724, 366_809), 12: (19_029_290, 1_321)},
+    "harvest_collect": {1: (2_465_867, 37_805), 12: (16_844_165, 35)},
 }
 
 
@@ -85,6 +93,9 @@ def test_every_ceiling_is_justified():
         "transfer_items_base", "transfer_items_per_item",
         "burn_items_base", "burn_items_per_item",
         "gacha_use_base", "gacha_use_per_item",
+        "harvest_start_base", "harvest_start_per_item",
+        "harvest_stop_base", "harvest_stop_per_item",
+        "harvest_collect_base", "harvest_collect_per_item",
         # system.chat has no observed successful transactions (chat is
         # disabled in deployments), so it has no floor to pin.
         "chat_send",
@@ -164,8 +175,74 @@ class TestBlockLimitGuard:
     def test_ordinary_batch_passes_through(self):
         assert server._batch_gas(1_000_000, 4_000_000, 3, "kamis") == 13_000_000
 
-    def test_harvest_batch_ceiling_scales_with_size(self):
-        """The per-kami ceiling multiplied by the batch — the defect was a
-        single-kami allowance covering a whole roster."""
-        per_kami = server._GAS_CEILINGS["harvest_collect"]
-        assert server._batch_gas(0, per_kami, 5, "kamis") == per_kami * 5
+    def test_max_tx_gas_is_the_lane_cap(self):
+        """The chain refuses a gas limit over its per-transaction lane
+        cap, so a ceiling above it can never reject what the lane does.
+        Observed live 2026-08-27: `tx gas limit 40000000 exceeds max lane
+        gas limit 31500000`."""
+        assert server.MAX_TX_GAS == 31_500_000
+
+
+class TestHarvestCeilings:
+    """base + per_item, pinned against the oracle measurement.
+
+    A FLAT per-kami constant cannot serve this cost curve. Harvest gas is
+    base + slope x n with a large fixed term, so a constant big enough
+    for one kami over-provisions every batch (13 kamis fitted in no
+    transaction, while three docstrings promised one), and a constant
+    small enough to batch under-provisions the single-kami call — which
+    is the most common call in the table by two orders of magnitude.
+    """
+
+    @pytest.mark.parametrize("key", sorted(HARVEST))
+    def test_clears_p95_at_every_measured_batch_size(self, key):
+        for n, (p95, txs) in sorted(HARVEST[key].items()):
+            gas = server._harvest_gas(key, n)
+            assert gas >= p95, (
+                f"{key} at n={n} provisions {gas:,}, under the measured "
+                f"p95 {p95:,} ({txs:,} tx)"
+            )
+
+    @pytest.mark.parametrize("key", sorted(HARVEST))
+    def test_single_kami_call_is_provisioned(self, key):
+        """The regression the flat-constant proposal would have shipped:
+        1,100,000 for harvest_start is 33% UNDER its single-kami p95."""
+        p95, txs = HARVEST[key][1]
+        assert server._harvest_gas(key, 1) > p95, (
+            f"{key} provisions {server._harvest_gas(key, 1):,} for one "
+            f"kami, under the {p95:,} p95 of {txs:,} observed calls"
+        )
+
+    @pytest.mark.parametrize("key", sorted(HARVEST))
+    def test_thirteen_kamis_fit_in_one_transaction(self, key):
+        """A 13-kami team is one start tx and one stop tx, which is what
+        the docstrings say. Under the old flat constants it was two of
+        each."""
+        assert server._harvest_gas(key, 13) <= server.MAX_TX_GAS
+
+    def test_margin_stays_reasonable(self):
+        """Provisioning is ~1.3x p95, not 4x: an over-provisioned batch
+        is refused by the lane long before it is refused by the block."""
+        for key, points in HARVEST.items():
+            for n, (p95, _) in points.items():
+                ratio = server._harvest_gas(key, n) / p95
+                assert 1.15 <= ratio <= 1.6, (
+                    f"{key} at n={n} provisions {ratio:.2f}x p95"
+                )
+
+    def test_docstring_caps_match_the_arithmetic(self):
+        """Each batch docstring states a per-call maximum; it must be the
+        number the lane cap and the constants actually produce."""
+        tools = {t.name: t for t in server.mcp._tool_manager.list_tools()}
+        for key, tool in (
+            ("harvest_start", "harvest_start"),
+            ("harvest_stop", "harvest_stop"),
+            ("harvest_collect", "harvest_collect"),
+        ):
+            fits = server._harvest_max_per_call(key)
+            assert f"(at most {fits})" in (tools[tool].description or ""), (
+                f"{tool} does not state its real per-call maximum {fits}"
+            )
+            assert server._harvest_gas(key, fits) <= server.MAX_TX_GAS
+            with pytest.raises(server.PreTxValidationError):
+                server._harvest_gas(key, fits + 1)
