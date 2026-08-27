@@ -283,7 +283,7 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`3.1.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
+Current: **`3.2.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
 reads served as thin `kami-lens` wrappers with verbatim envelope
 pass-through; every tool class-tagged ACT / PERCEIVE / OUTSOURCE /
 META; three non-conflatable transaction terminal states (a confirmed

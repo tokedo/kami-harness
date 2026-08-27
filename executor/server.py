@@ -1159,6 +1159,21 @@ def _pool_disabled(pool_id: int) -> bool | None:
         return None
 
 
+def _kami_level(kami_index: int) -> int:
+    """A kami's current level, from the chain's Level component.
+
+    The single derivation of "what level is this kami" in this module.
+    Everything that needs the number — the level-up snippet, and the
+    three batch level tools that decide how many transactions to send —
+    reads it here, so a pre-send count and what an error says about it
+    cannot come from two different sources.
+    """
+    level_c = w3.eth.contract(
+        address=_resolve_component("component.level"), abi=_UINT_VALUE_ABI
+    )
+    return int(level_c.functions.safeGet(_kami_entity_id(kami_index)).call())
+
+
 def _kami_progress(kami_index: int) -> dict:
     """{level, xp} for a kami, read from chain components.
 
@@ -1166,17 +1181,35 @@ def _kami_progress(kami_index: int) -> dict:
     fields and an exponent — the leveling formula — which this module
     does not hold and does not reimplement.
     """
-    level_c = w3.eth.contract(
-        address=_resolve_component("component.level"), abi=_UINT_VALUE_ABI
-    )
     xp_c = w3.eth.contract(
         address=_resolve_component("component.experience"), abi=_UINT_VALUE_ABI
     )
-    eid = _kami_entity_id(kami_index)
     return {
-        "level": int(level_c.functions.safeGet(eid).call()),
-        "xp": int(xp_c.functions.safeGet(eid).call()),
+        "level": _kami_level(kami_index),
+        "xp": int(xp_c.functions.safeGet(_kami_entity_id(kami_index)).call()),
     }
+
+
+def _read_kami_level(kami_index: int) -> tuple[int | None, str]:
+    """(level, error_text) for a kami, retried once.
+
+    The level a batch level tool reads decides how many level-up
+    transactions it sends, so it is never defaulted and never guessed:
+    an unreadable level refuses the call and names its cause. The
+    exception TYPE is always reported, because a read that stringifies
+    to nothing would otherwise surface as an empty reason — the failure
+    mode `_read_account_view` was written against.
+    """
+    last = ""
+    for attempt in range(2):
+        try:
+            return _kami_level(kami_index), ""
+        except Exception as e:
+            detail = str(e).strip()
+            last = f"{type(e).__name__}: {detail}" if detail else type(e).__name__
+        if attempt == 0:
+            time.sleep(1)
+    return None, last
 
 
 # ---------------------------------------------------------------------------
@@ -1714,6 +1747,22 @@ def _wrap_send_error(e: Exception, addr: str, role: str, account: str):
 # Transaction helper
 # ---------------------------------------------------------------------------
 
+# Every send reads its nonce at the PENDING block, never at latest.
+#
+# The public RPC is load-balanced across nodes, and right after a
+# confirmed transaction a node that has not yet caught up serves a stale
+# sequence at `latest` — observed across the hybrid-play fleet on
+# 2026-07-28, where sequential sends inside one batch tool collided with
+# their own predecessor. `pending` counts the sender's in-flight
+# transactions and closes that race at the source.
+#
+# This is the first half of the fix; `_send_tx_retry`'s re-fetch on
+# "account sequence mismatch" is the second and stays. The harm being
+# avoided is a retry of a NON-IDEMPOTENT transfer: a level-up, a feed or
+# an ETH send that is resubmitted after a stale-nonce rejection can
+# execute twice, and no amount of retry logic can un-spend it.
+_NONCE_BLOCK = "pending"
+
 
 def _send_tx(
     account: str,
@@ -1745,7 +1794,7 @@ def _send_tx(
     tx_params = {
         "from": acct.operator_addr,
         "chainId": CHAIN_ID,
-        "nonce": w3.eth.get_transaction_count(acct.operator_addr),
+        "nonce": w3.eth.get_transaction_count(acct.operator_addr, _NONCE_BLOCK),
         **_GAS_PRICE,
     }
     if gas_limit:
@@ -1829,7 +1878,7 @@ def _send_batch_tx(
     tx_params = {
         "from": signer_addr,
         "chainId": CHAIN_ID,
-        "nonce": w3.eth.get_transaction_count(signer_addr),
+        "nonce": w3.eth.get_transaction_count(signer_addr, _NONCE_BLOCK),
         "gas": gas,
         **_GAS_PRICE,
     }
@@ -1921,7 +1970,7 @@ def _send_tx_owner(
     tx_params = {
         "from": acct.owner_addr,
         "chainId": CHAIN_ID,
-        "nonce": w3.eth.get_transaction_count(acct.owner_addr),
+        "nonce": w3.eth.get_transaction_count(acct.owner_addr, _NONCE_BLOCK),
         **_GAS_PRICE,
     }
     if value_wei:
@@ -1969,7 +2018,7 @@ def _send_eth(
         "value": value_wei,
         "gas": gas_limit or _PLAIN_TRANSFER_GAS,
         "chainId": CHAIN_ID,
-        "nonce": w3.eth.get_transaction_count(from_addr),
+        "nonce": w3.eth.get_transaction_count(from_addr, _NONCE_BLOCK),
         **_GAS_PRICE,
     }
     signed = w3.eth.account.sign_transaction(tx, private_key=from_key)
@@ -3384,7 +3433,7 @@ def bridge_eth_from_mainnet(
     if dry_run:
         return {"dry_run": True, **quote}
 
-    tx["nonce"] = w3m.eth.get_transaction_count(acct.owner_addr)
+    tx["nonce"] = w3m.eth.get_transaction_count(acct.owner_addr, _NONCE_BLOCK)
     signed = w3m.eth.account.sign_transaction(tx, private_key=acct.owner_key)
     tx_hash = "0x" + w3m.eth.send_raw_transaction(signed.raw_transaction).hex()
     # The tx is broadcast: from here on nothing may raise, or the hash
@@ -5110,8 +5159,11 @@ async def level_to(
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "level_to")
-    state = await _api_get(f"/api/playwright/kami/{kami_id}/", account)
-    current = state["progress"]["level"]
+    current, read_error = _read_kami_level(kami_id)
+    if current is None:
+        raise PreTxValidationError(
+            f"failed to read kami {kami_id}'s current level: {read_error}"
+        )
     levels_needed = target_level - current
     if levels_needed <= 0:
         return {
@@ -5201,8 +5253,12 @@ async def level_and_allocate_batch(
         # Level-up phase
         if target_level is not None:
             try:
-                state = await _api_get(f"/api/playwright/kami/{kid}/", account)
-                current = state["progress"]["level"]
+                current, read_error = _read_kami_level(kid)
+                if current is None:
+                    raise ValueError(
+                        f"failed to read kami {kid}'s current level: "
+                        f"{read_error}"
+                    )
                 levels_needed = max(0, target_level - current)
                 entity_id = _kami_entity_id(kid)
                 done = 0
@@ -5328,8 +5384,12 @@ async def feed_level_allocate_batch(
         target_level = t.get("target_level")
         if target_level is not None:
             try:
-                state = await _api_get(f"/api/playwright/kami/{kid}/", account)
-                current = state["progress"]["level"]
+                current, read_error = _read_kami_level(kid)
+                if current is None:
+                    raise ValueError(
+                        f"failed to read kami {kid}'s current level: "
+                        f"{read_error}"
+                    )
                 levels_needed = max(0, target_level - current)
                 done = 0
                 for _ in range(levels_needed):

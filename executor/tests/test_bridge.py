@@ -55,7 +55,12 @@ def bridge_env(monkeypatch, accounts):
         mainnet_balances={},
         yominet_balances={},
         accounts=accounts,
+        nonce_blocks=[],
     )
+
+    def get_nonce(addr, block_identifier=None):
+        env.nonce_blocks.append(block_identifier)
+        return 7
 
     def fake_router_post(path, body):
         env.posts.append((path, body))
@@ -98,7 +103,7 @@ def bridge_env(monkeypatch, accounts):
         get_block=lambda tag: {"baseFeePerGas": 10 * 10**9},
         max_priority_fee=10**9,
         get_balance=lambda addr: env.mainnet_balances.get(addr, 0),
-        get_transaction_count=lambda addr: 7,
+        get_transaction_count=get_nonce,
         account=SimpleNamespace(sign_transaction=fake_sign),
         send_raw_transaction=fake_send_raw,
         wait_for_transaction_receipt=forbid_wait,
@@ -284,6 +289,20 @@ class TestBroadcastIsFireAndForget:
 
         assert r["tx_hash"] == "0x" + "ab" * 32
         assert r["status"] == "submitted"
+
+    def test_mainnet_nonce_read_at_pending(self, bridge_env):
+        """The bridge send reads its mainnet nonce at "pending" too.
+
+        It is fire-and-forget: nothing re-reads or re-sends after
+        broadcast, so a stale latest sequence here is a lost bridge
+        transfer, not a retried one.
+        """
+        owner = bridge_env.accounts["testa"].owner_addr
+        bridge_env.mainnet_balances[owner] = ETH
+
+        server.bridge_eth_from_mainnet("0.01", account="testa")
+
+        assert bridge_env.nonce_blocks == ["pending"]
 
     def test_recipient_not_expressible(self):
         params = set(

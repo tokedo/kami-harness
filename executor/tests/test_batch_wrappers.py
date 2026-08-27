@@ -16,10 +16,7 @@ import server
 
 class TestFeedLevelAllocateBatch:
     def test_happy_all_phases(self, accounts, validation_ok, sent, monkeypatch):
-        async def fake_api(path, account):
-            return {"progress": {"level": 3}}
-
-        monkeypatch.setattr(server, "_api_get", fake_api)
+        monkeypatch.setattr(server, "_read_kami_level", lambda k: (3, ""))
         r = asyncio.run(
             server.feed_level_allocate_batch(
                 [
@@ -56,10 +53,10 @@ class TestFeedLevelAllocateBatch:
 
         monkeypatch.setattr(server, "_send_tx_retry", failing_send)
 
-        async def fake_api(path, account):  # must never be reached
+        def unreachable_level(kami_index):  # must never be reached
             raise AssertionError("level phase ran after feed failure")
 
-        monkeypatch.setattr(server, "_api_get", fake_api)
+        monkeypatch.setattr(server, "_read_kami_level", unreachable_level)
         r = asyncio.run(
             server.feed_level_allocate_batch(
                 [
@@ -245,3 +242,92 @@ class TestGetAllStrategyStatuses:
         # _strategy_api must raise before any network access.
         with pytest.raises(ValueError, match="No Kamibots API key"):
             asyncio.run(server.get_all_strategy_statuses(account="testa"))
+
+
+class TestLevelPathNeedsNoKamibotsKey:
+    """The three batch level tools read the level from chain, not from
+    the strategy service.
+
+    They used to `_api_get("/api/playwright/kami/{id}/")` for
+    `progress.level`, which made them raise "No Kamibots API key for
+    account ..." on any account that had never registered with the
+    third party — while `level_up_kami`, the same on-chain path, worked
+    fine. `noown` is such an account (operator key only, api_key None).
+    """
+
+    @staticmethod
+    def _forbid_api(monkeypatch):
+        async def boom(path, account):
+            raise AssertionError(
+                f"the level path reached the Kamibots API: {path}"
+            )
+
+        monkeypatch.setattr(server, "_api_get", boom)
+
+    def test_level_to_keyless(
+        self, accounts, validation_ok, sent, monkeypatch
+    ):
+        assert accounts["noown"].api_key is None
+        self._forbid_api(monkeypatch)
+        monkeypatch.setattr(server, "_kami_level", lambda k: 3)
+        r = asyncio.run(server.level_to(5, 5, account="noown"))
+        assert r["from_level"] == 3 and r["reached_level"] == 5
+        assert len(sent) == 2
+
+    def test_level_and_allocate_batch_keyless(
+        self, accounts, validation_ok, sent, monkeypatch
+    ):
+        self._forbid_api(monkeypatch)
+        monkeypatch.setattr(server, "_kami_level", lambda k: 1)
+        r = asyncio.run(server.level_and_allocate_batch(
+            [{"kami_id": 5, "target_level": 3}], account="noown"
+        ))
+        assert r["ok"] == 1
+        assert r["results"][0]["leveled"] == {"from": 1, "to": 3, "target": 3}
+
+    def test_feed_level_allocate_batch_keyless(
+        self, accounts, validation_ok, sent, monkeypatch
+    ):
+        self._forbid_api(monkeypatch)
+        monkeypatch.setattr(server, "_kami_level", lambda k: 4)
+        r = asyncio.run(server.feed_level_allocate_batch(
+            [{"kami_id": 5, "target_level": 6}], account="noown"
+        ))
+        assert r["ok"] == 1
+        assert r["results"][0]["leveled"] == {"from": 4, "to": 6, "target": 6}
+
+    def test_unreadable_level_refuses_and_names_the_cause(
+        self, accounts, validation_ok, sent, monkeypatch
+    ):
+        """A level that cannot be read is never defaulted: it decides
+        how many transactions get sent."""
+        self._forbid_api(monkeypatch)
+
+        def boom(kami_index):
+            raise ConnectionError("RPC refused")
+
+        monkeypatch.setattr(server, "_kami_level", boom)
+        monkeypatch.setattr(server.time, "sleep", lambda s: None)
+        with pytest.raises(server.PreTxValidationError) as ei:
+            asyncio.run(server.level_to(5, 9, account="noown"))
+        assert "ConnectionError: RPC refused" in str(ei.value)
+        assert sent == []
+
+    def test_unreadable_level_is_a_per_kami_row_in_a_batch(
+        self, accounts, validation_ok, sent, monkeypatch
+    ):
+        self._forbid_api(monkeypatch)
+
+        def boom(kami_index):
+            raise ConnectionError("RPC refused")
+
+        monkeypatch.setattr(server, "_kami_level", boom)
+        monkeypatch.setattr(server.time, "sleep", lambda s: None)
+        r = asyncio.run(server.level_and_allocate_batch(
+            [{"kami_id": 5, "target_level": 3}],
+            account="noown", allow_partial=True,
+        ))
+        assert r["ok"] == 0
+        assert r["results"][0]["error"].startswith("level: ")
+        assert "ConnectionError: RPC refused" in r["results"][0]["error"]
+        assert sent == []

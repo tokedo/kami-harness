@@ -91,7 +91,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.1.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.2.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -126,6 +126,20 @@ ever reported as another:
   says so rather than inventing a reason.
 - Nonce/retry logic never resubmits a confirmed revert or an unconfirmed
   transaction.
+- **Every send reads its nonce at the `pending` block, never at
+  `latest`.** All five send paths (`_send_tx`, `_send_batch_tx`,
+  `_send_tx_owner`, `_send_eth`, and the mainnet bridge send) pass the
+  `pending` block identifier. The public RPC is load-balanced across
+  nodes, and a node that has not yet caught up serves a stale sequence
+  at `latest` immediately after a confirmed transaction — observed
+  across the hybrid-play fleet on 2026-07-28, where sequential sends
+  inside one batch tool collided with their own predecessor. `pending`
+  counts the sender's in-flight transactions and closes that race at
+  the source; `_send_tx_retry`'s re-fetch on `account sequence
+  mismatch` remains the second half. The harm avoided is a retry of a
+  **non-idempotent** transfer: a level-up, a feed or an ETH send
+  resubmitted after a stale-sequence rejection can execute twice, and
+  no retry logic can un-spend it.
 - Multi-transaction tools raise `BatchTxError` when any item failed. The
   error message carries **every** per-item outcome, successes included,
   and states that successful items are final on-chain and must not be
@@ -304,17 +318,19 @@ softened, and the pre-snippet text is unchanged.
   `/api/agent/strategies`, `/api/strategies/status/all`, plus per-kami
   status, logs, start, and stop.
 - **Internal read paths (not OUTSOURCE-classed)** via `_api_get`:
-  - `level_to`, `level_and_allocate_batch`,
-    `feed_level_allocate_batch` — `GET /api/playwright/kami/{id}/` for
-    current level before issuing level transactions.
   - `get_scavenge_droptable` (PERCEIVE) — `GET /api/playwright/nodes`
     for node metadata; the droptable weights themselves come from chain
     component reads.
-- **Blast radius:** an outage of this third party therefore reaches **3
+- **Blast radius:** an outage of this third party therefore reaches **0
   ACT tools and 1 PERCEIVE tool** in addition to the 9 OUTSOURCE tools.
   `travel_to_room` left this set at 3.0.0: it now reads room and stamina
   from `system.getter.getAccount` and SP+ balances from chain inventory.
-  See deviation X2.
+  `level_to`, `level_and_allocate_batch` and `feed_level_allocate_batch`
+  left it at 3.2.0: they read the kami's current level from the chain's
+  Level component (`server._kami_level`), the same source
+  `level_up_kami` has validated against since 3.0.0, so an account that
+  never registered with this service can now use them. No ACT tool
+  reaches this dependency. See deviation X2.
 - **Delegation outlives the session.** A strategy started through this
   service keeps signing with the escrowed operator key after the MCP
   session that started it has ended — observed continuing ~23 hours on a
@@ -488,6 +504,8 @@ writer; no other module opens the keys file or the Keychain.
 | `get_all_strategy_statuses` summarizes to the calling account's kamis from an on-chain ownership read, and passes an unrecognised or unreadable case through whole | `test_v300_families.py::TestStrategyStatusSummary` |
 | `lens_roster` is a 1:1 wrapper, PERCEIVE, carrying both standing sentences | `test_v300_families.py::TestLensRoster` |
 | A refused `eth_call` is retried once and never reported as a revert; a stale account sequence is in the retry class and no snippet can introduce a retry marker | `test_v300_families.py::TestTransientRpcClasses` |
+| All five send paths read their nonce at the `pending` block, asserted at the site, so a stale `latest` sequence from a lagging load-balanced node cannot invite a retry of a non-idempotent transfer | `test_validation.py::TestPendingNonce`, `test_reporting_fidelity.py::TestSenderTerminalStates::test_send_eth_reads_pending_nonce`, `test_bridge.py::TestBroadcastIsFireAndForget::test_mainnet_nonce_read_at_pending` |
+| The three batch level tools read the current level from the chain's Level component and make no Kamibots call: they work on an account with no API key, and an unreadable level refuses the call naming its cause rather than defaulting | `test_batch_wrappers.py::TestLevelPathNeedsNoKamibotsKey` |
 | `SPEC.md` exists, is well-formed, and its `describes:` names a ref that resolves in this repository | `test_spec.py::test_spec_frontmatter`, `::test_describes_resolves` |
 
 ---
@@ -513,19 +531,35 @@ EXPOSURE row carrying serving path and migration note:
 | `list_accounts` | local roster / env | local configuration |
 | `bridge_status` | Initia router API + RPC | cross-chain transport state |
 
-**X2 — `third-party-reach-into-ACT`.** Internal Kamibots reads sit
-inside three ACT tools (`level_to`, `level_and_allocate_batch`,
-`feed_level_allocate_batch`) and one PERCEIVE tool
-(`get_scavenge_droptable`). A strategy-service outage therefore reaches
-action paths, not only the OUTSOURCE class. Kept because these read a
-kami's current level, for which no equivalent read is served. The
-correct resolution is an on-chain or lens read, not a fallback.
-`travel_to_room` was the fourth until 3.0.0 and is the worked example:
-its third-party read was ~15s-cached upstream and reached the planner
-through a field-name search and a hand-rolled stamina-regeneration
-estimate, which planned on a stamina of 3 against a real ~100 and on
-rooms the account had already left. It reads chain state directly now,
-and the deviation is one tool smaller.
+**X2 — `third-party-reach-into-PERCEIVE`.** One internal Kamibots read
+remains, inside the PERCEIVE tool `get_scavenge_droptable`: `GET
+/api/playwright/nodes` supplies the entity IDs of a node's
+`ITEM_DROPTABLE` rewards, which are then the entities for the on-chain
+weight reads. No ACT tool reaches this dependency any more, and the
+deviation no longer touches action paths.
+
+Its remaining half is not trivially replaceable. The node's name and
+tier cost are already available on-chain (`component.value.safeGet` of
+`_scavenge_registry_id(node_index)`, as `get_scavenge_points` reads
+them) and in `catalogs/nodes.csv`; the reward entity IDs are not — no
+helper in this module derives them, and doing so needs an upstream ID
+scheme this module does not hold. The tool's `account` parameter is
+also described as an API auth header, so replacing the read moves a
+description and therefore the surface hash. It is deferred to a
+hash-moving release, with the EXPOSURE row already carrying the lens
+deferral at pin `1d7a960`.
+
+Two tools were removed from this deviation by doing exactly what it
+prescribes — an on-chain read, not a fallback. `travel_to_room` was the
+first, at 3.0.0, and is the worked example: its third-party read was
+~15s-cached upstream and reached the planner through a field-name
+search and a hand-rolled stamina-regeneration estimate, which planned
+on a stamina of 3 against a real ~100 and on rooms the account had
+already left. The three batch level tools were the second, at 3.2.0:
+the chain read they needed (`component.level`) had been sitting in the
+module since 3.0.0, used by `level_up_kami` — the single-transaction
+twin of the same on-chain path, which is why that tool worked on
+accounts where the batch tools raised a missing-API-key error.
 
 **X3 — `internal-only-read-helpers`.** `get_kami_market_listings` and
 `get_account_trades` left the tool registry but remain as module
@@ -618,3 +652,4 @@ the wording ("tools whose harness state gate accepts X") says so.
 | 5 | 2026-08-17 | Re-pinned to `2ce4268` (SCHEMA_VERSION 2.2.0). Adds the flag-gated mechanics snippet on error results: P4 gains its paragraph (courtesy on the honest channel, contents, bounds, results-only), P6 gains `KAMI_ERROR_SNIPPETS` and widens the surface-identity claim to it, P1 notes that the snippet's tool-name pointers are not the routing mechanism, and deviation X9 `error-text-mechanics-snippet` argues that admission. The "tools_hash stable across capability flags" invariant moves from **unenforced** to `test_tool_surface.py::test_surface_identical_across_capability_flags` (8 flag combinations, count + mass + hash + every description), and six invariant rows are added for the single-source state table, subject derivation, snippet guards and the pinned snippet wordings. No tool, parameter, schema or description changes: P1 mass 69,900, P1 count 101, P2 `tools_hash` and all class counts unchanged. **Correction:** P3 stated `SCHEMA_VERSION = "2.0.0"` while the module and the invariant row said 2.1.0; P3 now reads 2.2.0. |
 | 6 | 2026-08-25 | Re-pinned to `7da193c` (SCHEMA_VERSION **3.0.0**). **MAJOR by P3's own rule**, not the 2.3.0 the build brief labelled it: `get_all_strategy_statuses` changes return shape, and new pre-send gates move failures that were on-chain reverts into `PreTxValidationError`. Five families. (A) Multi-transaction hash integrity: every landed leg is reported on failure as well as success, the hash-bearing failure channel is named in P4 (the MCP error path carries no structured content), receipt fields precede truncation, `scavenge_claim_and_reveal` gains a top-level `txs` and returns its revealed loot decoded from the reveal receipt, and `stop_harvest_batch` dry-runs each item before batching and routes through the standard sender (it previously built, signed and sent inline with no dry-run, no gas check and no send-error wrapping). (B) Pool availability: read from the pool entity's `IsDisabled` component. The world-config flags the run record blamed (`POOL_ENABLED`, `POOL_SWAP_ENABLED`) **do not exist**: a config read returns 0 for an absent field, so the fabricated name confirmed itself, and this version reads the entity and names no config key. (C) `travel_to_room` reads room, stamina and SP+ balances from chain state, leaving deviation X2; state-read failures name their cause and retry once; `use_items` defaults to **False** and consumes only against a computed deficit. (D) Snippet true-ups: the unread-preconditions list is per call, `level_up_kami` states level and XP, `harvest_start` states the node's room, `take_trade` gains a whole-lot balance gate, `auction_buy` names its currency and holding, and the unreachable-room refusal — which had been dropping its snippet entirely on the re-raise — names the catalog adjacency. (E) `lens_roster` served (P1 count 101 -> 102, PERCEIVE 30 -> 31, `READ_TOOLS` 38 -> 39, EXPOSURE 37 -> 38 served rows); `get_all_strategy_statuses` summarized to the account's own kamis with `full=true` for the raw answer; transient-RPC and stale-sequence classes absorbed. D1 re-pinned `a0a3e1e` (0.2.0) -> `1d7a960` (0.4.0), correcting a declared pin that had lagged the deployed daemon by two minor versions. Registry-mass budget 70,000 -> 71,000 by operator ruling for the named capability `lens_roster`, with P1 mass 69,900 -> 69,993; P2 `tools_hash` `7fc11fe9...5262` -> `b7eebb88...f1f8`, and the handshake `instructions` now also carries `schema_version` and `error_snippets`. |
 | 7 | 2026-08-26 | Re-pinned to `4fc5f19` (SCHEMA_VERSION **3.1.0**). **MINOR**: no tool, parameter, schema or description changes — P1 count 102, P1 mass 69,993 and P2 `tools_hash` `b7eebb88...f1f8` are all unchanged, and the surface fingerprint of a 3.0.0 deployment and a 3.1.0 one is identical — but two agent-visible texts change: `create_operator_wallet`'s `key_saved` field and the missing-key errors now name the RESOLVED location of a secret rather than the literal `.env`. Four families. (A) D5 rewritten: key injection becomes a pluggable secret store (`executor/secrets_store.py`, ported from kami-hybrid-play `65b96e6`) with `envfile` as the DEFAULT backend and `keychain` as an opt-in, a names-only protected-names manifest derived from the keys-file name, and the standing rule that a secret VALUE never enters `os.environ`, argv, stdout, a result, or an exception. A deployment that configures nothing behaves exactly as 3.0.0 did and makes no Keychain call. `_load_accounts` scans the store instead of `os.environ`; `create_operator_wallet` and `register_kamibots` write through it; the generated operator key stops being assigned into `os.environ`. (B) The six `_load_accounts` messages moved from stdout — the stdio JSON-RPC transport — to stderr. (C) The dead `server.KAMI_LENS_PIN` constant is deleted; D1 is now the single declaration of the compatible lens version (the constant held the 0.4.0 commit under a comment saying 0.2.0). (D) Doc-count drift corrected against the live registry, and `executor/README.md` regains the three tool rows it was missing (`pool_swap`, `pool_swap_quote`, `lens_roster`). **Correction:** P7 stated 38 served EXPOSURE rows while the file holds — and CI requires — one row per READ tool, which is 39. |
+| 8 | 2026-08-27 | Re-pinned to `<CODE_SHA>` (SCHEMA_VERSION **3.2.0**). **MINOR**, not the 3.1.1 the build brief labelled it: no tool, parameter, schema or description changes — P1 count 102, P1 mass 69,993 and P2 `tools_hash` `b7eebb88...f1f8` are unchanged, and the surface fingerprint of a 3.1.0 deployment and a 3.2.0 one is identical — but on an account with no Kamibots API key a missing-key error stops appearing and three tools succeed where they used to fail, which is an agent-visible effect and therefore outside this file's PATCH definition. Two families. (A) Every send path reads its nonce at the `pending` block rather than `latest`: `_send_tx`, `_send_batch_tx`, `_send_tx_owner`, `_send_eth` and the mainnet bridge send, via the single `_NONCE_BLOCK` constant. A load-balanced public RPC serves a stale sequence at `latest` right after a confirmed transaction, and a rejected stale-nonce send is retried — which for a non-idempotent transfer risks executing it twice. P4 gains the paragraph; `_send_tx_retry`'s re-fetch on `account sequence mismatch` is unchanged. (B) `level_to`, `level_and_allocate_batch` and `feed_level_allocate_batch` read the kami's current level from the chain's Level component (`_kami_level`, now also the single derivation behind `_kami_progress`) instead of `GET /api/playwright/kami/{id}/`, through a `_read_kami_level` wrapper in the `_read_account_view` shape — retried once, never defaulted, the exception type always named. The level decides how many transactions are sent, so an unreadable level refuses the call. Chain over lens deliberately: the lens is a separate daemon with its own unavailability class, and making three ACT tools depend on it would trade one external dependency for another; `level_up_kami` — the single-transaction twin of the same on-chain path, which worked on accounts where these three raised — has validated against this component since 3.0.0. Component and client projection cross-checked live on five kamis at block 32,626,207 (15540/46, 158/48, 2808/48, 11224/48, 4277/36 — identical). D2's blast radius drops from 3 ACT + 1 PERCEIVE tool to 0 ACT + 1 PERCEIVE; deviation X2 is renamed `third-party-reach-into-PERCEIVE` and shrinks to `get_scavenge_droptable`, whose remaining read supplies reward entity IDs that have no on-chain derivation in this module and whose replacement would move a description, so it is deferred to a hash-moving release. Two invariant rows added. |

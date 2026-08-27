@@ -74,7 +74,12 @@ def txchain(monkeypatch, accounts):
         wait_error=None,   # exception instance to raise from receipt wait
         call_error=None,   # exception instance to raise from replay call
         call_log=[],       # (params, block_identifier) per replay call
+        nonce_blocks=[],   # block identifier per get_transaction_count
     )
+
+    def get_nonce(addr, block_identifier=None):
+        state.nonce_blocks.append(block_identifier)
+        return 7
 
     def wait(h, timeout=None):
         if state.wait_error is not None:
@@ -90,7 +95,7 @@ def txchain(monkeypatch, accounts):
     eth = SimpleNamespace(
         contract=lambda address=None, abi=None: registry[address],
         get_balance=lambda a: balances.get(a, 10**18),
-        get_transaction_count=lambda a: 7,
+        get_transaction_count=get_nonce,
         send_raw_transaction=lambda raw: broadcasts.append(raw) or b"\x01" * 32,
         wait_for_transaction_receipt=wait,
         call=eth_call,
@@ -238,6 +243,15 @@ class TestSenderTerminalStates:
         txchain.wait_error = TimeExhausted("timeout")
         with pytest.raises(server.TxUnconfirmedError):
             server._send_eth(a.owner_key, a.owner_addr, b.owner_addr, 1000)
+
+    def test_send_eth_reads_pending_nonce(self, accounts, txchain):
+        """A plain ETH transfer is the least idempotent send there is:
+        a stale latest sequence that gets rejected and retried can move
+        the value twice."""
+        a = server._get_account("testa")
+        b = server._get_account("testb")
+        server._send_eth(a.owner_key, a.owner_addr, b.owner_addr, 1000)
+        assert txchain.nonce_blocks == ["pending"]
 
 
 class TestNoBlindRetry:
@@ -577,10 +591,7 @@ class TestSequentialLoopsMatrix:
     def test_level_to_mixed_default_raises(
         self, accounts, validation_ok, monkeypatch
     ):
-        async def fake_api(path, account):
-            return {"progress": {"level": 3}}
-
-        monkeypatch.setattr(server, "_api_get", fake_api)
+        monkeypatch.setattr(server, "_read_kami_level", lambda k: (3, ""))
         monkeypatch.setattr(
             server, "_send_tx_retry", _failing_sender({2}, [])
         )
@@ -593,10 +604,7 @@ class TestSequentialLoopsMatrix:
     def test_level_to_mixed_allow_partial_returns(
         self, accounts, validation_ok, monkeypatch
     ):
-        async def fake_api(path, account):
-            return {"progress": {"level": 3}}
-
-        monkeypatch.setattr(server, "_api_get", fake_api)
+        monkeypatch.setattr(server, "_read_kami_level", lambda k: (3, ""))
         monkeypatch.setattr(
             server, "_send_tx_retry", _failing_sender({2}, [])
         )
@@ -681,10 +689,7 @@ class TestSequentialLoopsMatrix:
     def test_level_and_allocate_mixed_default_raises(
         self, accounts, validation_ok, monkeypatch
     ):
-        async def fake_api(path, account):
-            return {"progress": {"level": 1}}
-
-        monkeypatch.setattr(server, "_api_get", fake_api)
+        monkeypatch.setattr(server, "_read_kami_level", lambda k: (1, ""))
         # kami 5 levels fine (call 1); kami 6's level tx fails (call 2).
         monkeypatch.setattr(
             server, "_send_tx_retry", _failing_sender({2}, [])
@@ -702,10 +707,7 @@ class TestSequentialLoopsMatrix:
     def test_level_and_allocate_mixed_allow_partial_returns(
         self, accounts, validation_ok, monkeypatch
     ):
-        async def fake_api(path, account):
-            return {"progress": {"level": 1}}
-
-        monkeypatch.setattr(server, "_api_get", fake_api)
+        monkeypatch.setattr(server, "_read_kami_level", lambda k: (1, ""))
         monkeypatch.setattr(
             server, "_send_tx_retry", _failing_sender({2}, [])
         )
@@ -774,10 +776,7 @@ class TestRevertInvariant:
     def batch_env(self, accounts, validation_ok, chain, monkeypatch):
         """Enough mocks that every allow_partial tool reaches its send."""
 
-        async def fake_api(path, account):
-            return {"progress": {"level": 1}}
-
-        monkeypatch.setattr(server, "_api_get", fake_api)
+        monkeypatch.setattr(server, "_read_kami_level", lambda k: (1, ""))
         monkeypatch.setattr(
             server, "_read_account_view",
             lambda aid: ({"index": 1, "name": "t", "stamina": 100,

@@ -29,6 +29,100 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [3.2.0] — pending nonces, and the level read comes off the chain
+
+MINOR. **102 tools**, registry mass **69,993**, `tools_hash`
+`b7eebb88...f1f8` (Python 3.13), `SCHEMA_VERSION` **3.2.0**. The
+surface is byte-identical to 3.1.0 — no tool added, removed, renamed,
+reworded or reschematized, so a client's recorded fingerprint does not
+move.
+
+The build brief labelled this 3.1.1. It is MINOR by this file's own
+rule. PATCH is reserved for changes with *no agent-visible effect at
+all*, and family B has one: on an account that never registered with
+the strategy service, the error `No Kamibots API key for account
+'<x>'. Call register_kamibots(...) first.` stops appearing on three
+tools, and those tools now succeed where they used to fail. A
+disappearing error and a success in place of a failure are things an
+agent sees, and 3.1.0 was already ruled MINOR for a strictly smaller
+reason — two error texts being reworded. Family A on its own would
+have been PATCH.
+
+### A — every send reads its nonce at `pending`
+
+All five send paths — `_send_tx`, `_send_batch_tx`, `_send_tx_owner`,
+`_send_eth`, and the mainnet bridge send — now pass the `pending` block
+identifier, through the single `_NONCE_BLOCK` constant that carries the
+reasoning.
+
+The public RPC is load-balanced across nodes. Right after a confirmed
+transaction, a node that has not caught up serves a stale sequence at
+`latest`, which is what sequential sends inside one batch tool were
+reading; the hybrid-play fleet hit this on 2026-07-28, with sends
+colliding against their own predecessor. `pending` counts the sender's
+in-flight transactions and closes the race at the source.
+
+The half that already existed stays: `_send_tx_retry` still re-fetches
+on `account sequence mismatch`. The point of fixing the read is that
+the retry is the dangerous half — a **non-idempotent** transfer (a
+level-up, a feed, an ETH send) that is resubmitted after a stale-nonce
+rejection can execute twice, and no retry logic can un-spend it. The
+block identifier is asserted at each of the five sites rather than
+inferred from an absence of retries.
+
+### B — the batch level tools read the level from the chain
+
+`level_to`, `level_and_allocate_batch` and `feed_level_allocate_batch`
+each called `GET /api/playwright/kami/{id}/` for `progress.level`
+before deciding how many level-up transactions to send. That read goes
+through `_headers`, so all three raised a missing-API-key error on any
+account without a Kamibots key — while `level_up_kami`, the
+single-transaction twin of the exact same on-chain path, worked fine.
+The requirement was never in these tools' descriptions; it was an
+implementation detail leaking out as a hard dependency, and a
+third-party outage reaching three ACT tools.
+
+They now read `server._kami_level` — a `safeGet` on the chain's Level
+component for the kami entity — which is also the single derivation
+behind `_kami_progress`, so the number a pre-send count uses and the
+number `level_up_kami`'s snippet reports cannot come from two sources.
+The call sites go through `_read_kami_level`, built in the shape
+`_read_account_view` established at 3.0.0: retried once, the exception
+*type* always named so a read that stringifies to nothing cannot
+surface as an empty reason. The level is never defaulted or guessed —
+it decides how many transactions get sent, so an unreadable level
+refuses the call (`PreTxValidationError` in `level_to`, a per-kami
+`level: ...` row in the two batch tools) instead of sending zero or
+too many.
+
+Chain rather than lens, deliberately, for an ACT tool: the lens is a
+separate local daemon with its own unavailability class, and routing
+three action tools through it would trade one external dependency for
+another with the same failure shape. The chain read has no such gate,
+and `level_up_kami` has validated against this component since 3.0.0.
+Verified live before the change: `component.level` and the client-ported
+lens projection agree on five kamis at block 32,626,207 — 15540 → 46,
+158 → 48, 2808 → 48, 11224 → 48, 4277 → 36.
+
+SPEC D2's blast radius drops from **3 ACT tools and 1 PERCEIVE tool**
+to **0 ACT and 1 PERCEIVE**. Deviation X2, `third-party-reach-into-ACT`,
+is renamed `third-party-reach-into-PERCEIVE` and shrinks to
+`get_scavenge_droptable` alone.
+
+### Not changed — `get_scavenge_droptable`
+
+The fourth `_api_get` (`GET /api/playwright/nodes`) stays, and is
+reported rather than fixed. Two of the three things it supplies are
+already available on-chain (node name and tier cost, the latter read by
+`get_scavenge_points` as `component.value.safeGet` of the scavenge
+registry entity) or in `catalogs/nodes.csv`. The third is not: the
+entity IDs of the node's `ITEM_DROPTABLE` rewards, which are the
+entities for the weight reads that are the tool's actual product. No
+helper here derives them, and doing so needs an upstream ID scheme this
+module does not hold. The tool's `account` parameter is also described
+as an API auth header, so the fix moves a description and therefore
+`tools_hash` — it belongs in a hash-moving release, not this one.
+
 ## [3.1.0] — the secret store, and stdout stops carrying diagnostics
 
 MINOR. **102 tools**, registry mass **69,993**, `tools_hash`

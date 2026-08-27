@@ -73,10 +73,16 @@ def txchain(monkeypatch, accounts):
         transactionHash=b"\xab" * 32, status=1, blockNumber=123, gasUsed=42
     )
 
+    nonce_blocks: list = []
+
+    def get_nonce(addr, block_identifier=None):
+        nonce_blocks.append(block_identifier)
+        return 7
+
     eth = SimpleNamespace(
         contract=lambda address=None, abi=None: registry[address],
         get_balance=lambda a: balances.get(a, 10**18),
-        get_transaction_count=lambda a: 7,
+        get_transaction_count=get_nonce,
         send_raw_transaction=lambda raw: broadcasts.append(raw) or b"\x01" * 32,
         wait_for_transaction_receipt=lambda h, timeout=None: receipt,
         account=SimpleNamespace(
@@ -97,7 +103,8 @@ def txchain(monkeypatch, accounts):
     registry["component.name"] = FakeContract({"safeGet": lambda e: "testa"})
 
     return SimpleNamespace(
-        registry=registry, balances=balances, broadcasts=broadcasts
+        registry=registry, balances=balances, broadcasts=broadcasts,
+        nonce_blocks=nonce_blocks,
     )
 
 
@@ -282,6 +289,51 @@ class TestSendBatchTxGates:
         )
         assert r["status"] == "success"
         assert len(txchain.broadcasts) == 1
+
+
+class TestPendingNonce:
+    """Every send reads its nonce at "pending", never at latest.
+
+    The public RPC is load-balanced, and a node that has not caught up
+    serves a stale sequence at latest right after a confirmed tx. A
+    stale-nonce rejection is retried, and a retry of a non-idempotent
+    transfer can execute it twice — so the block identifier is asserted
+    at the site, not inferred from the absence of retries.
+    """
+
+    def test_send_tx_reads_pending(self, accounts, txchain):
+        txchain.registry["system.account.move"] = FakeTxContract(
+            {"executeTyped": lambda room: b""}
+        )
+        server._send_tx(
+            "testa", "system.account.move", server._ABI_MOVE, [4],
+            gas_limit=100_000,
+        )
+        assert txchain.nonce_blocks == ["pending"]
+
+    def test_send_tx_owner_reads_pending(self, accounts, txchain):
+        txchain.registry["component.name"] = FakeContract(
+            {"safeGet": lambda e: ""}
+        )
+        txchain.registry["system.account.register"] = FakeTxContract(
+            {"executeTyped": lambda *a: b""}
+        )
+        server._send_tx_owner(
+            "testa", "system.account.register",
+            server._ABI_ACCOUNT_REGISTER, ["0x" + "11" * 20, "name"],
+            gas_limit=2_000_000,
+        )
+        assert txchain.nonce_blocks == ["pending"]
+
+    def test_send_batch_tx_reads_pending(self, accounts, txchain):
+        txchain.registry["system.harvest.stop"] = FakeTxContract(
+            {"executeBatched": lambda ids: b""}
+        )
+        server._send_batch_tx(
+            "testa", "system.harvest.stop", server._ABI_HARVEST_STOP,
+            "executeBatched", [[111, 222]], 4_000_000,
+        )
+        assert txchain.nonce_blocks == ["pending"]
 
 
 # ---------------------------------------------------------------------------
