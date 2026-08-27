@@ -49,7 +49,8 @@ ALLOW_PARTIAL_TOOLS = {
     "sacrifice_kami_batch",
 }
 
-# H2: one wrapper per kami-lens query at pin 1d7a960 (0.4.0).
+# H2: one wrapper per kami-lens query at pin f07b578 (0.5.1), less
+# `skills` — deferred, with its row in EXPOSURE.md.
 LENS_TOOLS = {
     "lens_kami", "lens_account", "lens_party", "lens_node", "lens_room",
     "lens_inventory", "lens_item", "lens_items", "lens_config",
@@ -86,7 +87,7 @@ def _tools():
 
 
 def test_schema_version():
-    assert SCHEMA_VERSION == "3.2.0"
+    assert SCHEMA_VERSION == "3.3.0"
 
 
 def test_readme_current_version_matches_schema_version():

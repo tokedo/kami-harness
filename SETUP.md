@@ -45,8 +45,9 @@ Kamigotchi perception and action as tools; any MCP client can drive it.
   client calls `register_kamibots(account=...)`, which signs with the
   owner key and provisions an API key automatically; starting a
   strategy additionally requires the explicit operator-key escrow step
-  `kamibots_enable_strategies`. World-state reads do **not** go through
-  this service — they come from kami-lens.
+  `kamibots_enable_strategies`. Every world-state read but one comes
+  from kami-lens; `get_scavenge_droptable` still reads node metadata
+  from this service (SPEC.md D2, deviation X2).
 
 ## 2. Clone the repo
 
@@ -137,22 +138,24 @@ outside the client's tool surface.
 
 ## 7. Install and run kami-lens (required for world-state reads)
 
-The 31 PERCEIVE tools are thin wrappers over a **local** kami-lens
-daemon: 24 of them are one socket request each, passed straight back to
-the caller. Until the daemon is running, those tools raise
+24 of the 31 PERCEIVE tools are thin wrappers over a **local**
+kami-lens daemon — one socket request each, passed straight back to the
+caller. The other 7 read the chain directly (or, for
+`get_scavenge_droptable`, the Kamibots node endpoint). Until the daemon
+is running, the 24 raise
 `LensUnavailableError` — they never fall back to a hosted service and
 never return an empty result in its place. ACT, OUTSOURCE, and META
 tools do not depend on it.
 
-This server version is built against kami-lens release **0.4.0**, pinned
-at commit `1d7a960` and declared in [`SPEC.md`](SPEC.md) D1 — the one
+This server version is built against kami-lens release **0.5.1**, pinned
+at commit `f07b578` and declared in [`SPEC.md`](SPEC.md) D1 — the one
 place that pin is stated. kami-lens is not published
 to npm or a container registry, so build it from the repository:
 
 ```bash
 git clone https://github.com/tokedo/kami-lens
 cd kami-lens
-git checkout 1d7a960        # the pin this server version is built against
+git checkout f07b578        # the pin this server version is built against
 npm install && npm run build
 node dist/cli.js daemon      # long-running: sync daemon + query socket
 ```

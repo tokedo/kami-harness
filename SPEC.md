@@ -52,14 +52,22 @@ this registry says *what holds*, not *how it is built*.
   carries `server._LENS_SERVING_SENTENCE`. Non-read tools carry neither.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **69,993 characters** at this ref, against a `REGISTRY_MASS_BUDGET`
-  of 71,000. The budget is capacity that has to be earned: every
+  **71,643 characters** at this ref, against a `REGISTRY_MASS_BUDGET`
+  of 72,000. The budget is capacity that has to be earned: every
   character is spent out of the agent's context before it acts, so the
   ceiling rises only for named capability, never to make room for
-  wording that could be tightened instead. The 70,000 -> 71,000 raise
-  at this version is an operator ruling of 2026-08-25, made for the
-  named capability `lens_roster`; the wording tightened in the same
-  change was tightened because it reads better, and did not fund it.
+  wording that could be tightened instead. Two raises are on record.
+  70,000 -> 71,000 is an operator ruling of 2026-08-25, made for the
+  named capability `lens_roster`. 71,000 -> 72,000 is an operator
+  ruling of 2026-08-27, made for the named capability *the lens 0.5.1
+  `full`/`stats` passthroughs*: thirteen optional parameters whose
+  schemas alone cost 665 characters, plus the honest caps four wrapper
+  descriptions had stopped stating once the deployed daemon passed
+  0.5.0. In both cases the wording tightened in the same change was
+  tightened because it reads better and did not fund the raise — at
+  3.3.0 the two standing sentences below were shortened for a 711-
+  character reclaim, and that reclaim was spent on the capability
+  before the raise was asked for.
 - Registry mass and `tools_hash` are **interpreter-dependent**: both are
   computed from schemas that the interpreter's own JSON and typing
   machinery generates, so a different Python version can yield different
@@ -80,7 +88,7 @@ this registry says *what holds*, not *how it is built*.
 - The MCP `initialize` handshake carries it in the `instructions` field
   as the exact string `tools_hash=<64 hex chars>`.
 - Value at this ref (Python 3.13):
-  `b7eebb88c49b9077efd4ba72e96ddf58af6af3eb17852aaecc800ea030fcf1f8`.
+  `f3734714d5ab1153a76bfaa1ef818320d65ad2c730be9c8d27bfdc33427eac43`.
 - The MCP `initialize` handshake additionally carries
   `schema_version=<SCHEMA_VERSION>` and `error_snippets=<on|off>` in the
   same `instructions` field, space-separated after the hash. The
@@ -91,7 +99,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.2.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.3.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -119,6 +127,17 @@ ever reported as another:
 | confirmed-revert | **raises** `OnChainRevertError(tx_hash, block, gas_used, reason)` — never returned alongside or as success |
 | unconfirmed | **raises** `TxUnconfirmedError(tx_hash, timeout)` — outcome unknown, the tx may still land |
 
+- **A dry run has no terminal state.** `pool_swap(dry_run=True)` runs
+  every pre-send gate the live call runs — distinct items, a MUSU side,
+  a pool with liquidity, operator registration, item balance, and the
+  live quote against `min_amount_out` — and then returns without an
+  `eth_call`, a gas read, or a signature. Nothing is broadcast, so none
+  of the three states above applies: the answer carries `dry_run: true`
+  as its discriminator and **no `status`, `tx_hash`, `block` or
+  `gas_used`**, rather than a fourth `status` value this table does not
+  define. It carries the pool's `disabled` flag from the quote, because
+  the send path's disabled-pool detection hangs off the `eth_call` a
+  dry run does not make and is the one check it cannot perform.
 - A returned result never carries `status="reverted"`.
 - `OnChainRevertError.reason` is a best-effort `eth_call` replay of the
   exact calldata at the block the transaction landed in; it is `None`
@@ -272,7 +291,7 @@ softened, and the pre-snippet text is unchanged.
 
 ### D1 — kami-lens daemon
 
-- **Pin:** `1d7a960` (kami-lens release 0.4.0). **This row is the only
+- **Pin:** `f07b578` (kami-lens release 0.5.1). **This row is the only
   place the compatible lens version is stated.** It had been duplicated
   in a `server.KAMI_LENS_PIN` constant that no code path read; the
   constant held the 0.4.0 commit under a comment saying 0.2.0, and
@@ -282,6 +301,20 @@ softened, and the pre-snippet text is unchanged.
   from `a0a3e1e` (0.2.0) to `1d7a960`, having lagged the deployed daemon
   by two minor versions; `lens_roster` exists only from 0.3.0, so
   serving it and correcting the pin were the same change.)
+- **The 0.4.0 -> 0.5.1 advance at 3.3.0 is load-bearing, not a records
+  update.** Three things ride on it. (a) 0.5.0's §3.13 payload economy
+  introduced the 50-row caps and row compaction that four wrapper
+  descriptions were still describing as uncapped: `lens_party` promised
+  "every kami" and `lens_room` promised each account's `kamis[]`, both
+  of which the deployed daemon had already stopped serving by default.
+  The pin had lagged the daemon again, and the descriptions lied for as
+  long as it did. (b) `--stats` and `status.blockLag` arrive at 0.5.1
+  and are what Families A and D pass through. (c) 0.5.1 fixes a
+  `defaultOperator` prefill defect that counted argv tokens rather than
+  positionals, so at 0.5.0 `party --full` with no account argument
+  answered `BAD_ARGS` — which is exactly the request
+  `lens_party(full=True)` emits on its `-1` default. Family B is not
+  servable below this pin.
 - **Transport:** local AF_UNIX stream socket, one newline-delimited JSON
   request and one response per connection, 30-second timeout. Path from
   `KAMI_LENS_SOCKET`, else the daemon's own platform default
@@ -446,7 +479,7 @@ writer; no other module opens the keys file or the Keychain.
 
 | claim | enforcement |
 |---|---|
-| Registry description mass ≤ 71,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget` (69,993 at this ref, on Python 3.13) |
+| Registry description mass ≤ 72,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget` (71,643 at this ref, on Python 3.13) |
 | The registry advertises exactly 102 tools | `test_tool_surface.py::test_tool_surface_count` |
 | Every registered tool is class-tagged, and no tag names an absent tool | `test_tool_surface.py::test_taxonomy_covers_registry_exactly` (also pins ACT 55 / PERCEIVE 31 / OUTSOURCE 9 / META 7) |
 | Tools removed at this version stay absent | `test_tool_surface.py::test_removed_tools_absent` |
@@ -524,8 +557,8 @@ EXPOSURE row carrying serving path and migration note:
 | `get_expected_objective` | local `catalogs/quests/` | documentation, not chain truth; no lens equivalent by design |
 | `check_quest_completable` | chain `staticCall` | act-guard: answers "would quest-complete revert right now" |
 | `quest_state` | chain component reads | act-guard: discriminates the on-chain quest state |
-| `get_scavenge_points` | chain component reads | no lens scavenge query at pin `1d7a960` |
-| `get_scavenge_droptable` | Kamibots node metadata + chain weights | no lens scavenge query at pin `1d7a960` |
+| `get_scavenge_points` | chain component reads | no lens scavenge query at pin `f07b578` |
+| `get_scavenge_droptable` | Kamibots node metadata + chain weights | no lens scavenge query at pin `f07b578` |
 | `get_item_orderbook` | chain event-scan + component reads | per-item book exceeds `lens_trades` at this pin |
 | `get_gas_balance` | Yominet + mainnet RPC | wallet infrastructure |
 | `list_accounts` | local roster / env | local configuration |
@@ -547,7 +580,10 @@ scheme this module does not hold. The tool's `account` parameter is
 also described as an API auth header, so replacing the read moves a
 description and therefore the surface hash. It is deferred to a
 hash-moving release, with the EXPOSURE row already carrying the lens
-deferral at pin `1d7a960`.
+deferral at pin `f07b578`. 3.3.0 is a hash-moving release and does not
+take it: the reward entity IDs still have no on-chain derivation in
+this module, so the deferral is about the missing derivation, not about
+the hash.
 
 Two tools were removed from this deviation by doing exactly what it
 prescribes — an on-chain read, not a fallback. `travel_to_room` was the
@@ -630,6 +666,12 @@ the wording ("tools whose harness state gate accepts X") says so.
 - **Not a general-purpose wallet.** No arbitrary contract call, no
   arbitrary-recipient bridging — the bridge recipient is pinned to the
   signing account's own owner address and is not a parameter.
+- **No cross-item pool routing.** Every live pool is MUSU-paired (item
+  1), so `pool_swap` and `pool_swap_quote` require MUSU on one side and
+  refuse an item-to-item pair before signing rather than routing it as
+  two hops. The constraint matches the world rather than narrowing it:
+  six live pools, all MUSU-paired. Revisit only if lens pool discovery
+  shows a non-MUSU pool.
 - **No owner-key escrow, ever.** Only operator keys are escrowed, and
   only to the declared strategy service.
 - **Not a completeness guarantee over the game.** Reads and actions not
@@ -653,3 +695,4 @@ the wording ("tools whose harness state gate accepts X") says so.
 | 6 | 2026-08-25 | Re-pinned to `7da193c` (SCHEMA_VERSION **3.0.0**). **MAJOR by P3's own rule**, not the 2.3.0 the build brief labelled it: `get_all_strategy_statuses` changes return shape, and new pre-send gates move failures that were on-chain reverts into `PreTxValidationError`. Five families. (A) Multi-transaction hash integrity: every landed leg is reported on failure as well as success, the hash-bearing failure channel is named in P4 (the MCP error path carries no structured content), receipt fields precede truncation, `scavenge_claim_and_reveal` gains a top-level `txs` and returns its revealed loot decoded from the reveal receipt, and `stop_harvest_batch` dry-runs each item before batching and routes through the standard sender (it previously built, signed and sent inline with no dry-run, no gas check and no send-error wrapping). (B) Pool availability: read from the pool entity's `IsDisabled` component. The world-config flags the run record blamed (`POOL_ENABLED`, `POOL_SWAP_ENABLED`) **do not exist**: a config read returns 0 for an absent field, so the fabricated name confirmed itself, and this version reads the entity and names no config key. (C) `travel_to_room` reads room, stamina and SP+ balances from chain state, leaving deviation X2; state-read failures name their cause and retry once; `use_items` defaults to **False** and consumes only against a computed deficit. (D) Snippet true-ups: the unread-preconditions list is per call, `level_up_kami` states level and XP, `harvest_start` states the node's room, `take_trade` gains a whole-lot balance gate, `auction_buy` names its currency and holding, and the unreachable-room refusal — which had been dropping its snippet entirely on the re-raise — names the catalog adjacency. (E) `lens_roster` served (P1 count 101 -> 102, PERCEIVE 30 -> 31, `READ_TOOLS` 38 -> 39, EXPOSURE 37 -> 38 served rows); `get_all_strategy_statuses` summarized to the account's own kamis with `full=true` for the raw answer; transient-RPC and stale-sequence classes absorbed. D1 re-pinned `a0a3e1e` (0.2.0) -> `1d7a960` (0.4.0), correcting a declared pin that had lagged the deployed daemon by two minor versions. Registry-mass budget 70,000 -> 71,000 by operator ruling for the named capability `lens_roster`, with P1 mass 69,900 -> 69,993; P2 `tools_hash` `7fc11fe9...5262` -> `b7eebb88...f1f8`, and the handshake `instructions` now also carries `schema_version` and `error_snippets`. |
 | 7 | 2026-08-26 | Re-pinned to `4fc5f19` (SCHEMA_VERSION **3.1.0**). **MINOR**: no tool, parameter, schema or description changes — P1 count 102, P1 mass 69,993 and P2 `tools_hash` `b7eebb88...f1f8` are all unchanged, and the surface fingerprint of a 3.0.0 deployment and a 3.1.0 one is identical — but two agent-visible texts change: `create_operator_wallet`'s `key_saved` field and the missing-key errors now name the RESOLVED location of a secret rather than the literal `.env`. Four families. (A) D5 rewritten: key injection becomes a pluggable secret store (`executor/secrets_store.py`, ported from kami-hybrid-play `65b96e6`) with `envfile` as the DEFAULT backend and `keychain` as an opt-in, a names-only protected-names manifest derived from the keys-file name, and the standing rule that a secret VALUE never enters `os.environ`, argv, stdout, a result, or an exception. A deployment that configures nothing behaves exactly as 3.0.0 did and makes no Keychain call. `_load_accounts` scans the store instead of `os.environ`; `create_operator_wallet` and `register_kamibots` write through it; the generated operator key stops being assigned into `os.environ`. (B) The six `_load_accounts` messages moved from stdout — the stdio JSON-RPC transport — to stderr. (C) The dead `server.KAMI_LENS_PIN` constant is deleted; D1 is now the single declaration of the compatible lens version (the constant held the 0.4.0 commit under a comment saying 0.2.0). (D) Doc-count drift corrected against the live registry, and `executor/README.md` regains the three tool rows it was missing (`pool_swap`, `pool_swap_quote`, `lens_roster`). **Correction:** P7 stated 38 served EXPOSURE rows while the file holds — and CI requires — one row per READ tool, which is 39. |
 | 8 | 2026-08-27 | Re-pinned to `dc2b6aa` (SCHEMA_VERSION **3.2.0**). **MINOR**, not the 3.1.1 the build brief labelled it: no tool, parameter, schema or description changes — P1 count 102, P1 mass 69,993 and P2 `tools_hash` `b7eebb88...f1f8` are unchanged, and the surface fingerprint of a 3.1.0 deployment and a 3.2.0 one is identical — but on an account with no Kamibots API key a missing-key error stops appearing and three tools succeed where they used to fail, which is an agent-visible effect and therefore outside this file's PATCH definition. Two families. (A) Every send path reads its nonce at the `pending` block rather than `latest`: `_send_tx`, `_send_batch_tx`, `_send_tx_owner`, `_send_eth` and the mainnet bridge send, via the single `_NONCE_BLOCK` constant. A load-balanced public RPC serves a stale sequence at `latest` right after a confirmed transaction, and a rejected stale-nonce send is retried — which for a non-idempotent transfer risks executing it twice. P4 gains the paragraph; `_send_tx_retry`'s re-fetch on `account sequence mismatch` is unchanged. (B) `level_to`, `level_and_allocate_batch` and `feed_level_allocate_batch` read the kami's current level from the chain's Level component (`_kami_level`, now also the single derivation behind `_kami_progress`) instead of `GET /api/playwright/kami/{id}/`, through a `_read_kami_level` wrapper in the `_read_account_view` shape — retried once, never defaulted, the exception type always named. The level decides how many transactions are sent, so an unreadable level refuses the call. Chain over lens deliberately: the lens is a separate daemon with its own unavailability class, and making three ACT tools depend on it would trade one external dependency for another; `level_up_kami` — the single-transaction twin of the same on-chain path, which worked on accounts where these three raised — has validated against this component since 3.0.0. Component and client projection cross-checked live on five kamis at block 32,626,207 (15540/46, 158/48, 2808/48, 11224/48, 4277/36 — identical). D2's blast radius drops from 3 ACT + 1 PERCEIVE tool to 0 ACT + 1 PERCEIVE; deviation X2 is renamed `third-party-reach-into-PERCEIVE` and shrinks to `get_scavenge_droptable`, whose remaining read supplies reward entity IDs that have no on-chain derivation in this module and whose replacement would move a description, so it is deferred to a hash-moving release. Two invariant rows added. |
+| 9 | 2026-08-27 | Re-pinned to `<CODE_SHA>` (SCHEMA_VERSION **3.3.0**). **MINOR**: thirteen new *optional* parameters, no tool added, removed or renamed — P1 count stays 102 and every class count is unchanged — but every touched description moves the surface fingerprint. D1 advances `1d7a960` (0.4.0) -> `f07b578` (0.5.1), and the advance is load-bearing rather than clerical: 0.5.0's payload economy capped listings at 50 rows and compacted their fields, so for as long as the declared pin lagged the deployed daemon, `lens_party` promised "every kami" and served fifty and `lens_room` promised each account's `kamis[]` and served a `kamiCount`; 0.5.1 adds `--stats` and populates `status.blockLag`; and 0.5.1's `defaultOperator` fix (the prefill counted argv tokens rather than positionals) is what makes `lens_party(full=True)` on the `-1` default reach the daemon at all. Four families. (A) `stats` on `lens_kami`, `lens_roster`, `lens_party`, `lens_node` — the kami sheet's stat block (base/shift/boost/sync/total for health, power, harmony, violence) plus the [body, hand] affinity pair. `lens_node`'s `--stats`-needs-`--with-vitals` rule is NOT pre-validated harness-side: the daemon's `BAD_ARGS` passes through, per P5. On `lens_roster` the flag imposes a 50-row cap the flag-off answer does not have, with no uncapped form, and the description says so. `lens_kami` stops promising "traits, skills", which it has never returned. (B) `full` on the nine wrappers whose 0.5.1 registry query declares `--full` — `lens_node`, `lens_party`, `lens_room`, `lens_items`, `lens_merchant`, `lens_leaderboard`, `lens_trades`, `lens_quests`, `lens_market` — enumerated from the registry rather than from memory. The flag is not uniform: six lift a 50-row cap, `lens_items`/`lens_merchant` restore compacted fields, `lens_quests` returns a different shape. Every capped default now names its count fields. (C) `pool_swap` gains `dry_run`: the full pre-send path with no `eth_call`, gas read or signature. P4 gains the rule that **a dry run has no terminal state** — the answer carries `dry_run: true` and none of `status`/`tx_hash`/`block`/`gas_used`, and carries the quote's `disabled` because the send path's disabled-pool detection is the one check a dry run cannot make. A Non-goals row records the operator ruling that item-to-item pool routing is a non-goal, not a gap: every live pool is MUSU-paired, both swap tools already said so, and their wording is unchanged (delta 0). (D) `SETUP.md`'s claim that no world-state read goes through the Kamibots service is corrected — `get_scavenge_droptable` does, as D2 has always declared — as is its claim that all 31 PERCEIVE tools are lens wrappers, when 24 are. EXPOSURE gains a **deferred row for the lens `skills` query**, served by 0.5.1 and not wrapped here, so the one-wrapper-short gap is visible rather than silent; served rows stay 39. Registry-mass budget 71,000 -> 72,000 by operator ruling of 2026-08-27 for the named capability *the lens 0.5.1 `full`/`stats` passthroughs* (thirteen optional-bool schemas cost 665 characters before any prose), with P1 mass 69,993 -> 71,643 and 357 characters of headroom; the two standing sentences were shortened first for a 711-character reclaim that funded the capability, not the raise. P2 `tools_hash` `b7eebb88...f1f8` -> `f3734714...ac43`. Mass, version and invariant rows updated. |

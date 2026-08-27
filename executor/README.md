@@ -194,7 +194,7 @@ owner wallet (noted per tool).
 | `move_to_room(room_index, account)` | Move the account to a different room. Costs stamina. |
 | `name_kami(kami_id, name, account)` | Name or rename a kami. Costs 1 Holy Dust. Kami must be in room 11. |
 | `newbie_vendor_buy(kami_index, max_price_eth, account)` | Buy one kami from the newbie vendor with ETH (system.newbievendor.buy). One purchase per account, ever. |
-| `pool_swap(item_in, item_out, amount_in, min_amount_out, account)` | Swap one item against MUSU in a constant-product pool. |
+| `pool_swap(item_in, item_out, amount_in, min_amount_out, account, dry_run)` | Swap one item against MUSU in a constant-product pool. |
 | `register_account(name, account)` | Register the in-game account: one owner-signed transaction that creates the account entity, sets the display name, and binds the operator address. |
 | `revive_kami(kami_id, method, account)` | Revive a DEAD kami to RESTING via one of the game's revive paths. |
 | `sacrifice_kami(kami_id, account)` | PERMANENTLY sacrifice a kami at the Temple of the Wheel (room 19). |
@@ -229,7 +229,7 @@ its per-item result instead of raising.
 World-state reads. They sign nothing and change no remote state.
 
 24 of them are thin wrappers over the local **kami-lens** daemon
-(release `1d7a960` / 0.4.0, declared in [`SPEC.md`](../SPEC.md) D1). A
+(release `f07b578` / 0.5.1, declared in [`SPEC.md`](../SPEC.md) D1). A
 wrapper
 does argument mapping, exactly one socket request, and envelope
 pass-through: the daemon's `{data, untrusted, meta}` reaches the caller
@@ -263,21 +263,21 @@ serves them at this pin: `quest_state` and `check_quest_completable`
 | `lens_feed(since_seq, event_type)` | Buffered world feed events (kills, trades, and similar), newest buffered window. |
 | `lens_inventory(account_key)` | Any account's item inventory (zero balances dropped, ascending item index). |
 | `lens_item(item_index)` | Item registry row by index. |
-| `lens_items()` | The full item registry. |
-| `lens_kami(kami_index)` | Single-kami vitals by on-chain index: live HP, harvest state and accrual, cooldowns, traits, skills. |
+| `lens_items(full)` | The full item registry. |
+| `lens_kami(kami_index, stats)` | Single-kami vitals by on-chain index: HP and rate, state, level, XP, level-up readiness, unspent skill points, cooldown, and MUSU accrued while harvesting. No traits and no skill list. |
 | `lens_killers(size)` | All-time killer ranking: kamis by kill count, service order — rows {rank, name, kills, kamiId?, kamiIndex?} plus totalRanked. A time-windowed ranking is not served at this version. |
-| `lens_leaderboard(board_type, epoch, item_index)` | Score leaderboard rows {rank, account{id, index?, name?}, value}. |
-| `lens_market(account_index)` | KamiSwap listings and bids; with account_index, that account's order history. |
-| `lens_merchant(npc_index)` | NPC merchants; with npc_index, that merchant's full listing catalog with prices. Prices are viewer-independent; purchase gating is served as text, never applied. |
-| `lens_node(node_index, with_vitals, attacker_kami_index)` | Harvest node with its ACTIVE harvests (occupant identities). |
-| `lens_party(account_index)` | Party report for an account: every kami with full vitals. |
+| `lens_leaderboard(board_type, epoch, item_index, full)` | Score leaderboard rows {rank, account{id, index?, name?}, value}, first 50; rowsTotal/rowsServed count them. |
+| `lens_market(account_index, full)` | KamiSwap listings and bids, first 50 of each (listingsTotal/listingsServed, bidsTotal/bidsServed); with account_index, that account's order history. |
+| `lens_merchant(npc_index, full)` | NPC merchants; with npc_index, that merchant's full listing catalog with prices. Prices are viewer-independent; purchase gating is served as text, never applied. |
+| `lens_node(node_index, with_vitals, attacker_kami_index, full, stats)` | Harvest node with its ACTIVE harvests (occupant identities), first 50 by kami index; harvestsTotal/harvestsServed count them. |
+| `lens_party(account_index, full, stats)` | Party report for an account: kamis with full vitals, first 50 by kami index; kamisTotal/kamisServed count them. |
 | `lens_phase()` | World day/night phase (36-hour cycle): {phase, name, cycleHour, secondsToNext, next, at}. |
 | `lens_portal(account_index)` | Token portal history for an account, plus open withdrawals. |
-| `lens_quests(account_index)` | Quest registry; with account_index, that account's accepted quests and completion state. |
-| `lens_room(room_index)` | Room occupancy: accounts currently in the room, each with its kamis ({id, index, name, kamis[{id, index, name, state}]}). |
-| `lens_roster(account_index)` | Compact roster: one line per kami (index, state, HP) plus where the account is. |
-| `lens_status()` | kami-lens daemon status: sync state, live block, stream health, degraded flags, per-feed service health, and the daemon's version and configuration. |
-| `lens_trades(account_index)` | Open chain trades; with account_index, that account's trade history and open offers. |
+| `lens_quests(account_index, full)` | Quest registry; with account_index, that account's accepted quests and completion state. |
+| `lens_room(room_index, full)` | Room occupancy: its exits, and the accounts in it — first 50 rows of {index, name, kamiCount}, with accountsTotal/accountsServed. |
+| `lens_roster(account_index, stats)` | Compact roster: one line per kami (index, state, HP) plus where the account is. Uncapped, until stats caps it. |
+| `lens_status()` | kami-lens daemon status: sync state, live block, blocks behind chain head (blockLag), stream health, degraded flags, per-feed service health, and the daemon's version and configuration. |
+| `lens_trades(account_index, full)` | Open chain trades, first 50 (openTotal/openServed); with account_index, that account's trade history and open offers. |
 | `lens_transfers(account_index)` | Item transfer history for an account. |
 | `pool_swap_quote(item_in, item_out, amount_in, slippage_bps)` | Price a MUSU-item pool swap before sending it. Reads only. |
 | `quest_state(quest_index, account)` | Discriminated read of a quest's on-chain state for the account. |

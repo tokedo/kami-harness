@@ -29,6 +29,89 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [3.3.0] — the lens 0.5.1 passthroughs, and the honest caps
+
+MINOR. **102 tools**, registry mass **71,643**, `tools_hash`
+`f3734714...ac43` (Python 3.13), `SCHEMA_VERSION` **3.3.0**. Thirteen
+new *optional* parameters and no new tool, so existing callers keep
+working — but every description that gained a word moved the hash, and
+a client's recorded fingerprint changes.
+
+**The lens pin advances `1d7a960` (0.4.0) -> `f07b578` (0.5.1)**, and
+that is what this release is about. The declared pin had lagged the
+deployed daemon again, and while it did, four wrapper descriptions were
+describing a surface the daemon had stopped serving: 0.5.0's payload
+economy capped listings at 50 rows and compacted their fields, so
+`lens_party` promised "every kami" and served fifty, and `lens_room`
+promised each account's `kamis[]` and served a `kamiCount`. Those are
+not wording bugs. An agent that reads "every kami" and gets fifty has
+been told something false by the surface it is being measured on.
+
+Four families.
+
+**(A) `stats` passthrough.** Optional `stats` on `lens_kami`,
+`lens_roster`, `lens_party` and `lens_node` (lens 0.5.1 `--stats`),
+serving the kami sheet's stat block — `base`/`shift`/`boost`/`sync`/
+`total` for health, power, harmony and violence — plus the
+`[body, hand]` affinity pair. On `lens_node` the daemon requires
+`with_vitals` and answers `BAD_ARGS` without it; the wrapper does not
+pre-validate that rule, because P5 is verbatim pass-through and the
+daemon owns its own arguments. On `lens_roster` the flag *imposes* a
+50-row cap that the flag-off roster does not have, and there is no
+uncapped stats form — the description says so rather than letting an
+agent discover it by truncation. `lens_kami`'s description also stops
+promising "traits, skills", which it has never returned; it returns an
+unspent skill-point count, not a skill list, and now says that.
+
+**(B) `full` passthrough.** Optional `full` on the nine wrappers whose
+daemon query declares `--full` in the 0.5.1 registry — `lens_node`,
+`lens_party`, `lens_room`, `lens_items`, `lens_merchant`,
+`lens_leaderboard`, `lens_trades`, `lens_quests`, `lens_market`. The
+list was enumerated from the registry, not from memory, and the flag
+does not mean the same thing on all nine: on six it lifts a 50-row cap,
+on `lens_items` and `lens_merchant` it restores fields compacted out of
+each row, and on `lens_quests` it returns a different (uncompacted)
+shape. Each description says which, and every capped default now names
+its count fields so a truncated answer cannot be read as a complete
+one. Payload sizes are stated where they bite: `lens_node(86,
+with_vitals=True, full=True)` is ~1 MB.
+
+**(C) `pool_swap(dry_run=True)`.** The full pre-send path — distinct
+items, a MUSU side, a pool with liquidity, operator registration, item
+balance, and the live quote against `min_amount_out` — with no
+`eth_call`, no gas read and no signature. A dry run never broadcasts,
+so it has no terminal state: it returns `dry_run: true` and none of
+`status`, `tx_hash`, `block`, `gas_used`, rather than inventing a
+fourth state P4 does not define. It carries the pool's `disabled` flag
+from the quote, which is the one check it cannot make for itself.
+Ruled at the same time: general item-to-item swap pairs are a
+**non-goal**, not a gap. Every live pool is MUSU-paired, so the
+requirement matches the world; both swap tools already stated it and
+their wording is unchanged, and SPEC gains the Non-goals row.
+
+**(D) Doc true-ups.** D1 records why the pin advance is load-bearing
+rather than clerical (0.5.1 also fixes a `defaultOperator` prefill
+defect that made `party --full` with no account argument answer
+`BAD_ARGS` — exactly the request `lens_party(full=True)` emits on its
+`-1` default, so Family B is not servable below this pin).
+`SETUP.md` stops claiming that no world-state read goes through the
+Kamibots service — `get_scavenge_droptable` does, and D2 has said so
+all along — and stops saying all 31 PERCEIVE tools are lens wrappers
+when 24 are. EXPOSURE gains a deferred row for the lens `skills` query,
+which 0.5.1 serves and this version does not wrap: the harness is one
+wrapper short of the daemon's query set, and that is now a visible row
+rather than a silent absence.
+
+**Registry mass 69,993 -> 71,643, budget 71,000 -> 72,000** by operator
+ruling of 2026-08-27 for the named capability *the lens 0.5.1
+`full`/`stats` passthroughs*. Thirteen optional-bool schemas cost 665
+characters before a word of prose. The two standing sentences appended
+to every read description were shortened first — `Local kami-lens
+daemon; envelope {data, ...}` to `kami-lens daemon; {data, ...}`, and
+`player-authored data` to `player data` — for a 711-character reclaim
+that went into the capability rather than into the raise. Headroom at
+this ref: **357**.
+
 ## [3.2.0] — pending nonces, and the level read comes off the chain
 
 MINOR. **102 tools**, registry mass **69,993**, `tools_hash`
