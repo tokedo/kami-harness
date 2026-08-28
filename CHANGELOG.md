@@ -138,7 +138,7 @@ skill registry, or one kami's `unspent` plus `invested[]`. The harness
 is no longer one wrapper short of the daemon's query set; EXPOSURE's
 deferred row becomes a served row (served 39 -> 40).
 
-The lens pin advances `8b74007` (0.5.2) -> `8277408` (0.5.3), and
+The lens pin advances `8b74007` (0.5.2) -> `9488894` (0.5.3), and
 **Family D is not servable below it — a 0.5.2 daemon answers the old
 meaning with `ok: true`, so the lab redeploys the lens FIRST**, the
 same lesson as 3.4.0's Family D. `--eligible-only` becomes
@@ -155,16 +155,18 @@ both. No schema change harness-side.
 
 ### Gas, budget, docs
 
-- **`_GAS_CEILINGS["feed_kami"] = 3,000,000`, and `feed_kami` now
+- **`_GAS_CEILINGS["feed_kami"] = 3,500,000`, and `feed_kami` now
   passes it — it estimated gas per call before.** Measured from
   kami-oracle on 2026-08-28 over 329,709 successful
   `system.kami.use.item` transactions since 2026-06-01: p50 1,361,543 /
   p95 2,185,084 / p99 2,203,762 / max 2,639,799; restricting to the 44
-  Food item indices moves p95 only to 2,191,206. 3,000,000 is 1.37x p95
-  and 1.14x the observed max. **Flagged for the next reviewer:**
-  `travel_use_item` is the SAME system id at 3,500,000 (1.5x p99), so
-  the table now carries two ceilings for one system, and `feed_kami` is
-  the thinner of the two by this table's own margin convention.
+  Food item indices moves p95 only to 2,191,206. The value is aligned
+  with `travel_use_item` (same system id) and clears the table's own
+  1.5x p99 floor; 1.33x the observed max. The build carried 3,000,000
+  on a 1.3x-p95 reading and gate-2 review rejected it: 1.14x the
+  observed max is thin by the standard the rest of this table is held
+  to, and it would have left ONE system id carrying two ceilings
+  500,000 apart for no measured reason.
 - **Registry-mass budget 72,000 -> 73,000 by operator ruling R-2**, for
   the named capability *pipelined action sequences*. The trim pass ran
   first and reclaimed 288 characters — a `liquidate_kami`

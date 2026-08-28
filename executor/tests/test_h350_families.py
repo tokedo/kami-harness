@@ -457,7 +457,7 @@ def test_ceilings_are_fixed_per_op_and_never_estimated(seq_env):
         {"op": "harvest_stop", "kami_ids": [1]},
     ]
     plans = [server._seq_plan(s) for s in steps]
-    assert plans[0][4] == server._GAS_CEILINGS["feed_kami"] == 3_000_000
+    assert plans[0][4] == server._GAS_CEILINGS["feed_kami"] == 3_500_000
     assert plans[1][4] == server._GAS_CEILINGS["liquidate_kami"] == 7_500_000
     assert plans[2][4] == server._harvest_gas("harvest_start", 2)
     assert plans[3][4] == server._harvest_gas("harvest_stop", 1)

@@ -164,15 +164,20 @@ _GAS_CEILINGS = {
     # kami-oracle on 2026-08-28. Restricting the same window to the 44
     # Food item indices in catalogs/items.csv moves p95 only to
     # 2,191,206, so feeding is not a cheaper use of this system than
-    # the others and one ceiling serves it honestly. 1.3x p95 rounds to
-    # 3,000,000 — 1.37x p95 and 1.14x the observed max.
+    # the others and one ceiling serves it honestly. Set to 3,500,000:
+    # aligned with travel_use_item (same system) and the 1.5x p99 floor;
+    # 1.33x observed max. A 1.3x-p95 reading of these numbers gives
+    # 2,840,609, and 3,000,000 was carried through the 3.5.0 build on
+    # it — but that is 1.14x the observed max, thin by the standard the
+    # rest of this table is held to, and it would have left ONE system
+    # id carrying two ceilings 500,000 apart for no measured reason.
     #
     # feed_kami provisioned NO ceiling before 3.5.0: it estimated gas
     # per call. act_sequence cannot, because a pipelined step is signed
     # before its predecessor's effects exist, so estimateGas for step 2
     # prices a world that has not happened yet. Measuring the ceiling
     # once removes the estimate from both paths.
-    "feed_kami": 3_000_000,
+    "feed_kami": 3_500_000,
     # -- system.listing.buy: p50 949,468 / p99 2,395,753 / max 3,114,738
     "listing_buy_base": 1_200_000,
     "listing_buy_per_item": 900_000,

@@ -355,11 +355,14 @@ softened, and the pre-snippet text is unchanged.
 
 ### D1 — kami-lens daemon
 
-- **Pin:** `8277408` (kami-lens release 0.5.3). Built in parallel with
-  this release on the lens branch `lens-053`; the lab re-pins to the
-  release commit at audit if the branch is squashed or rebased before
-  it merges. **This row is the only place the compatible lens version
-  is stated.** It had been duplicated
+- **Pin:** `9488894` (kami-lens release 0.5.3). Built in parallel with
+  this release on the lens branch `lens-053`, and pinned to the RELEASE
+  commit on lens `main` — the records commit that pins the lens SPEC
+  registry to 0.5.3, parent `8277408` (the code change). That is the
+  same shape as the 0.5.2 pin `8b74007`, and **this pin is final**: it
+  is a pushed commit on `main`, not a branch tip that could still be
+  squashed or rebased. **This row is the only place the compatible lens
+  version is stated.** It had been duplicated
   in a `server.KAMI_LENS_PIN` constant that no code path read; the
   constant held the 0.4.0 commit under a comment saying 0.2.0, and
   nothing could fail on the contradiction. The constant is deleted at
