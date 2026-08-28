@@ -1,7 +1,7 @@
 ---
 module: kami-harness
-version: 12
-describes: 3d128bf
+version: 13
+describes: 1bcd5fa
 ---
 
 # SPEC — contract registry
