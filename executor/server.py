@@ -9851,8 +9851,157 @@ def _seq_plan(step: dict) -> tuple:
             [hids], gas, "harvest_stop")
 
 
+# ---------------------------------------------------------------------------
+# Pre-send validation reads, BATCHED (3.7.0).
+#
+# 3.6.0 walked the plan and read each subject with its own eth_call: one
+# per distinct owned kami, one per feed item, one per killer, and — not
+# deduped at all — one per liquidate step for the victim's harvest state.
+# On the 2026-08-28 strikes that was ~20 s of the wall time before a
+# single transaction was offered (a 17-step plan took 21 s just to
+# REFUSE). Anatoly's report, tag `zero_cd_play`.
+#
+# The reads are all the same shape — `safeGet(uint256)` on one of three
+# components — so they go out as JSON-RPC batches of eth_call: the round
+# trip count is O(chunks), not O(steps), and repeated subjects (the same
+# killer 60 times, the same item 40 times) are read ONCE.
+#
+# Chain reads, not a lens read: an ACT tool never depends on the lens
+# daemon (3.4.0 family C doctrine). And prefetch has no semantics of its
+# own — a subject it could not resolve falls through to the per-subject
+# helper it replaced, so a node that will not batch reads is slow, not
+# wrong.
+# ---------------------------------------------------------------------------
+
+_SEQ_READ_CHUNK = 100
+_SAFEGET_SELECTOR = Web3.keccak(text="safeGet(uint256)")[:4]
+
+
+def _inventory_entity_id(holder_id: int, item_index: int) -> int:
+    """The deterministic inventory.instance entity for holder × item."""
+    return int.from_bytes(
+        Web3.solidity_keccak(
+            ["string", "uint256", "uint32"],
+            ["inventory.instance", holder_id, item_index],
+        ),
+        "big",
+    )
+
+
+def _seq_read_plan(steps: list[dict]) -> list[tuple[str, int]]:
+    """Every chain subject the pre-send validation may want, DEDUPED.
+
+    Order is deterministic so a batch is reproducible; the keys are what
+    `_seq_static_validate` looks the answers up by.
+    """
+    keys: list[tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
+
+    def add(kind: str, arg: int) -> None:
+        key = (kind, arg)
+        if key not in seen:
+            seen.add(key)
+            keys.append(key)
+
+    for st in steps:
+        op = st["op"]
+        for k in _seq_owned_kamis(st):
+            add("owner", k)
+        if op == "feed":
+            add("balance", st["item_id"])
+        elif op == "harvest_stop":
+            for k in st["kami_ids"]:
+                add("harvest", k)
+        elif op == "liquidate":
+            add("harvest", st["kami_id"])
+            add("harvest", st["victim_kami_id"])
+            add("bounty", st["kami_id"])
+    return keys
+
+
+def _seq_read_subject(key: tuple[str, int], aid: int) -> tuple[str, int, str]:
+    """(component id, entity id, decoded type) for one read-plan key."""
+    kind, arg = key
+    if kind == "owner":
+        return "component.id.kami.owns", _kami_entity_id(arg), "uint"
+    if kind == "harvest":
+        return "component.state", _harvest_entity_id(arg), "str"
+    if kind == "bounty":
+        return "component.value", _harvest_entity_id(arg), "uint"
+    return "component.value", _inventory_entity_id(aid, arg), "uint"
+
+
+def _seq_decode_read(result, kind: str):
+    """One eth_call result, or None when it cannot be read as itself."""
+    if not isinstance(result, str) or not result.startswith("0x"):
+        return None
+    try:
+        data = bytes.fromhex(result[2:])
+    except ValueError:
+        return None
+    if kind == "uint":
+        return int.from_bytes(data[:32], "big") if len(data) >= 32 else None
+    try:
+        return eth_abi.decode(["string"], data)[0]
+    except Exception:
+        return None
+
+
+def _seq_prefetch_reads(steps: list[dict], aid: int) -> dict:
+    """The whole read plan in O(chunks) round-trips. Never raises.
+
+    Returns {key: value} for every subject it could resolve; a caller
+    treats a missing key as "read it the old way".
+    """
+    try:
+        plan = _seq_read_plan(steps)
+        if len(plan) < 2:
+            return {}
+        subjects = {key: _seq_read_subject(key, aid) for key in plan}
+        calls = [
+            (key, _resolve_component(subjects[key][0]), subjects[key][1])
+            for key in plan
+        ]
+        provider = _seq_batch_provider(None)
+        out: dict = {}
+        for start in range(0, len(calls), _SEQ_READ_CHUNK):
+            part = calls[start:start + _SEQ_READ_CHUNK]
+            requests = [
+                ("eth_call", [
+                    {"to": addr,
+                     "data": "0x" + (
+                         _SAFEGET_SELECTOR + eid.to_bytes(32, "big")).hex()},
+                    "latest",
+                ])
+                for _key, addr, eid in part
+            ]
+            saved = provider.request_counter
+            provider.request_counter = itertools.count(0)
+            try:
+                responses = provider.make_batch_request(requests)
+            finally:
+                provider.request_counter = saved
+            if not isinstance(responses, list):
+                return out
+            by_id = {
+                r["id"]: r for r in responses
+                if isinstance(r, dict) and isinstance(r.get("id"), int)
+            }
+            for idx, (key, _addr, _eid) in enumerate(part):
+                resp = by_id.get(idx)
+                if resp is None or resp.get("error") is not None:
+                    continue
+                value = _seq_decode_read(resp.get("result"), subjects[key][2])
+                if value is not None:
+                    out[key] = value
+        return out
+    except Exception:
+        return {}
+
+
 def _seq_static_validate(
-    steps: list[dict], account: str, aid: int, total_gas: int
+    steps: list[dict], account: str, aid: int, total_gas: int,
+    reads: dict | None = None,
 ) -> dict:
     """A2 — whole-sequence pre-send validation. Nothing is spent here.
 
@@ -9869,12 +10018,23 @@ def _seq_static_validate(
     """
     problems: list[str] = []
 
+    # 3.7.0: the whole read plan in O(chunks) round-trips, deduped. Every
+    # lookup below falls through to its 3.6.0 per-subject helper when the
+    # batch could not answer, so the checks are identical either way.
+    if reads is None:
+        reads = _seq_prefetch_reads(steps, aid)
+
+    def _read(key, fallback):
+        value = reads.get(key)
+        return fallback() if value is None else value
+
     # Ownership, once per distinct kami, across the whole sequence.
     owned: dict[int, bool] = {}
     for i, st in enumerate(steps):
         for k in _seq_owned_kamis(st):
             if k not in owned:
-                owned[k] = _kami_owner_id(k) == aid
+                owned[k] = _read(
+                    ("owner", k), lambda k=k: _kami_owner_id(k)) == aid
             if not owned[k]:
                 problems.append(
                     f"step {i} ({st['op']}): kami #{k} is not owned by "
@@ -9887,7 +10047,8 @@ def _seq_static_validate(
         if st["op"] == "feed":
             wanted[st["item_id"]] = wanted.get(st["item_id"], 0) + 1
     for item_id, count in sorted(wanted.items()):
-        held = _inventory_balance(aid, item_id)
+        held = _read(("balance", item_id),
+                     lambda i=item_id: _inventory_balance(aid, i))
         if held < count:
             problems.append(
                 f"the sequence feeds item {item_id} {count} time(s) but the "
@@ -9899,7 +10060,8 @@ def _seq_static_validate(
 
     def _is_harvesting(k: int) -> bool:
         if k not in harvesting:
-            harvesting[k] = _harvest_state(k) == "ACTIVE"
+            harvesting[k] = _read(
+                ("harvest", k), lambda k=k: _harvest_state(k)) == "ACTIVE"
         return harvesting[k]
 
     killer_bounty: dict[int, int | None] = {}
@@ -9923,7 +10085,9 @@ def _seq_static_validate(
                     f"step {i} (liquidate): killer kami #{killer} is not "
                     f"harvesting now and no earlier step starts it"
                 )
-            victim_state = _harvest_state(st["victim_kami_id"])
+            victim = st["victim_kami_id"]
+            victim_state = _read(
+                ("harvest", victim), lambda v=victim: _harvest_state(v))
             if victim_state != "ACTIVE":
                 problems.append(
                     f"step {i} (liquidate): victim kami "
@@ -9931,7 +10095,8 @@ def _seq_static_validate(
                     f"{victim_state!r})"
                 )
             if killer not in killer_bounty:
-                killer_bounty[killer] = _killer_bounty(killer)
+                killer_bounty[killer] = _read(
+                    ("bounty", killer), lambda k=killer: _killer_bounty(k))
 
     if problems:
         raise PreTxValidationError("; ".join(problems))
@@ -9972,7 +10137,128 @@ class _SeqBatchTransportError(Exception):
     """The batch CALL failed — not an item in it. Nothing was mapped."""
 
 
-def _seq_batch_send(items: list[tuple[int, int, bytes]]) -> dict[int, dict]:
+# 3.7.0 — NO REQUEST OUTLIVES ITS TIMEOUT, and the timeout is measured.
+#
+# 3.6.0 offered the whole tail in ONE body through `w3.provider`, which
+# carries web3's DEFAULT 30 s HTTP read timeout (HTTPSessionManager's
+# `request_timeout`; `Web3(Web3.HTTPProvider(RPC_URL))` passes no
+# `request_kwargs`). On 2026-08-28 19:30:40Z a 61-step liquidate-heavy
+# body outlived it: the node was still admitting items when the client
+# gave up, and everything downstream of that was wrong (see the ITEM 1
+# reproduction, tests/test_h370_families.py).
+#
+# So: the body is CHUNKED, and each chunk's request carries a timeout
+# sized to what that chunk is offering. Per-item admission is measured,
+# not guessed:
+#
+# | op        | items | batch call | per item | source                          |
+# |-----------|------:|-----------:|---------:|---------------------------------|
+# | feed      |     8 |    0.668 s |  0.084 s | gum ladder 2026-08-28 (rung 1)  |
+# | feed      |    32 |    0.526 s |  0.016 s | gum ladder 2026-08-28 (rung 2)  |
+# | feed      |    32 |    0.500 s |  0.016 s | drink ladder 2026-08-28 (rung 1)|
+# | feed      |    64 |    2.354 s |  0.037 s | drink ladder 2026-08-28 (rung 3)|
+# | liquidate |    38 |  > 13    s | >0.342 s | 19:31 incident, block timestamps|
+# | liquidate |    61 |  > 30    s | >0.492 s | 19:31 incident, client timeout  |
+#
+# The worst per-item time in that table is the incident's own
+# liquidate-heavy body — 0.492 s, a LOWER bound (the request was cut
+# off, so the true figure is larger). `_SEQ_BATCH_ITEM_S` is that
+# number rounded up. Timeout = chunk × per-item × 2, floor 30 s:
+# 32 × 0.5 × 2 = 32 s for a full chunk. A 64-step sequence is two
+# chunks of 32, each with its own 32 s, and the first chunk's outcome
+# is reconciled before the second is offered.
+# Table also in docs/measurements/batch-admission-2026-08-28.md.
+_SEQ_BATCH_CHUNK = 32
+_SEQ_BATCH_ITEM_S = 0.5
+_SEQ_BATCH_TIMEOUT_FLOOR_S = 30
+# How long to let the node settle before re-reading the pending nonce,
+# when a transport failure left part of a chunk held and part not.
+_SEQ_RECONCILE_SETTLE_S = 1.0
+
+_seq_batch_providers: dict[float, object] = {}
+
+
+def _seq_batch_timeout(items: int) -> float:
+    """Per-request timeout for a batch of `items`, from the table above."""
+    return max(
+        float(_SEQ_BATCH_TIMEOUT_FLOOR_S), items * _SEQ_BATCH_ITEM_S * 2
+    )
+
+
+def _seq_batch_provider(timeout_s: float | None):
+    """The provider a batch broadcast POSTs through.
+
+    A DEDICATED HTTPProvider per timeout value, so the batch call can
+    carry a timeout sized to what it offers while EVERY other RPC call
+    in the process keeps web3's 30 s. The providers are cached on this
+    module, one per distinct timeout (two in practice), each with its
+    own keep-alive session to the same endpoint — measured at 0.284 s
+    for a 3-item batch, indistinguishable from `w3`'s own. Exception
+    retries are off: a re-POST of a send batch is the caller's
+    decision, made after reconciliation, never the transport's.
+
+    When `w3` is not HTTPProvider-backed (the offline test fake), its
+    own provider is returned unchanged.
+    """
+    provider = w3.provider
+    if timeout_s is None or not isinstance(provider, Web3.HTTPProvider):
+        return provider
+    key = float(timeout_s)
+    if key not in _seq_batch_providers:
+        _seq_batch_providers[key] = Web3.HTTPProvider(
+            RPC_URL,
+            request_kwargs={"timeout": key},
+            exception_retry_configuration=None,
+        )
+    return _seq_batch_providers[key]
+
+
+def _seq_tx_hash(raw) -> str:
+    """A signed transaction's hash, KNOWN BEFORE IT IS BROADCAST.
+
+    keccak256 of the signed raw transaction is the hash the chain will
+    give it. Computing it at sign time is what lets a step that the
+    broadcast could not report on still be looked up on chain (3.7.0).
+    """
+    return _hex_hash(Web3.keccak(raw))
+
+
+def _seq_error_text(err, nonce: int) -> str:
+    """A refused item's payload, verbatim and NEVER empty (3.7.0).
+
+    3.6.0 took `error["message"]` and put it on the row as-is; the node
+    of the 19:31 incident answered an already-held nonce with an empty
+    message, so every row carried `reason: ""` — a refusal a caller
+    cannot act on and cannot even report. The whole payload now reaches
+    the row: code, message and data if they are there, and the raw
+    object if they are not.
+    """
+    text = ""
+    if isinstance(err, dict):
+        message = err.get("message")
+        if message not in (None, ""):
+            parts = [str(message)]
+            if err.get("code") is not None:
+                parts.append(f"[code {err['code']}]")
+            if err.get("data") not in (None, ""):
+                parts.append(f"[data {err['data']}]")
+            text = " ".join(parts)
+    elif err is not None:
+        text = str(err)
+    if not text.strip():
+        # No message to quote. The RAW ITEM goes on the row instead —
+        # a code on its own, or nothing at all, is still evidence, and
+        # the nonce says which step it is evidence about.
+        text = (
+            f"node refused nonce {nonce} with no error message: "
+            f"{json.dumps(err, default=str)}"
+        )
+    return text[:300]
+
+
+def _seq_batch_send(
+    items: list[tuple[int, int, bytes]], timeout_s: float | None = None
+) -> dict[int, dict]:
     """One round-trip: a JSON-RPC batch of eth_sendRawTransaction.
 
     `items` is [(step_index, nonce, raw)] on ascending consecutive
@@ -9983,11 +10269,14 @@ def _seq_batch_send(items: list[tuple[int, int, bytes]]) -> dict[int, dict]:
     plain itertools.count on the provider object and is restored
     afterwards; ids only have to be unique within one batch.
 
+    `timeout_s` selects the dedicated provider whose HTTP timeout is
+    sized to this body (3.7.0); None keeps `w3`'s own provider.
+
     Returns {nonce: response}. Raises _SeqBatchTransportError when the
     call itself failed, which is a different thing from a rejected
     transaction and is the only case the serial path still exists for.
     """
-    provider = w3.provider
+    provider = _seq_batch_provider(timeout_s)
     requests = [
         ("eth_sendRawTransaction", [_hex_hash(raw)]) for _j, _n, raw in items
     ]
@@ -10010,60 +10299,242 @@ def _seq_batch_send(items: list[tuple[int, int, bytes]]) -> dict[int, dict]:
     return out
 
 
-def _seq_broadcast(pending: list) -> tuple[str, list[tuple[int, bool, str]]]:
-    """Broadcast a pre-signed tail; per-step outcomes IN STEP ORDER.
+def _seq_pending_nonce(operator_addr: str | None) -> int | None:
+    """The node's own next-expected sequence number, or None if unread.
+
+    This is the ground truth a transport failure is reconciled against:
+    a nonce BELOW it is held by the node — mined or in its pool — and
+    was therefore sent, whatever the broadcast managed to report.
+    """
+    if not operator_addr:
+        return None
+    try:
+        return w3.eth.get_transaction_count(operator_addr, _NONCE_BLOCK)
+    except Exception:
+        return None
+
+
+def _seq_offer_chunk(
+    chunk: list[tuple[int, int, bytes]], operator_addr: str | None
+) -> tuple[str, list[tuple[int, bool, str]]]:
+    """Offer ONE chunk and return its per-step outcomes, in step order.
+
+    A transport failure is RECONCILED, not blindly re-offered (3.7.0):
+    the node's pending nonce says which of the chunk it already holds,
+    those steps are accepted with their pre-computed hashes, and only
+    the rest is offered again. 3.6.0 re-offered the whole body, which is
+    how 38 already-held nonces came back as errors and took the entire
+    sequence down with them.
+    """
+    timeout_s = _seq_batch_timeout(len(chunk))
+    results: dict[int, tuple[bool, str]] = {}
+    remaining = list(chunk)
+    transport_error = ""
+    for _attempt in (1, 2):
+        try:
+            by_nonce = _seq_batch_send(remaining, timeout_s)
+        except _SeqBatchTransportError as e:
+            transport_error = str(e)
+            held = _seq_pending_nonce(operator_addr)
+            still = []
+            for j, nonce, raw in remaining:
+                if held is not None and nonce < held:
+                    results[j] = (True, _seq_tx_hash(raw))
+                else:
+                    still.append((j, nonce, raw))
+            remaining = still
+            if not remaining:
+                break
+            continue
+        offered = len(remaining)
+        for j, nonce, _raw in remaining:
+            resp = by_nonce.get(nonce)
+            if resp is None:
+                results[j] = (
+                    False,
+                    f"no response for nonce {nonce} in batch of {offered}",
+                )
+            elif resp.get("error") is not None:
+                results[j] = (False, _seq_error_text(resp["error"], nonce))
+            else:
+                results[j] = (True, _hex_hash(resp.get("result")))
+        remaining = []
+        break
+
+    mode = "batch"
+    if remaining:
+        # Two transport failures and the node holds none of these:
+        # slow beats a lost sequence.
+        mode = "serial"
+        for j, _nonce, raw in remaining:
+            try:
+                results[j] = (
+                    True, _hex_hash(w3.eth.send_raw_transaction(raw))
+                )
+            except Exception as e:
+                text = str(e) or f"batch transport failed: {transport_error}"
+                results[j] = (False, text[:300])
+                break
+    return mode, [(j, *results[j]) for j, _n, _r in chunk if j in results]
+
+
+def _seq_broadcast(
+    pending: list, operator_addr: str | None = None
+) -> tuple[str, list[tuple[int, bool, str]]]:
+    """Broadcast a pre-signed tail in chunks; outcomes IN STEP ORDER.
 
     Returns (mode, [(step_index, accepted, payload)]) where mode is
     "batch" or "serial" and payload is the tx hash when accepted and the
-    node's error text when not. The caller reads the outcomes in order
-    and stops at the first refusal, exactly as the 3.5.0 serial loop
-    did, so the semantics of a rejection are unchanged.
+    node's error text when not. The caller reads the outcomes in order,
+    records every acceptance, and stops the sequence at the first
+    refusal — the 3.5.0 semantics, unchanged.
 
-    The serial path survives ONLY as a transport fallback: if the batch
-    CALL fails it is retried once, and only then does the tail go out
-    one send at a time. That is slow, and slow beats a lost sequence.
+    3.7.0 chunks the body at _SEQ_BATCH_CHUNK items. Chunks are offered
+    SEQUENTIALLY and a chunk's outcome is reconciled before the next is
+    offered, so no single request can outlive its timeout and no chunk
+    is offered on top of an unresolved one. A refusal stops the run:
+    the later chunks' nonces are behind a gap and cannot be mined.
+
+    The serial path survives ONLY as a transport fallback, per chunk,
+    and only for items the node demonstrably does not hold.
 
     Note on batching a tail whose middle item is refused: unlike the
-    serial loop, the later items were physically offered to the node in
-    the same body. On consecutive nonces they cannot be mined anyway —
-    the refused nonce is a gap ahead of them — and in practice the node
-    refuses them too, with `account sequence mismatch`. They are still
-    reported not_sent, which is 3.5.0's answer and the one a caller can
-    act on.
+    serial loop, the later items of the same chunk were physically
+    offered to the node in the same body. On consecutive nonces they
+    cannot be mined anyway — the refused nonce is a gap ahead of them —
+    and in practice the node refuses them too, with `account sequence
+    mismatch`. They are still reported not_sent, which is 3.5.0's answer
+    and the one a caller can act on. What is NOT 3.5.0's answer, and is
+    the 19:31 defect, is reporting not_sent for a nonce the node holds:
+    act_sequence reconciles every not_sent row against the pending
+    nonce before the call returns.
     """
     items = [
         (j, built["nonce"], signed.raw_transaction)
         for j, built, signed in pending
     ]
-    for attempt in (1, 2):
-        try:
-            by_nonce = _seq_batch_send(items)
-        except _SeqBatchTransportError:
-            continue
-        outcomes: list[tuple[int, bool, str]] = []
-        for j, nonce, _raw in items:
-            resp = by_nonce.get(nonce)
-            if resp is None:
-                outcomes.append(
-                    (j, False,
-                     f"no response for nonce {nonce} in the broadcast batch")
-                )
-            elif resp.get("error") is not None:
-                err = resp["error"]
-                text = err.get("message") if isinstance(err, dict) else err
-                outcomes.append((j, False, str(text)))
-            else:
-                outcomes.append((j, True, _hex_hash(resp.get("result"))))
-        return "batch", outcomes
-
-    serial: list[tuple[int, bool, str]] = []
-    for j, _nonce, raw in items:
-        try:
-            serial.append((j, True, _hex_hash(w3.eth.send_raw_transaction(raw))))
-        except Exception as e:
-            serial.append((j, False, str(e)))
+    outcomes: list[tuple[int, bool, str]] = []
+    mode = "batch"
+    for start in range(0, len(items), _SEQ_BATCH_CHUNK):
+        chunk = items[start:start + _SEQ_BATCH_CHUNK]
+        chunk_mode, chunk_outcomes = _seq_offer_chunk(chunk, operator_addr)
+        if chunk_mode == "serial":
+            mode = "serial"
+        outcomes.extend(chunk_outcomes)
+        if any(not ok for _j, ok, _p in chunk_outcomes):
             break
-    return "serial", serial
+        if len(chunk_outcomes) < len(chunk):
+            break
+    return mode, outcomes
+
+
+def _seq_mined(by_step: dict[int, str]) -> list[int]:
+    """Which of these pre-computed hashes the chain already has.
+
+    ONE round-trip where the endpoint serves a batch, per-hash where it
+    does not. Never raises: an unreadable chain reads as "no receipt",
+    which leaves the row where it already was.
+    """
+    if not by_step:
+        return []
+    order = sorted(by_step)
+    provider = _seq_batch_provider(None)
+    try:
+        saved = provider.request_counter
+        provider.request_counter = itertools.count(0)
+        try:
+            responses = provider.make_batch_request(
+                [("eth_getTransactionReceipt", [by_step[i]]) for i in order]
+            )
+        finally:
+            provider.request_counter = saved
+        if isinstance(responses, list):
+            return [
+                order[resp["id"]] for resp in responses
+                if isinstance(resp, dict)
+                and isinstance(resp.get("id"), int)
+                and 0 <= resp["id"] < len(order)
+                and resp.get("result")
+            ]
+    except Exception:
+        pass
+    found = []
+    for i in order:
+        try:
+            if w3.eth.get_transaction_receipt(by_step[i]) is not None:
+                found.append(i)
+        except Exception:
+            pass
+    return found
+
+
+def _seq_adopt(
+    i: int, rows: list[dict], hashes: dict, builts: dict,
+    hash_by_step: dict, built_by_step: dict, evidence: str
+) -> None:
+    """Turn a not_sent row into the unconfirmed step it actually is."""
+    rows[i]["status"] = "unconfirmed"
+    rows[i]["tx_hash"] = hash_by_step[i]
+    rows[i]["reconciled"] = evidence
+    text = rows[i].pop("reason", None)
+    if text:
+        # Kept, but NOT as `reason`: the row is on chain, and `reason`
+        # belongs to whatever the receipt says about it.
+        rows[i]["broadcast_error"] = text
+    if i in built_by_step:
+        builts[i] = built_by_step[i]
+    hashes[i] = hash_by_step[i]
+
+
+def _seq_reconcile(
+    rows: list[dict], hashes: dict, builts: dict, nonce_by_step: dict,
+    hash_by_step: dict, built_by_step: dict, operator_addr: str | None
+) -> None:
+    """`not_sent` is a claim about the NODE, so ask the node (3.7.0).
+
+    On 2026-08-28 19:31 a 61-step sequence returned every row not_sent
+    while all 61 transactions were mined: the broadcast's own report was
+    taken as the truth about the chain. It is not. Every row still
+    marked not_sent is checked here, in order of cost:
+
+      1. the operator's PENDING NONCE — a step whose nonce is below it
+         is held by the node, mined or pooled, so it was sent;
+      2. if a transport failure left part of a body held and part not,
+         the node was mid-admission: settle, then ask once more;
+      3. the RECEIPT for the hash computed at sign time — a mined
+         transaction is mined whatever the broadcast said.
+
+    A step that passes any of them becomes `unconfirmed` with its hash
+    and enters the receipt collection like any other. `not_sent` is left
+    only for a nonce at or above the pending count with no receipt.
+    """
+    unsent = [
+        i for i, r in enumerate(rows)
+        if r["status"] == "not_sent" and i in hash_by_step
+    ]
+    if not unsent:
+        return
+
+    def _adopt_below(count: int | None) -> list[int]:
+        if count is None:
+            return []
+        taken = [i for i in unsent if nonce_by_step[i] < count]
+        for i in taken:
+            _seq_adopt(i, rows, hashes, builts, hash_by_step, built_by_step,
+                       f"nonce {nonce_by_step[i]} < pending count {count}")
+        return taken
+
+    adopted = _adopt_below(_seq_pending_nonce(operator_addr))
+    unsent = [i for i in unsent if i not in set(adopted)]
+    if unsent and adopted:
+        time.sleep(_SEQ_RECONCILE_SETTLE_S)
+        again = _adopt_below(_seq_pending_nonce(operator_addr))
+        unsent = [i for i in unsent if i not in set(again)]
+    if not unsent:
+        return
+    for i in _seq_mined({i: hash_by_step[i] for i in unsent}):
+        _seq_adopt(i, rows, hashes, builts, hash_by_step, built_by_step,
+                   "receipt found for the pre-computed hash")
 
 
 @mcp.tool()
@@ -10111,6 +10582,14 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
     # and pass wrong ones.
     _dry_run(fns[0], acct.operator_addr, account=account)
 
+    # Every step's nonce AND its hash are known before it is offered:
+    # the hash is keccak256 of the signed raw transaction (3.7.0). That
+    # pair is what makes a step lookup-able on chain when the broadcast
+    # cannot say what happened to it.
+    nonce_by_step: dict[int, int] = {}
+    hash_by_step: dict[int, str] = {}
+    built_by_step: dict[int, dict] = {}
+
     def _sign_from(start: int, nonce: int) -> list:
         signed = []
         for j in range(start, len(parsed)):
@@ -10121,10 +10600,12 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
                 "gas": plans[j][4],
                 **_GAS_PRICE,
             })
-            signed.append(
-                (j, built, w3.eth.account.sign_transaction(
-                    built, private_key=acct.operator_key))
-            )
+            sig = w3.eth.account.sign_transaction(
+                built, private_key=acct.operator_key)
+            nonce_by_step[j] = built["nonce"]
+            hash_by_step[j] = _seq_tx_hash(sig.raw_transaction)
+            built_by_step[j] = built
+            signed.append((j, built, sig))
         return signed
 
     rows: list[dict] = [
@@ -10145,13 +10626,16 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
     nonce = w3.eth.get_transaction_count(acct.operator_addr, _NONCE_BLOCK)
     pending = _sign_from(0, nonce)
     resent = False
+    reconciled = False
     while pending:
-        rejected_at: int | None = None
-        built_by_step = {j: built for j, built, _signed in pending}
-        mode, outcomes = _seq_broadcast(pending)
-        refused = False
+        mode, outcomes = _seq_broadcast(pending, acct.operator_addr)
+        refused_at: int | None = None
+        refusal_text = ""
         for j, accepted, payload in outcomes:
             if accepted:
+                # EVERY acceptance is recorded, including one that comes
+                # after a refusal in the same body. 3.6.0 stopped at the
+                # first refusal and threw the rest of the list away.
                 builts[j] = built_by_step[j]
                 hashes[j] = payload
                 rows[j]["tx_hash"] = payload
@@ -10159,38 +10643,63 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
                 if mode == "serial":
                     rows[j]["broadcast"] = "serial"
                 continue
-            refused = True
-            text = payload
-            if any(m in text for m in _SEQ_REJECTION_MARKERS) and not resent:
-                # Nothing landed for j..K: the node refused the raw
-                # transaction, so this nonce was never consumed.
-                rejected_at = j
-                break
-            # Any other per-item error, or a second rejection: this step
-            # and every later one are unsent. Do NOT raise — earlier
-            # steps are in flight and must be reported.
-            for k in range(j, len(parsed)):
-                rows[k]["status"] = "not_sent"
-                rows[k]["reason"] = text[:300]
-            break
-        if not refused:
+            if refused_at is None:
+                refused_at, refusal_text = j, payload
+            rows[j]["status"] = "not_sent"
+            rows[j]["reason"] = payload[:300]
+        if refused_at is None:
             pending = []
             continue
-        if rejected_at is None:
-            break
-        # Resend the tail EXACTLY ONCE: wait for the steps that did land,
-        # re-read the nonce, re-sign j..K. A reverted step is never
-        # resent by this path — a revert is not a rejection, it consumed
-        # its nonce and is final (P4).
-        resent = True
-        for k in range(rejected_at):
-            if k in hashes:
-                try:
-                    w3.eth.wait_for_transaction_receipt(hashes[k], timeout=120)
-                except Exception:
-                    pass
-        nonce = w3.eth.get_transaction_count(acct.operator_addr, _NONCE_BLOCK)
-        pending = _sign_from(rejected_at, nonce)
+        # The refusal stops the sequence: every later step that got no
+        # outcome of its own is unsent behind the gap, and says why.
+        for k in range(refused_at, len(parsed)):
+            if k not in hashes and "reason" not in rows[k]:
+                rows[k]["status"] = "not_sent"
+                rows[k]["reason"] = refusal_text[:300]
+        # ASK THE NODE BEFORE ACTING ON THE REFUSAL (3.7.0). A resend
+        # re-signs the tail at fresh nonces, so resending a step the
+        # node is already holding does the step TWICE. 3.6.0 took the
+        # refusal at its word; on 2026-08-28 the word was false for 38
+        # steps at once.
+        _seq_reconcile(rows, hashes, builts, nonce_by_step, hash_by_step,
+                       built_by_step, acct.operator_addr)
+        still = [k for k in range(refused_at, len(parsed))
+                 if rows[k]["status"] == "not_sent"]
+        if (still and not resent
+                and still == list(range(still[0], len(parsed)))
+                and any(m in refusal_text for m in _SEQ_REJECTION_MARKERS)):
+            # Nothing landed for still[0]..K and the node holds none of
+            # them: it refused the raw transactions, so those nonces
+            # were never consumed. Resend the tail EXACTLY ONCE — wait
+            # for the steps that did land, re-read the nonce, re-sign.
+            # A reverted step is never resent by this path: a revert is
+            # not a rejection, it consumed its nonce and is final (P4).
+            resent = True
+            for k in range(still[0]):
+                if k in hashes:
+                    try:
+                        w3.eth.wait_for_transaction_receipt(
+                            hashes[k], timeout=120)
+                    except Exception:
+                        pass
+            for k in still:
+                rows[k].pop("reason", None)
+            nonce = w3.eth.get_transaction_count(
+                acct.operator_addr, _NONCE_BLOCK)
+            pending = _sign_from(still[0], nonce)
+            continue
+        reconciled = True
+        break
+
+    # A6 (3.7.0). Before any row is REPORTED not_sent, it is reconciled
+    # against the node: a nonce the node holds, or a hash the chain has,
+    # was sent whatever the broadcast managed to say about it. The loop
+    # above already reconciles before it decides to resend, so this runs
+    # only when the loop did not — and is a no-op, with no round-trip,
+    # when nothing is marked not_sent.
+    if not reconciled:
+        _seq_reconcile(rows, hashes, builts, nonce_by_step, hash_by_step,
+                       built_by_step, acct.operator_addr)
 
     # A5. Receipts in order, on ONE budget, each caught: a step's
     # terminal state is its own and is never inferred from a neighbour's.

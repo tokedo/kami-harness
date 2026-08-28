@@ -16,19 +16,28 @@ where acceptance STOPS: the CometBFT / minievm mempool's per-sender
 limit is not readable over RPC, so the only way to know it is to offer
 the node a longer run of nonces and watch.
 
-The ladder is FEED-ONLY on purpose — Energy Drink 11409 on kami 12649
-from account shrike. A feed is the cheapest step that still consumes a
-nonce (~1.98M gas), it needs no victim and no harvest, and a reverted
-feed consumes no item, so a rejected or reverted rung costs gas and
-nothing else. Mempool acceptance is a BROADCAST property: a step that
-reverts on execution was still accepted, and the table says so.
+The ladder is FEED-ONLY on purpose. A feed is the cheapest step that
+still consumes a nonce (~1.98M gas), it needs no victim and no harvest,
+and a reverted feed consumes no item, so a rejected or reverted rung
+costs gas and nothing else. Mempool acceptance is a BROADCAST property:
+a step that reverts on execution was still accepted, and the table says
+so.
+
+WHICH ITEM IS AN ARGUMENT, AND IT IS REQUIRED (3.7.0, ITEM 3). The
+measurement items are **Ghost Gum 11301** and **Golden Apple 11313** —
+cheap, plentiful, and not the input any play session is short of.
+**Energy Drink 11409 is the expensive input of the liquidation play**
+and the 2026-08-28 drink ladder spent 148 of them; the script now
+refuses 11409 unless `--allow-drinks` says the operator meant it. There
+is no default: a measurement that does not say what it burns is a
+measurement nobody agreed to.
 
     KAMI_SECRETS_BACKEND=keychain \\
     KAMI_KEYS_FILE=~/.blocklife-keys/hybrid.env \\
-    python3 measure_mempool_acceptance.py --sizes 32 48 64
+    python3 measure_mempool_acceptance.py --item 11301 --sizes 8 32
 
 Safety rails, all hard:
-  * DRINK_BUDGET drinks total across every rung (successful feeds only;
+  * `--budget` items total across every rung (successful feeds only;
     a revert consumes gas, not an item). The ladder stops rather than
     exceed it.
   * The ladder stops if a rung still has unconfirmed transactions
@@ -48,12 +57,40 @@ from pathlib import Path
 
 import server
 
-ITEM_ID = 11409          # Energy Drink
+# The measurement items. Cheap, plentiful, and not the play's bottleneck.
+GHOST_GUM = 11301
+GOLDEN_APPLE = 11313
+ENERGY_DRINK = 11409     # the play's expensive input — never a default
 KAMI_ID = 12649
 ACCOUNT = "shrike"
-DRINK_BUDGET = 152
+DEFAULT_BUDGET = 40
 UNCONFIRMED_STOP_S = 180
 BRACKET_STEP = 8
+
+
+class RefusedItem(SystemExit):
+    """The script refused to burn the item it was pointed at."""
+
+
+def check_item(item_id: int, allow_drinks: bool) -> int:
+    """ITEM 3, made structural: the item is chosen, never defaulted.
+
+    Ghost Gum and Golden Apple are the measurement items. Energy Drink
+    is the liquidation play's expensive input and takes an explicit
+    --allow-drinks; anything else is allowed but named in the output, so
+    the record says what was burnt.
+    """
+    if item_id == ENERGY_DRINK and not allow_drinks:
+        raise RefusedItem(
+            f"refusing item {ENERGY_DRINK} (Energy Drink): it is the "
+            f"expensive input of the liquidation play. Measure with Ghost "
+            f"Gum {GHOST_GUM} or Golden Apple {GOLDEN_APPLE}, or pass "
+            f"--allow-drinks if you mean it."
+        )
+    if item_id not in (GHOST_GUM, GOLDEN_APPLE):
+        print(f"NOTE: item {item_id} is not one of the measurement items "
+              f"(Ghost Gum {GHOST_GUM} / Golden Apple {GOLDEN_APPLE}).")
+    return item_id
 
 
 def txpool_status():
@@ -72,7 +109,7 @@ def nonces(addr):
     }
 
 
-def run_rung(size, operator_addr):
+def run_rung(size, operator_addr, item_id, kami_id):
     """One rung: `size` consecutive feed steps in one act_sequence call."""
     record = {
         "steps_requested": size,
@@ -83,12 +120,12 @@ def run_rung(size, operator_addr):
     original_broadcast = server._seq_broadcast
     original_await = server._await_receipt
 
-    def broadcast(pending):
+    def broadcast(pending, operator_addr=None):
         captured.setdefault("raws", [signed.raw_transaction
                                      for _j, _b, signed in pending])
         captured.setdefault("first_nonce", pending[0][1]["nonce"])
         t0 = time.monotonic()
-        mode, outcomes = original_broadcast(pending)
+        mode, outcomes = original_broadcast(pending, operator_addr)
         t1 = time.monotonic()
         captured.setdefault("calls", []).append({
             "items": len(pending),
@@ -117,7 +154,7 @@ def run_rung(size, operator_addr):
 
     server._seq_broadcast = broadcast
     server._await_receipt = await_receipt
-    steps = [{"op": "feed", "kami_id": KAMI_ID, "item_id": ITEM_ID}] * size
+    steps = [{"op": "feed", "kami_id": kami_id, "item_id": item_id}] * size
     t_call = time.time()
     try:
         result = server.act_sequence(steps, account=ACCOUNT)
@@ -189,15 +226,31 @@ def run_rung(size, operator_addr):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sizes", type=int, nargs="+", default=[32, 48, 64])
+    ap.add_argument(
+        "--item", type=int, required=True,
+        help=f"item index to feed. The measurement items are Ghost Gum "
+             f"{GHOST_GUM} and Golden Apple {GOLDEN_APPLE}. There is no "
+             f"default and Energy Drink {ENERGY_DRINK} is refused "
+             f"without --allow-drinks.",
+    )
+    ap.add_argument("--allow-drinks", action="store_true",
+                    help=f"permit item {ENERGY_DRINK} (Energy Drink), the "
+                         f"expensive input of the liquidation play")
+    ap.add_argument("--kami", type=int, default=KAMI_ID)
+    ap.add_argument("--account", default=ACCOUNT)
+    ap.add_argument("--budget", type=int, default=DEFAULT_BUDGET,
+                    help="hard cap on items consumed across every rung")
+    ap.add_argument("--sizes", type=int, nargs="+", default=[8, 32])
     ap.add_argument("--out", default="mempool-acceptance.json")
     args = ap.parse_args()
+    check_item(args.item, args.allow_drinks)
 
-    acct = server._get_account(ACCOUNT)
-    aid = server._require_registered_operator(ACCOUNT)
-    held = server._inventory_balance(aid, ITEM_ID)
-    print(f"account {ACCOUNT} holds {held} of item {ITEM_ID}; "
-          f"budget {DRINK_BUDGET}")
+    account, item_id, budget = args.account, args.item, args.budget
+    acct = server._get_account(account)
+    aid = server._require_registered_operator(account)
+    held = server._inventory_balance(aid, item_id)
+    print(f"account {account} holds {held} of item {item_id}; "
+          f"budget {budget}")
 
     spent = 0
     records = []
@@ -206,15 +259,15 @@ def main():
     bracketed = False
     while queue:
         size = queue.pop(0)
-        if spent + size > DRINK_BUDGET:
+        if spent + size > budget:
             print(f"STOP: rung {size} would take the total to "
-                  f"{spent + size} > {DRINK_BUDGET}")
+                  f"{spent + size} > {budget}")
             break
         # Raised on the module object for THIS PROCESS. The source
         # constant is an operator ruling and is not touched.
         server._ACT_SEQUENCE_MAX_STEPS = max(size, 16)
         print(f"--- rung {size} (spent {spent}) ---", flush=True)
-        rec = run_rung(size, acct.operator_addr)
+        rec = run_rung(size, acct.operator_addr, item_id, args.kami)
         records.append(rec)
         spent += rec["status_counts"].get("success", 0)
         print(json.dumps({k: v for k, v in rec.items() if k != "rows"},
@@ -236,7 +289,7 @@ def main():
             break
 
     Path(args.out).write_text(json.dumps(records, indent=1))
-    print(f"wrote {args.out}; drinks consumed {spent}")
+    print(f"wrote {args.out}; item {item_id} consumed {spent}")
 
 
 if __name__ == "__main__":

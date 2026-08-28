@@ -111,3 +111,19 @@ is committed and re-runnable.
 148 Energy Drinks (shrike held 1,944), 159,439,711 gas total across the
 four runs at `maxFeePerGas` 2,500,000 wei ≈ 0.000399 ETH. No kill, no
 victim, no other account touched.
+
+**148 re-checked 2026-08-28 (3.7.0, ITEM 3).** Anatoly's sweep-#6 ledger
+put the stack agent's share at "~146", so the count was verified against
+the receipts rather than left as two numbers: the rungs' own receipt
+statuses are 4 + 32 + 48 + 64 = **148 successes**, each consuming one
+drink; their gas sums to exactly the 159,439,711 above; and the day's
+whole drink movement on shrike closes on it — 1,944 → 1,738 = 206
+consumed, of which 58 were Anatoly's own play, leaving 148. The cost
+line stands as written; "~146" was the approximation.
+
+Drinks are the expensive input of the liquidation play, and this ladder
+spent 148 of them. From 3.7.0 the script will not do that again by
+default: `--item` is required with no default and item 11409 is refused
+without `--allow-drinks`. The measurement items are Ghost Gum 11301 and
+Golden Apple 11313 — see `batch-admission-2026-08-28.md`, which measures
+the same shape on 40 gum.

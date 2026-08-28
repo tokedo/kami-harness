@@ -29,6 +29,187 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [3.7.0] — a mined sequence is never "not_sent"
+
+MINOR. **104 tools** (ACT 56 / PERCEIVE 32 / OUTSOURCE 9 / META 7),
+registry mass **72,855** against the 73,000 budget — unchanged, because
+**no description moved**: `tools_hash` stays
+`87dc7481...1c1b` (Python 3.13). `SCHEMA_VERSION` **3.7.0**.
+
+**Why MINOR and not PATCH, by this file's own rule.** No tool,
+parameter, schema or description changes, so a client cannot tell a
+3.6.0 deployment from a 3.7.0 one by its surface fingerprint. But a
+sequence that used to report `sent: 0` and 61 × `not_sent` now reports
+61 successes, and result rows gain two fields (`reconciled`,
+`broadcast_error`). That is an agent-visible effect, and PATCH is
+reserved here for changes with no agent-visible effect at all. Same
+shape as 3.2.0, which was MINOR with an identical hash for the same
+reason.
+
+Source: Anatoly's instant-strike session on 3.6.0 (2026-08-28, 19:24–
+19:36 UTC — 45 kills in four strikes, 191 transactions, 4.2 tx/kill, 0
+deaths; ledger `2026-08-28d-instant-strikes.md`, two new entries at the
+bottom of `docs/stack-feedback.md` tagged `zero_cd_play`). The cap of
+64, the batch broadcast and the per-row kill decode all did what 3.6.0
+said they would. Three defects did not.
+
+### The false `not_sent` — the incident, the mechanism, the three fixes
+
+At 19:30:40.8Z a **61-step strike returned `status: partial, sent: 0,
+landed: 0` with every row `not_sent` and `reason: ""`. All 61
+transactions were mined.** Operator nonces 1873–1910 in blocks
+32685027–038 (13 s of chain time, ~3 items/s for liquidate-heavy
+bodies), then 20 s of nothing, then 1911–1933 in blocks 32685047–051 at
+the exact second the call returned. MUSU +11,735 matched the 14 landed
+kills; five tail kills reverted because the victims withdrew during the
+stall. The harness reported a lost sequence; the chain had executed it.
+
+**The mechanism, reproduced against the 3.6.0 code path before anything
+was changed** (`executor/tests/test_h370_families.py`, a mocked provider
+that models the node; the reproduction returns `sent: 0`, all rows
+`not_sent`, `reason: ""`, 0 receipts polled — the incident byte for
+byte):
+
+1. `Web3(Web3.HTTPProvider(RPC_URL))` passes no `request_kwargs`, so the
+   batch POST carried web3's **default 30 s** read timeout. Nothing
+   sized it to a 61-item liquidate body.
+2. The timeout fired while the node was still admitting; `_seq_batch_send`
+   raised `_SeqBatchTransportError` and the retry re-offered **the whole
+   body**, including the 38 nonces the node already held.
+3. The node answered those 38 with an error object whose `message` was
+   empty. `_seq_broadcast` took `err.get("message")` verbatim, so the
+   first outcome was `(False, "")`.
+4. `""` matches no rejection marker, so the re-sign branch was skipped
+   and the else branch marked step 0 **and every later step**
+   `not_sent` with `reason=""` — then `break`, discarding the accepted
+   outcomes for the tail that were in the SAME response list.
+5. `hashes` was empty, so the receipt loop polled nothing. `sent: 0`.
+
+Two independent amplifiers, both fixed: the report was never checked
+against the chain, and one refusal threw away the acceptances beside it.
+
+**(a) Reconcile before reporting — `not_sent` is a claim about the NODE,
+so ask the node.** Every step's hash is now computed at sign time
+(keccak256 of the signed raw transaction), so a step the broadcast could
+not report on is still findable. Before any row is reported `not_sent`
+it is checked, in order of cost: the operator's pending transaction
+count (a nonce below it is held by the node, so it was sent); a settle
+and a second read when a transport failure left part of a body held and
+part not; and finally the receipt for the pre-computed hash, all
+remaining hashes in one `eth_getTransactionReceipt` batch. A rescued row
+is `unconfirmed` with its hash, enters the receipt collection like any
+other, and carries `reconciled` (the evidence) plus `broadcast_error`
+(whatever the node said). **`not_sent` now means only: a nonce at or
+above the pending count, with no receipt.**
+
+The same read guards the RESEND. A resend re-signs the tail at fresh
+nonces, so resending a step the node already holds performs that step
+twice; 3.6.0 took the refusal at its word, and on this night the word
+was false for 38 steps at once. Reconciliation runs first, and only a
+clean suffix the node does not hold is re-signed.
+
+**(b) No request outlives its timeout.** The body is offered in
+**sequential chunks of at most 32**, each chunk reconciled before the
+next is offered, each request carrying **chunk × measured worst
+per-item × 2, floor 30 s** = 32 s for a full chunk — on a **dedicated
+HTTPProvider per timeout value**, so every other RPC call in the process
+keeps web3's 30 s. The per-item number is measured, not guessed
+(`docs/measurements/batch-admission-2026-08-28.md`):
+
+| op | items | batch call | per item | source |
+|---|--:|--:|--:|---|
+| feed | 8 | 0.668 s | 0.084 s | gum ladder, rung 1 (cold connection) |
+| feed | 32 | 0.526 s | 0.016 s | gum ladder, rung 2 |
+| feed | 64 | 2.354 s | 0.037 s | drink ladder 2026-08-28 |
+| liquidate | 38 | > 13 s | > 0.342 s | the incident, block timestamps |
+| liquidate | 61 | > 30 s | > 0.492 s | the incident, client timeout |
+
+The gum ladder is new and live: 8 + 32 = **40 Ghost Gum (11301)** on
+kami 12649 from account shrike, 40/40 accepted and mined, zero
+rejections, nonces 1959 → 1999 with no gap, 48,923,954 gas ≈ 0.000122
+ETH. **No Energy Drinks were spent** (1,738 before and after). The brief
+asked for 16 and 32 and capped the spend at 40; 16 + 32 is 48, so the
+ladder ran 8 + 32 and the deviation is on the record in the measurement
+doc.
+
+**(c) An empty `reason` is impossible.** The refused item's payload
+reaches the row verbatim — message, then `[code N]` and `[data …]` —
+truncated at 300 characters. A payload with no message at all (the
+incident's own `{"code": -32000, "message": ""}` included) yields
+`node refused nonce N with no error message: {…}`, the raw object and
+the nonce it refused. A nonce with no response at all says
+`no response for nonce N in batch of M`.
+
+**Regression baseline.** The 52-, 28- and 25-step strikes of the same
+session were reported correctly, and still are: the 52-step case is a
+test — 52/52 success, every row with its own block, **not one
+reconciliation field on any row**, one nonce read, and the only change
+visible anywhere is that the transport POSTed [32, 20] instead of [52].
+
+### Pre-send validation: 16.3 s → 0.29 s, 66 round-trips → 1
+
+3.6.0 walked the plan and read each subject with its own `eth_call`, and
+did not dedupe the victims at all — one read per liquidate step. Anatoly
+measured ~20 s in front of every strike (a 17-step plan took 21 s just
+to REFUSE). The reads are all `safeGet(uint256)` on one of three
+components, so they now go out as JSON-RPC batches of `eth_call`,
+deduped: ownership per distinct kami, balance per distinct item, harvest
+state per distinct kami, the killer's bounty.
+
+Measured live on shrike, read-only, on a 61-step plan shaped like the
+19:30 strike (1 `harvest_start` + 19 `liquidate` + 40 `feed` +
+1 `harvest_stop`; 23 distinct subjects), three repetitions each:
+
+| path | wall | HTTP round-trips |
+|---|--:|--:|
+| 3.6.0, one call per subject | 16.3 s | 66 |
+| 3.7.0, one batched prefetch | 0.29 s | 1 |
+
+(66 for 22 logical reads: web3 issues three POSTs per contract call
+through this endpoint.) Target was < 3 s. The prefetch has **no
+semantics of its own** — a subject it cannot resolve falls through to
+the per-subject read it replaced, so a node that will not batch reads is
+slow, never wrong, and every existing validation test still exercises
+the per-subject path. Chain reads, not lens reads: an ACT tool does not
+depend on the lens daemon (3.4.0 family C doctrine), and a test greps
+the path to keep it that way. `w3.batch_requests()` DOES support
+`eth_call` — verified, and pinned by a test beside the one that pins its
+refusal of `eth_sendRawTransaction`.
+
+### Cheap items, made structural
+
+The 3.6.0 operator note ("measure with the cheapest consumable") becomes
+a rail. `executor/tests/live/measure_mempool_acceptance.py` takes
+**`--item` as a required argument with no default**, refuses item 11409
+(Energy Drink) unless `--allow-drinks` is passed, and names Ghost Gum
+11301 and Golden Apple 11313 in its docstring as the measurement items.
+`--budget`, `--kami` and `--account` are arguments too; `DRINK_BUDGET`
+is gone.
+
+The 3.6.0 measurement doc's cost line was re-checked against the
+receipts rather than left as two numbers: the rungs' own receipt
+statuses are 4 + 32 + 48 + 64 = **148 successes**, their gas sums to the
+159,439,711 already recorded, and the day's whole drink movement on
+shrike closes on it (1,944 → 1,738 = 206, of which 58 were Anatoly's own
+play). **148 stands**; the ledger's "~146" was the approximation.
+
+### Tests
+
+**731 pass** (the 701 of 3.6.0, unchanged in meaning, plus 30 new in
+`test_h370_families.py`), Python 3.13.12, exit code 0. Six existing
+assertions were updated and none weakened: three nonce-read counts now
+include the reconciliation read that guards the resend; the 64-step cap
+test now expects [32, 32] POSTs instead of one; the missing-response
+test now models a node that admits three and answers three (a node that
+ADMITS five and answers three is reconciled, which is the fix); and the
+scripted fake refuses any batch that is not `eth_sendRawTransaction`, so
+the new read and receipt batches fall back to the per-subject reads the
+suite monkeypatches instead of being answered with nonsense.
+
+Not in this release, on record: receipt COLLECTION is still serial
+(~0.25 s/step of wall time after the chain is done). Named as a gap in
+3.6.0 and still one.
+
 ## [3.6.0] — the strike that fits in one round-trip
 
 MINOR. **104 tools** (ACT 56 / PERCEIVE 32 / OUTSOURCE 9 / META 7),

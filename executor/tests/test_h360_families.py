@@ -116,13 +116,17 @@ def test_a_nonce_missing_from_the_response_is_not_sent_not_guessed(
     chain = FakeChain(outcomes)
     _install(seq_env, chain, outcomes)
     inner = chain._make_batch_request
+    # The node ADMITS three and answers three: nonces 4 and 5 were never
+    # taken, so the pending nonce reconciliation (3.7.0) leaves them
+    # not_sent — which is the point of the test.
     monkeypatch.setattr(
-        chain.provider, "make_batch_request", lambda reqs: inner(reqs)[:3]
+        chain.provider, "make_batch_request", lambda reqs: inner(reqs[:3])
     )
     out = server.act_sequence(_steps(5), account="testa")
     statuses = [r["status"] for r in out["steps"]]
     assert statuses == ["success", "success", "success", "not_sent", "not_sent"]
     assert "no response for nonce" in out["steps"][3]["reason"]
+    assert "in batch of 5" in out["steps"][3]["reason"]
 
 
 def test_a_transport_failure_is_retried_once_as_a_batch(seq_env):
@@ -164,7 +168,8 @@ def test_a_rejected_tail_is_re_broadcast_as_a_second_batch(seq_env):
     out = server.act_sequence(_steps(3), account="testa")
     assert out["landed"] == 3
     assert chain.batches == [3, 2]      # whole sequence, then the tail
-    assert chain.nonce_reads == 2
+    # 1 at head + 1 reconciliation before the resend + 1 to re-sign.
+    assert chain.nonce_reads == 3
 
 
 def test_web3s_own_batch_api_cannot_carry_this_and_that_is_why():

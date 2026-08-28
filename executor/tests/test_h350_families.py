@@ -234,6 +234,14 @@ class FakeChain:
     # assertion above keeps its meaning across the new transport.
 
     def _make_batch_request(self, requests):
+        methods = {m for m, _p in requests}
+        if methods != {"eth_sendRawTransaction"}:
+            # This fake models the BROADCAST batch only. Any other batch
+            # the product tries (3.7.0 batches the pre-send eth_calls and
+            # the reconciliation receipt sweep) must fall back to the
+            # per-subject reads this suite monkeypatches, so it is
+            # refused here rather than answered with nonsense.
+            raise NotImplementedError(f"batch methods {sorted(methods)}")
         self.batches.append(len(requests))
         self.batch_requests.append(list(requests))
         # web3 stamps the JSON-RPC ids from provider.request_counter at
@@ -389,7 +397,9 @@ def test_a_broadcast_rejection_resends_the_tail_exactly_once(seq_env):
     _install(seq_env, chain, ["ok", "ok", "ok"])
     out = server.act_sequence(_steps(3), account="testa")
     assert chain.rejections == 1
-    assert chain.nonce_reads == 2      # re-read before re-signing the tail
+    # 1 at head + 1 reconciliation (3.7.0 asks the node whether it holds
+    # the refused nonce before resending it) + 1 before re-signing.
+    assert chain.nonce_reads == 3
     assert [r["status"] for r in out["steps"]] == [
         "success", "success", "success"
     ]
@@ -401,6 +411,10 @@ def test_a_second_rejection_reports_the_tail_not_sent(seq_env):
     _install(seq_env, chain, ["ok", "ok", "ok"])
     out = server.act_sequence(_steps(3), account="testa")
     assert chain.rejections == 2
+    # 1 at head, then a reconciliation read before each of the two
+    # decisions 3.7.0 will not take on the broadcast's word alone
+    # (resend, then report not_sent), plus the resend's own re-read.
+    assert chain.nonce_reads == 4
     statuses = [r["status"] for r in out["steps"]]
     assert statuses == ["success", "not_sent", "not_sent"]
     assert out["sent"] == 1 and out["landed"] == 1
@@ -421,12 +435,14 @@ def test_cap_is_the_measured_number_and_refuses_rather_than_splitting(
         server.act_sequence(_steps(65), account="testa")
     assert "at most 64" in str(e.value)
     assert "not auto-split" in str(e.value)
-    # 64 is allowed, and goes out as ONE batch.
+    # 64 is allowed, and goes out as TWO chunks of 32 (3.7.0): no
+    # single request may outlive the timeout sized to what it offers.
     outcomes = ["ok"] * 64
     chain = FakeChain(outcomes)
     _install(seq_env, chain, outcomes)
     assert server.act_sequence(_steps(64), account="testa")["landed"] == 64
-    assert chain.batches == [64]
+    assert chain.batches == [32, 32]
+    assert chain.broadcasts == list(range(64))
 
 
 def test_unknown_op_and_missing_field_name_the_step_index(seq_env):

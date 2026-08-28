@@ -122,7 +122,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.6.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.7.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -205,15 +205,36 @@ ever reported as another:
     the sequence** (operator ruling R-3): later steps still execute, and
     a revert is NEVER resent — the existing rule that nonce/retry logic
     never resubmits a confirmed revert applies per step.
-  - **A broadcast-rejected step is resent at most once.** A rejection
-    means the node refused the raw transaction, so the nonce was not
-    consumed and NOTHING landed for that step or any after it: the
+  - **A broadcast-rejected step is resent at most once, and only after
+    the node has been asked.** A rejection is supposed to mean the node
+    refused the raw transaction, so the nonce was not consumed and
+    nothing landed for that step or any after it — but that is the
+    broadcast's claim, not the chain's, and on 2026-08-28 it was false
+    for 38 steps at once. The operator's pending nonce is therefore
+    re-read BEFORE the resend decision: a resend re-signs the tail at
+    fresh nonces, so resending a step the node is already holding would
+    perform that step TWICE. Only steps the node does not hold are
+    resent, and only if they are a clean suffix of the sequence: the
     steps that did land are awaited, the nonce is re-read, and the tail
     is re-signed and broadcast once more. A second rejection reports
-    the tail `not_sent`. A rejection is not a revert and the two are
-    never merged.
+    the tail `not_sent` — after the same reconciliation. A rejection is
+    not a revert and the two are never merged.
+  - **`not_sent` is a claim about the NODE, and it is checked against
+    the node before it is reported.** No step whose nonce is below the
+    operator's pending transaction count, and no step whose hash has a
+    receipt, is ever reported `not_sent`. Every step's hash is known
+    before it is offered — keccak256 of the signed raw transaction,
+    computed at sign time — so a step the broadcast could not report on
+    is still findable on chain. A row rescued this way is reported
+    `unconfirmed` with that hash, enters the receipt collection like any
+    other step, and carries `reconciled` (the evidence) and, where the
+    node said something, `broadcast_error` (what it said). `not_sent` is
+    left for a nonce at or above the pending count with no receipt —
+    and that is the only thing it now means.
   - **Cap 64 steps**, refused rather than auto-split — one tool call is
     one reportable unit, the same reason the batch caps are not split.
+    (Chunking the TRANSPORT is not splitting the call: 64 steps are one
+    reportable unit offered in two requests.)
     64 is the MEASURED per-sender mempool acceptance, not a judgement
     call: operator ruling R-3 of 2026-08-28 re-ruled it from 16 to the
     number the ladder in
@@ -235,13 +256,40 @@ ever reported as another:
     ARE the nonces**, so every response is attributed to its step by
     nonce and never by position: a node that reorders, drops or
     duplicates a response cannot shift a result onto the wrong step, and
-    a nonce with no response in the reply is `not_sent`, never inferred.
-    Serial sending survives ONLY as a transport fallback — if the batch
-    CALL fails (a transport failure, not a refused transaction) it is
-    retried once and only then does the tail go out one send at a time,
-    with those rows carrying `broadcast: "serial"`. Rejection semantics
-    are unchanged by the transport: the outcomes are read in step order
-    and the first refusal stops the tail exactly as the serial loop did.
+    a nonce with no response in the reply is `not_sent`, never inferred
+    — and the row says so in the form `no response for nonce N in batch
+    of M`. Serial sending survives ONLY as a transport fallback — if the
+    batch CALL fails (a transport failure, not a refused transaction)
+    the chunk is reconciled and only what the node does not hold is
+    re-offered; after a second transport failure that remainder goes out
+    one send at a time, with those rows carrying `broadcast: "serial"`.
+    Rejection semantics are unchanged by the transport: the outcomes are
+    read in step order and the first refusal stops the tail exactly as
+    the serial loop did.
+  - **No request outlives its timeout.** The body is offered in
+    SEQUENTIAL CHUNKS of at most **32** items, each chunk's outcome
+    reconciled before the next is offered, and each chunk's request
+    carries a timeout of **chunk size × measured worst per-item
+    admission × 2, floor 30 s** — 32 s for a full chunk. The per-item
+    figure is measured, not assumed
+    (`docs/measurements/batch-admission-2026-08-28.md`): a feed body
+    admits at 0.016 s/item, a liquidate body at 0.492 s/item or worse.
+    The batch call uses a **dedicated HTTP provider per timeout value**,
+    so every other RPC call in the process keeps web3's default 30 s.
+    3.6.0 offered the whole tail in one body on that default, and a
+    61-step liquidate sequence outlived it while the node was still
+    admitting items.
+  - **The pre-send reads are ONE batch, not one call per subject.**
+    Whole-sequence validation resolves its chain subjects — ownership
+    per distinct kami, item balance per distinct item, harvest state per
+    distinct kami, the killer's bounty — in JSON-RPC batches of
+    `eth_call`, DEDUPED, so the round-trip count is O(chunks) and not
+    O(steps). Measured on a 61-step strike plan: 66 HTTP round-trips and
+    16.3 s become 1 and 0.29 s. The prefetch has no semantics of its
+    own: a subject it cannot resolve falls through to the per-subject
+    read it replaced, so a node that will not batch reads is slow, never
+    wrong. These are CHAIN reads — an ACT tool never depends on the lens
+    daemon.
   - **Chain fact (2026-08-28): nine of one sender's transactions land in
     one block.** Every rung of the ladder filled its blocks the same
     way — three in the block the broadcast arrived mid-way through, then
@@ -652,14 +700,27 @@ writer; no other module opens the keys file or the Keychain.
 
 | claim | enforcement |
 |---|---|
-| Registry description mass ≤ 73,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget`, `test_h350_families.py::test_registry_mass_within_the_raised_budget` (72,857 at this ref, on Python 3.13 — 143 characters of headroom) |
+| Registry description mass ≤ 73,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget`, `test_h350_families.py::test_registry_mass_within_the_raised_budget` (72,855 at this ref, on Python 3.13 — 145 characters of headroom; unchanged by 3.7.0, which moves no description) |
 | A sequence reports one terminal state per step and never conflates two: a success, a revert and a timeout in one call come back as themselves, each with its own receipt evidence | `test_h350_families.py::test_terminal_states_are_never_conflated` |
 | A reverted step does not stop the sequence and is never resent | `test_h350_families.py::test_a_reverted_step_does_not_stop_the_sequence`, `::test_a_reverted_step_is_never_resent` |
 | A broadcast-rejected tail is resent exactly once; a second rejection reports `not_sent` | `test_h350_families.py::test_a_broadcast_rejection_resends_the_tail_exactly_once`, `::test_a_second_rejection_reports_the_tail_not_sent` |
 | A sequence reads its nonce ONCE at `pending` and signs every step before the first broadcast | `test_h350_families.py::test_nonce_read_once_and_all_signed_before_first_broadcast` (the fake chain asserts the `pending` block identifier) |
-| `act_sequence` refuses more than 64 steps rather than splitting them, and 64 goes out as ONE batch | `test_h350_families.py::test_cap_is_the_measured_number_and_refuses_rather_than_splitting` (asserts the constant is 64, that 65 is refused with "at most 64", and that the 64-step call made exactly one batch POST) |
+| `act_sequence` refuses more than 64 steps rather than splitting them, and 64 goes out as two sequential chunks of 32 | `test_h350_families.py::test_cap_is_the_measured_number_and_refuses_rather_than_splitting` (asserts the constant is 64, that 65 is refused with "at most 64", and that the 64-step call POSTed [32, 32] and broadcast every step) |
 | The whole pre-signed tail is broadcast in ONE round-trip | `test_h360_families.py::test_the_whole_tail_goes_out_in_one_round_trip` (16 steps, one POST) |
 | Broadcast results are mapped back to steps BY NONCE, never by position: the batch's JSON-RPC ids are the nonces, a reordered reply still lands on the right steps, and a nonce with no response is `not_sent` | `test_h360_families.py::test_the_batch_ids_are_the_nonces`, `::test_responses_returned_out_of_order_still_land_on_their_own_steps`, `::test_a_nonce_missing_from_the_response_is_not_sent_not_guessed` |
+| No step whose nonce is below the operator's pending transaction count is ever reported `not_sent` | `test_h370_families.py::test_no_step_below_the_pending_nonce_is_ever_reported_not_sent`, `::test_the_3_6_0_mechanism_reproduced_then_fixed` (the 2026-08-28 19:31 incident: 61 steps, transport death mid-admission, 38 nonces already held — all 61 reported as what they are), `::test_a_refusal_on_a_nonce_the_node_holds_is_reconciled_not_reported` |
+| No step whose hash has a receipt is ever reported `not_sent`; the hash is computed at sign time as keccak256 of the signed raw transaction | `test_h370_families.py::test_no_step_whose_hash_has_a_receipt_is_ever_reported_not_sent` |
+| `not_sent` still means not sent: a node that holds nothing and refuses everything yields `not_sent` rows with the refusal on them | `test_h370_families.py::test_a_step_that_really_was_not_sent_still_says_so` |
+| A step is never re-signed and re-broadcast while the node holds its predecessor: the pending nonce is re-read before the resend decision | `test_h350_families.py::test_a_broadcast_rejection_resends_the_tail_exactly_once`, `::test_a_second_rejection_reports_the_tail_not_sent` (nonce-read counts pin the reconciliation reads) |
+| No broadcast request carries more than 32 items, and the chunks are offered sequentially | `test_h370_families.py::test_a_61_step_body_is_offered_in_chunks_of_at_most_32`, `::test_a_partial_chunk_is_reconciled_before_the_next_is_offered` |
+| The batch request's timeout is chunk size × measured per-item admission × 2, floor 30 s, and lives on a dedicated provider so no other RPC call's timeout changes | `test_h370_families.py::test_the_batch_timeout_is_measured_and_scoped_to_the_batch_call` (table in `docs/measurements/batch-admission-2026-08-28.md`) |
+| A refused step's reason is never empty: the node's payload reaches the row verbatim, truncated at 300 characters, and a payload with no message yields the nonce plus the raw object | `test_h370_families.py::test_an_empty_error_payload_never_becomes_an_empty_reason` (6 payload shapes incl. the incident's own), `::test_a_real_error_payload_reaches_the_row_verbatim`, `::test_a_long_error_payload_is_truncated_at_300_chars` |
+| A nonce with no response in the reply names itself and the batch it was in | `test_h370_families.py::test_a_missing_response_names_the_nonce_and_the_batch_size` |
+| Pre-send validation resolves every chain subject in ONE batched read, deduped, with no per-subject call | `test_h370_families.py::test_the_whole_read_plan_costs_one_round_trip`, `::test_the_read_plan_dedupes_every_repeated_subject` (61 steps, 23 subjects), `::test_validation_runs_off_the_prefetch_with_no_per_subject_reads` (the per-subject helpers are trip-wired) |
+| A node that will not batch reads makes validation slow, never wrong: every check falls through to its per-subject read | `test_h370_families.py::test_a_node_that_will_not_batch_reads_is_slow_and_not_wrong`, `::test_the_prefetch_never_raises_whatever_the_node_returns` |
+| The sequence validation path reads the chain, never the lens daemon | `test_h370_families.py::test_the_act_path_reads_the_chain_and_never_the_lens_daemon` |
+| A strike the previous version reported correctly is reported identically | `test_h370_families.py::test_the_52_step_strike_is_reported_exactly_as_it_was` (the 52-step strike of the same session: 52/52, no reconciliation field on any row) |
+| A live measurement script names the item it burns: `--item` is required with no default and Energy Drink 11409 is refused without `--allow-drinks` | `test_h370_families.py::test_the_measurement_script_has_no_default_item`, `::test_the_measurement_script_refuses_energy_drinks_unless_told`, `::test_the_measurement_docstring_names_the_measurement_items` |
 | A batch CALL failure is retried once as a batch and only then falls back to serial sending, which says so in the row | `test_h360_families.py::test_a_transport_failure_is_retried_once_as_a_batch`, `::test_two_transport_failures_fall_back_to_serial_and_say_so`, `::test_a_serial_fallback_still_stops_the_tail_at_a_refusal` |
 | A rejected tail is re-broadcast as a second batch, and the provider's request-id counter is left as it was found | `test_h360_families.py::test_a_rejected_tail_is_re_broadcast_as_a_second_batch`, `::test_the_provider_id_counter_is_restored_after_a_batch` |
 | web3's own batch API still refuses `eth_sendRawTransaction`, which is why the provider's `make_batch_request` is used | `test_h360_families.py::test_web3s_own_batch_api_cannot_carry_this_and_that_is_why` (fails loudly if a web3 upgrade lifts the ban) |
