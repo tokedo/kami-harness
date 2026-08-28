@@ -147,7 +147,7 @@ is running, the 24 raise
 never return an empty result in its place. ACT, OUTSOURCE, and META
 tools do not depend on it.
 
-This server version is built against kami-lens release **0.5.1**, pinned
+This server version is built against kami-lens release **0.5.3**, pinned
 at commit `8b74007` and declared in [`SPEC.md`](SPEC.md) D1 — the one
 place that pin is stated. kami-lens is not published
 to npm or a container registry, so build it from the repository:

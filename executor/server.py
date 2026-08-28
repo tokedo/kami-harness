@@ -10072,7 +10072,7 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
 
     Steps run in order on consecutive nonces, all signed and broadcast
     before any receipt is read, so the whole sequence lands within a
-    block or two rather than one block per step. Only step 1 is dry-run
+    few blocks rather than one block per step. Only step 1 is dry-run
     — later steps' preconditions are earlier steps' effects, absent at
     the pending block, so they are the caller's plan and not a checked
     one. A reverted step consumes its nonce and does not stop the

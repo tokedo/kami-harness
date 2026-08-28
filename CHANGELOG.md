@@ -32,9 +32,9 @@ at all.
 ## [3.6.0] — the strike that fits in one round-trip
 
 MINOR. **104 tools** (ACT 56 / PERCEIVE 32 / OUTSOURCE 9 / META 7),
-registry mass **72,857** against the 73,000 budget — unchanged, because
+registry mass **72,855** against the 73,000 budget (two characters reclaimed: the burst wording is now "a few blocks"), because
 the only description edit swapped one two-digit number for another —
-`tools_hash` `d4289f9e...c446` (Python 3.13), `SCHEMA_VERSION` **3.6.0**.
+`tools_hash` `87dc7481...1c1b` (Python 3.13), `SCHEMA_VERSION` **3.6.0**.
 No tool added, removed or renamed; one tool's contract widens and two
 result fields stop being wrong.
 

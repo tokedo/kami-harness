@@ -52,7 +52,7 @@ this registry says *what holds*, not *how it is built*.
   carries `server._LENS_SERVING_SENTENCE`. Non-read tools carry neither.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **72,857 characters** at this ref, against a `REGISTRY_MASS_BUDGET`
+  **72,855 characters** at this ref, against a `REGISTRY_MASS_BUDGET`
   of 73,000. The budget is capacity that has to be earned: every
   character is spent out of the agent's context before it acts, so the
   ceiling rises only for named capability, never to make room for
@@ -111,7 +111,7 @@ this registry says *what holds*, not *how it is built*.
 - The MCP `initialize` handshake carries it in the `instructions` field
   as the exact string `tools_hash=<64 hex chars>`.
 - Value at this ref (Python 3.13):
-  `d4289f9ee1091f2f81dfdcb3a25907631cd6a66ef90c10deb071cd92864bc446`.
+  `87dc7481e12677819d388254eb3d23ed601e92823e62aab285710b6331731c1b`.
 - The MCP `initialize` handshake additionally carries
   `schema_version=<SCHEMA_VERSION>` and `error_snippets=<on|off>` in the
   same `instructions` field, space-separated after the hash. The
@@ -258,7 +258,7 @@ ever reported as another:
     blocks bearing the same timestamp), 0.974 s from first send to
     second receipt. Pipelining works on this chain; the rejection path
     above is a defensive branch, not the expected one. The observation
-    also bounds the claim: a burst lands within a block or two, not
+    also bounds the claim: a burst lands within a few blocks (9 per block per sender), not
     necessarily in ONE block, and the tool description says that.
   - **A decoded kill is decoded from its OWN receipt, on both paths.**
     `victim_gross`, `spoils`, `attacker_hp_after` and `cooldown_until`

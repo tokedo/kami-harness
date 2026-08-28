@@ -604,7 +604,7 @@ def test_act_sequence_description_states_the_contract():
     for phrase in [
         "consecutive nonces",
         "before any receipt is read",
-        "block or two",
+        "few blocks",
         "Only step 1 is dry-run",
         "does not stop the sequence",
         "max 64",
