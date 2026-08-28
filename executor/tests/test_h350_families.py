@@ -9,6 +9,7 @@ four liquidations the gate-1 proof used — so the decoder is checked
 against the chain rather than against a hand-built log.
 """
 
+import itertools
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -63,8 +64,9 @@ def entity_ids(monkeypatch):
         return victims[kami_id]
 
     monkeypatch.setattr(server, "_harvest_entity_id", harvest_entity)
-    monkeypatch.setattr(server, "_kami_last_synced_hp", lambda k: 0)
-    monkeypatch.setattr(server, "_kami_cooldown_until", lambda k: 1787927247)
+    # _kami_entity_id is NOT rebound: the killer is the real 12649, so
+    # the receipt's own health and Time.Next writes are found where the
+    # decoder looks for them (3.6.0 — no live read is involved).
     return victims
 
 
@@ -173,7 +175,8 @@ class FakeChain:
     consumed; the other three all land a transaction).
     """
 
-    def __init__(self, outcomes, nonce=100, reject_once=True):
+    def __init__(self, outcomes, nonce=100, reject_once=True,
+                 batch_transport_failures=0):
         self.outcomes = list(outcomes)
         self.base = nonce
         self.reject_once = reject_once
@@ -181,6 +184,14 @@ class FakeChain:
         self.rejections = 0
         self.nonce_reads = 0
         self.receipt_waits = []
+        self.batches = []         # size of each batch POST, in order
+        self.batch_requests = []  # the (method, params) of each POST
+        self.batch_first_id = []  # the JSON-RPC id each POST starts at
+        self.batch_transport_failures = batch_transport_failures
+        self.provider = SimpleNamespace(
+            request_counter=itertools.count(),
+            make_batch_request=self._make_batch_request,
+        )
         self.eth = SimpleNamespace(
             contract=lambda address=None, abi=None: _Contract(self),
             get_transaction_count=self._get_nonce,
@@ -205,6 +216,7 @@ class FakeChain:
         return self.base + len(self.broadcasts)
 
     def _send(self, raw):
+        """One eth_sendRawTransaction. Raises on a scripted rejection."""
         i = int.from_bytes(raw, "big") - self.base
         if 0 <= i < len(self.outcomes) and self.outcomes[i] == "reject":
             self.rejections += 1
@@ -213,6 +225,50 @@ class FakeChain:
             raise RuntimeError("account sequence mismatch: expected 7, got 6")
         self.broadcasts.append(i)
         return bytes([i]) * 32
+
+    # -- the batch transport (3.6.0) ---------------------------------------
+    #
+    # The product broadcasts the whole pre-signed tail in ONE JSON-RPC
+    # batch whose ids ARE the nonces. This fake answers that batch item
+    # by item off the SAME script `_send` reads, so every 3.5.0
+    # assertion above keeps its meaning across the new transport.
+
+    def _make_batch_request(self, requests):
+        self.batches.append(len(requests))
+        self.batch_requests.append(list(requests))
+        # web3 stamps the JSON-RPC ids from provider.request_counter at
+        # encode time, downstream of here, so peeking it now records the
+        # FIRST id this batch would carry — which is what the product
+        # sets to the tail's first nonce.
+        self.batch_first_id.append(next(self.provider.request_counter))
+        if self.batch_transport_failures:
+            self.batch_transport_failures -= 1
+            raise ConnectionError("batch POST failed")
+        out, refused = [], False
+        for _method, params in requests:
+            raw = bytes.fromhex(params[0][2:])
+            rid = int.from_bytes(raw, "big")     # the id IS the nonce
+            if refused:
+                # A node that refuses nonce n refuses every consecutive
+                # nonce behind it in the same body — the sender's next
+                # expected sequence number never moved. Modelling that
+                # is what keeps "one rejection consumes no nonce" true
+                # of a batch as it was of the serial loop.
+                out.append({"jsonrpc": "2.0", "id": rid, "error": {
+                    "code": -32000,
+                    "message": "account sequence mismatch: expected 7, got 6",
+                }})
+                continue
+            try:
+                h = self._send(raw)
+            except RuntimeError as e:
+                refused = True
+                out.append({"jsonrpc": "2.0", "id": rid,
+                            "error": {"code": -32000, "message": str(e)}})
+            else:
+                out.append({"jsonrpc": "2.0", "id": rid,
+                            "result": "0x" + h.hex()})
+        return out
 
 
 @pytest.fixture()

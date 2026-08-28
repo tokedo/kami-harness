@@ -21,6 +21,7 @@ import asyncio
 import contextlib
 import csv
 import hashlib
+import itertools
 import json
 import os
 import socket
@@ -9344,42 +9345,95 @@ _VALUE_COMPONENT_ID = int.from_bytes(
 _COMPONENT_VALUE_SET_TOPIC0 = bytes.fromhex(_STORE_SET_RECORD_EVENT)
 
 
-def _decode_uint256_bytes(data: bytes) -> int | None:
-    """The uint256 packed inside a ComponentValueSet ABI-encoded `bytes`.
+# The two components that carry the KILLER's own post-kill state. 3.5.0
+# read both LIVE at decode time, which is right for the single-call path
+# and wrong inside a sequence: later steps of the same burst are landing
+# while the decoder reads, so every kill row of a burst came back
+# carrying the LAST step's values (measured 2026-08-28: cooldown_until
+# 1787938453 on all four kills of the 32682485-496 burst, when the
+# receipts say 1787938418 / …421 / …422 / …453). 3.6.0 takes both from
+# the kill receipt's OWN ComponentValueSet writes on the killer kami
+# entity, by the same log walk that already serves spoils.
+_HEALTH_COMPONENT_ID = int.from_bytes(
+    Web3.keccak(text="component.stat.health"), "big"
+)
+_TIME_NEXT_COMPONENT_ID = int.from_bytes(
+    Web3.keccak(text="component.Time.Next"), "big"
+)
+
+
+def _component_write_word(data: bytes) -> bytes | None:
+    """The single 32-byte word inside a ComponentValueSet `bytes` payload.
 
     Layout: 32-byte offset, 32-byte length, then the content padded to a
-    multiple of 32. A component.value write is a single 32-byte
-    big-endian word. Returns None for anything else, so a component whose
-    payload is a struct or a string is skipped rather than misread.
+    multiple of 32. Every component read here writes ONE word — a
+    uint256 for component.value and component.Time.Next, a packed Stat
+    for component.stat.health. Returns None for anything else, so a
+    component whose payload is longer is skipped rather than misread.
     """
     if len(data) < 96:
         return None
     if int.from_bytes(data[32:64], "big") != 32:
         return None
-    return int.from_bytes(data[64:96], "big")
+    return data[64:96]
 
 
-def _component_value_writes(receipt) -> dict[int, list[int]]:
-    """{entity_id: [values written, in log order]} for component.value.
+def _decode_uint256_bytes(data: bytes) -> int | None:
+    """The uint256 packed inside a ComponentValueSet ABI-encoded `bytes`."""
+    word = _component_write_word(data)
+    return None if word is None else int.from_bytes(word, "big")
+
+
+def _component_write_words(receipt, component_id: int) -> dict[int, list[bytes]]:
+    """{entity_id: [raw 32-byte words, in log order]} for ONE component.
 
     One pass over the receipt logs. Order is preserved because the two
     sides of a kill need different reductions over it (see
-    _decode_kill).
+    _decode_kill), and because the LAST write is the one that stands for
+    the killer's health and cooldown.
     """
-    out: dict[int, list[int]] = {}
+    out: dict[int, list[bytes]] = {}
     for log in receipt.logs:
         topics = log.topics
         if not topics or bytes(topics[0]) != _COMPONENT_VALUE_SET_TOPIC0:
             continue
         if len(topics) < 4:
             continue
-        if int.from_bytes(bytes(topics[1]), "big") != _VALUE_COMPONENT_ID:
+        if int.from_bytes(bytes(topics[1]), "big") != component_id:
             continue
-        value = _decode_uint256_bytes(bytes(log.data))
-        if value is None:
+        word = _component_write_word(bytes(log.data))
+        if word is None:
             continue
-        out.setdefault(int.from_bytes(bytes(topics[3]), "big"), []).append(value)
+        out.setdefault(int.from_bytes(bytes(topics[3]), "big"), []).append(word)
     return out
+
+
+def _component_value_writes(receipt) -> dict[int, list[int]]:
+    """{entity_id: [values written, in log order]} for component.value."""
+    return {
+        entity: [int.from_bytes(w, "big") for w in words]
+        for entity, words in _component_write_words(
+            receipt, _VALUE_COMPONENT_ID
+        ).items()
+    }
+
+
+def _stat_sync_from_word(word: bytes) -> int | None:
+    """`sync` — the depletable current value — out of a packed Stat write.
+
+    component.stat.health writes its (base, shift, boost, sync) Stat as
+    ONE 32-byte word of four big-endian SIGNED 64-bit fields, NOT as an
+    abi-encoded four-word struct. Established against the chain on
+    2026-08-28: the killer's write in the 32677552 kill receipt is
+    0x…0078 | 0 | 0 | 0 = (120, 0, 0, 0), and safeGet on the same
+    component returned (120, 0, 0, 25) after the kami had been fed again
+    — same base in the same field, 8-byte stride, sync last. A victim in
+    the same receipt goes (100, 0, 0, 91) -> (100, 0, 0, 0) as it dies.
+    Signed, because a Stat's shift is routinely negative.
+    """
+    if len(word) != 32:
+        return None
+    return int.from_bytes(word[24:32], "big", signed=True)
 
 
 def _killer_bounty(killer_kami_id: int) -> int | None:
@@ -9401,22 +9455,6 @@ def _killer_bounty(killer_kami_id: int) -> int | None:
         return None
 
 
-def _kami_cooldown_until(kami_index: int) -> int | None:
-    """Raw on-chain cooldown end, in chain seconds (component.Time.Next).
-
-    0 means the component holds no NextTime for this kami — it has never
-    acted, or has not synced. Treat 0 as unknown, never as "ready"; this
-    is the lens's cooldownUntil semantics and the same caveat.
-    """
-    try:
-        comp = w3.eth.contract(
-            address=_resolve_component("component.Time.Next"), abi=_UINT_VALUE_ABI
-        )
-        return int(comp.functions.safeGet(_kami_entity_id(kami_index)).call())
-    except Exception:
-        return None
-
-
 def _decode_kill(
     receipt,
     victim_kami_id: int,
@@ -9428,6 +9466,16 @@ def _decode_kill(
     Returns victim_gross, spoils, attacker_hp_after, cooldown_until,
     and killer_bounty_after (the value a following liquidate step in the
     same sequence carries forward as its `killer_bounty_before`).
+
+    EVERY field comes out of THIS receipt (3.6.0). 3.5.0 took
+    attacker_hp_after from a live _kami_last_synced_hp and cooldown_until
+    from a live component.Time.Next call at decode time; both are correct
+    for the single-call path and wrong for every row but the last of a
+    sequence, because the rest of the burst lands while the decoder
+    reads. Measured 2026-08-28 on the 32682485-496 burst: 3.5.0 reported
+    cooldown_until 1787938453 on all four kills; the receipts say
+    1787938418, 1787938421, 1787938422, 1787938453 — the last one, where
+    the live read was the only correct one, is the one that agrees.
 
     THE TWO SIDES REDUCE DIFFERENTLY, and using one rule for both is a
     live bug rather than a simplification:
@@ -9484,10 +9532,16 @@ def _decode_kill(
     }
     errors: list[str] = []
 
+    # ONE guarded pass per component the decoder reads. A receipt that
+    # cannot be walked at all must still report WHY every field is None.
     try:
         writes = _component_value_writes(receipt)
+        health_writes = _component_write_words(receipt, _HEALTH_COMPONENT_ID)
+        cooldown_writes = _component_write_words(
+            receipt, _TIME_NEXT_COMPONENT_ID
+        )
     except Exception as e:
-        writes = {}
+        writes = health_writes = cooldown_writes = {}
         errors.append(f"receipt log walk failed: {type(e).__name__}: {e}")
 
     # NOT guarded on `writes` being non-empty: an empty walk must still
@@ -9520,16 +9574,36 @@ def _decode_kill(
             "this receipt"
         )
 
-    hp = _kami_last_synced_hp(killer_kami_id)
-    if hp is None:
-        errors.append("attacker HP could not be read after the receipt")
+    # The killer's own post-kill state, from THIS receipt and never from
+    # a live read: inside a sequence the later steps are landing while
+    # the decoder runs, so a live read returns the burst's LAST state
+    # stamped onto every row. Absent write -> None + decode_error naming
+    # the component, which is what a routine deciding the next gum needs
+    # to see instead of a plausible wrong number.
+    killer_entity = _kami_entity_id(killer_kami_id)
+    hp_words = health_writes.get(killer_entity, [])
+    if not hp_words:
+        errors.append(
+            "no component.stat.health write to the killer kami entity in "
+            "this receipt"
+        )
     else:
-        out["attacker_hp_after"] = hp
-    cd = _kami_cooldown_until(killer_kami_id)
-    if cd is None:
-        errors.append("attacker cooldown could not be read after the receipt")
+        hp = _stat_sync_from_word(hp_words[-1])
+        if hp is None:
+            errors.append(
+                "the component.stat.health write on the killer kami entity "
+                "is not a single packed Stat word"
+            )
+        else:
+            out["attacker_hp_after"] = hp
+    cd_words = cooldown_writes.get(killer_entity, [])
+    if not cd_words:
+        errors.append(
+            "no component.Time.Next write to the killer kami entity in "
+            "this receipt"
+        )
     else:
-        out["cooldown_until"] = cd
+        out["cooldown_until"] = int.from_bytes(cd_words[-1], "big")
 
     if errors:
         out["decode_error"] = "; ".join(errors)
@@ -9591,7 +9665,10 @@ def liquidate_kami(
     # difference rather than a guess, and it is available here only
     # because this is the single-call path — a sequence signs every step
     # before the first lands, so no step but the first has a "before"
-    # to read, and recoil is omitted there rather than invented.
+    # to read, and recoil is omitted there rather than invented. The
+    # AFTER values are no longer read live at all (3.6.0): _decode_kill
+    # takes them from the receipt on both paths, so this path spends two
+    # fewer round-trips and reports the same numbers a sequence row does.
     hp_before = _kami_last_synced_hp(killer_kami_id)
     killer_bounty_before = _killer_bounty(killer_kami_id)
     result = _send_tx(
@@ -9857,6 +9934,130 @@ def _seq_static_validate(
     return killer_bounty
 
 
+# ---------------------------------------------------------------------------
+# Broadcast (3.6.0) — the whole pre-signed tail in ONE round-trip.
+#
+# 4b, measured 2026-08-28: 3.5.0 signed every step up front (right) and
+# then broadcast them one HTTP call at a time, which paced a 16-step
+# burst at ~0.42 s/step against a 0.27 s bare RPC round-trip from the
+# operator's machine — 90 steps would take 38 s, longer than a node
+# watcher's 30-60 s reaction window. The chain was never the limit: with
+# this transport, 64 consecutive nonces from one sender were accepted
+# and mined in 3 SECONDS of chain time, NINE of them per block, in
+# blocks 21% full (docs/measurements/mempool-acceptance-2026-08-28.md).
+# So the sender stops being the pace-setter: one JSON-RPC batch, one
+# HTTP body, one round-trip — 0.50 s for 32 items, 2.35 s for 64.
+#
+# web3 v7's own `w3.batch_requests()` CANNOT carry this. web3 lists
+# eth_sendRawTransaction in RPC_METHODS_UNSUPPORTED_DURING_BATCH
+# (web3/_utils/batching.py) and its Method descriptor raises
+# MethodNotSupported before a request is built, whatever the endpoint
+# supports. The provider's own make_batch_request is the same JSON-RPC
+# array over the same keep-alive session without that library-level
+# guard, and the pinned endpoint serves it: a two-item
+# eth_sendRawTransaction batch came back as two per-item errors in one
+# 0.27 s round-trip (probe, 2026-08-28).
+# ---------------------------------------------------------------------------
+
+
+class _SeqBatchTransportError(Exception):
+    """The batch CALL failed — not an item in it. Nothing was mapped."""
+
+
+def _seq_batch_send(items: list[tuple[int, int, bytes]]) -> dict[int, dict]:
+    """One round-trip: a JSON-RPC batch of eth_sendRawTransaction.
+
+    `items` is [(step_index, nonce, raw)] on ascending consecutive
+    nonces. THE BATCH'S JSON-RPC IDS ARE THE NONCES, so every response
+    is attributed to its step BY NONCE and never by position: a node
+    that reorders, drops or duplicates a response cannot silently shift
+    the mapping onto the wrong step. The provider's id counter is a
+    plain itertools.count on the provider object and is restored
+    afterwards; ids only have to be unique within one batch.
+
+    Returns {nonce: response}. Raises _SeqBatchTransportError when the
+    call itself failed, which is a different thing from a rejected
+    transaction and is the only case the serial path still exists for.
+    """
+    provider = w3.provider
+    requests = [
+        ("eth_sendRawTransaction", [_hex_hash(raw)]) for _j, _n, raw in items
+    ]
+    saved = provider.request_counter
+    provider.request_counter = itertools.count(items[0][1])
+    try:
+        responses = provider.make_batch_request(requests)
+    except Exception as e:
+        raise _SeqBatchTransportError(f"{type(e).__name__}: {e}") from e
+    finally:
+        provider.request_counter = saved
+    if not isinstance(responses, list):
+        # A single object instead of an array is the node refusing the
+        # BATCH, not the transactions in it.
+        raise _SeqBatchTransportError(str(responses)[:300])
+    out: dict[int, dict] = {}
+    for resp in responses:
+        if isinstance(resp, dict) and isinstance(resp.get("id"), int):
+            out[resp["id"]] = resp
+    return out
+
+
+def _seq_broadcast(pending: list) -> tuple[str, list[tuple[int, bool, str]]]:
+    """Broadcast a pre-signed tail; per-step outcomes IN STEP ORDER.
+
+    Returns (mode, [(step_index, accepted, payload)]) where mode is
+    "batch" or "serial" and payload is the tx hash when accepted and the
+    node's error text when not. The caller reads the outcomes in order
+    and stops at the first refusal, exactly as the 3.5.0 serial loop
+    did, so the semantics of a rejection are unchanged.
+
+    The serial path survives ONLY as a transport fallback: if the batch
+    CALL fails it is retried once, and only then does the tail go out
+    one send at a time. That is slow, and slow beats a lost sequence.
+
+    Note on batching a tail whose middle item is refused: unlike the
+    serial loop, the later items were physically offered to the node in
+    the same body. On consecutive nonces they cannot be mined anyway —
+    the refused nonce is a gap ahead of them — and in practice the node
+    refuses them too, with `account sequence mismatch`. They are still
+    reported not_sent, which is 3.5.0's answer and the one a caller can
+    act on.
+    """
+    items = [
+        (j, built["nonce"], signed.raw_transaction)
+        for j, built, signed in pending
+    ]
+    for attempt in (1, 2):
+        try:
+            by_nonce = _seq_batch_send(items)
+        except _SeqBatchTransportError:
+            continue
+        outcomes: list[tuple[int, bool, str]] = []
+        for j, nonce, _raw in items:
+            resp = by_nonce.get(nonce)
+            if resp is None:
+                outcomes.append(
+                    (j, False,
+                     f"no response for nonce {nonce} in the broadcast batch")
+                )
+            elif resp.get("error") is not None:
+                err = resp["error"]
+                text = err.get("message") if isinstance(err, dict) else err
+                outcomes.append((j, False, str(text)))
+            else:
+                outcomes.append((j, True, _hex_hash(resp.get("result"))))
+        return "batch", outcomes
+
+    serial: list[tuple[int, bool, str]] = []
+    for j, _nonce, raw in items:
+        try:
+            serial.append((j, True, _hex_hash(w3.eth.send_raw_transaction(raw))))
+        except Exception as e:
+            serial.append((j, False, str(e)))
+            break
+    return "serial", serial
+
+
 @mcp.tool()
 def act_sequence(steps: list[dict], account: str = "main") -> dict:
     """Run up to 16 actions in one pipelined burst: feed, liquidate, harvest_start, harvest_stop.
@@ -9938,30 +10139,33 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
     resent = False
     while pending:
         rejected_at: int | None = None
-        for j, built, signed in pending:
-            try:
-                h = w3.eth.send_raw_transaction(signed.raw_transaction)
-            except Exception as e:
-                text = str(e)
-                if any(m in text for m in _SEQ_REJECTION_MARKERS) and not resent:
-                    # Nothing landed for j..K: the node refused the raw
-                    # transaction, so this nonce was never consumed.
-                    rejected_at = j
-                    break
-                # Any other send error, or a second rejection: this step
-                # and every later one are unsent. Do NOT raise —
-                # earlier steps are in flight and must be reported.
-                for k in range(j, len(parsed)):
-                    rows[k]["status"] = "not_sent"
-                    rows[k]["reason"] = text[:300]
-                pending = []
-                rejected_at = None
+        built_by_step = {j: built for j, built, _signed in pending}
+        mode, outcomes = _seq_broadcast(pending)
+        refused = False
+        for j, accepted, payload in outcomes:
+            if accepted:
+                builts[j] = built_by_step[j]
+                hashes[j] = payload
+                rows[j]["tx_hash"] = payload
+                rows[j]["status"] = "unconfirmed"
+                if mode == "serial":
+                    rows[j]["broadcast"] = "serial"
+                continue
+            refused = True
+            text = payload
+            if any(m in text for m in _SEQ_REJECTION_MARKERS) and not resent:
+                # Nothing landed for j..K: the node refused the raw
+                # transaction, so this nonce was never consumed.
+                rejected_at = j
                 break
-            builts[j] = built
-            hashes[j] = _hex_hash(h)
-            rows[j]["tx_hash"] = hashes[j]
-            rows[j]["status"] = "unconfirmed"
-        else:
+            # Any other per-item error, or a second rejection: this step
+            # and every later one are unsent. Do NOT raise — earlier
+            # steps are in flight and must be reported.
+            for k in range(j, len(parsed)):
+                rows[k]["status"] = "not_sent"
+                rows[k]["reason"] = text[:300]
+            break
+        if not refused:
             pending = []
             continue
         if rejected_at is None:

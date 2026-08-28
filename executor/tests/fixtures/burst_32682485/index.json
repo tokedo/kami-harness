@@ -1,0 +1,74 @@
+{
+ "source": "Yominet RPC, recorded 2026-08-28 at HARNESS_360",
+ "killer_kami_id": 12649,
+ "killer_kami_entity": "72849883568349905703865226064063646706211101035933209960078708063381367787172",
+ "killer_harvest_entity": "98229845150935978216825163165892805415263956495973100012428181376391435547846",
+ "note": "The four LANDED kills of Anatoly's sixth-session act_sequence burst on 3.5.0 (blocks 32682481-32682496, operator nonces 1601-1616, shrike's kami 12649). This is the burst that exposed the live-read bug: 3.5.0 reported cooldown_until 1787938453 on ALL FOUR kill rows, because it read component.Time.Next live while the rest of the burst was still landing. The receipts say otherwise, and the only row 3.5.0 got right is the LAST \u2014 where the live read had nothing landing after it. Spoils sum to 2329, the banked VIPP delta the session recorded.",
+ "live_read_reported_by_350": 1787938453,
+ "victim_harvest_entities": {
+  "32682485": "81852052733026375756618275207016679368305376193106038090500086886323963620845",
+  "32682490": "72115067716921786210290466165233153842767615616102932160646156733810141003786",
+  "32682494": "66538165542840760891139262074131956942487027532830883584596814448365038398007",
+  "32682496": "100280991114403051857869384224398390985729181067795800280563962906108272651335"
+ },
+ "expected": {
+  "32682485": {
+   "victim_gross": 945,
+   "killer_write": 626,
+   "pre": 0,
+   "spoils": 626,
+   "attacker_hp_after": 0,
+   "cooldown_until": 1787938418
+  },
+  "32682490": {
+   "victim_gross": 938,
+   "killer_write": 1225,
+   "pre": 626,
+   "spoils": 599,
+   "attacker_hp_after": 0,
+   "cooldown_until": 1787938421
+  },
+  "32682494": {
+   "victim_gross": 879,
+   "killer_write": 1800,
+   "pre": 1225,
+   "spoils": 575,
+   "attacker_hp_after": 0,
+   "cooldown_until": 1787938422
+  },
+  "32682496": {
+   "victim_gross": 839,
+   "killer_write": 2329,
+   "pre": 1800,
+   "spoils": 529,
+   "attacker_hp_after": 0,
+   "cooldown_until": 1787938453
+  }
+ },
+ "receipts": [
+  {
+   "block": 32682485,
+   "tx_hash": "0x412041969048e21f8319710a3a2337fa5ff20bbd5093613f843b3d32059cd448",
+   "nonce": 1605,
+   "gas_used": 4586198
+  },
+  {
+   "block": 32682490,
+   "tx_hash": "0xc9d382deb29e7ffa9087596f4d7df52028265a97c4b2fa216a1e2e2012669a62",
+   "nonce": 1610,
+   "gas_used": 4622046
+  },
+  {
+   "block": 32682494,
+   "tx_hash": "0xf0c424ac15b704a2a2347aad9be0ec7377eb24f6b8428183c303ebe018d21e94",
+   "nonce": 1613,
+   "gas_used": 4567253
+  },
+  {
+   "block": 32682496,
+   "tx_hash": "0xfb67441b757d10dc51c39dbd869a95d954aad8486635caf639f3acc6c30e39c3",
+   "nonce": 1615,
+   "gas_used": 4431995
+  }
+ ]
+}

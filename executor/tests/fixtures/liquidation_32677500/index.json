@@ -1,8 +1,8 @@
 {
- "source": "kami-oracle + Yominet RPC, recorded 2026-08-28 at HARNESS_350 gate 1",
+ "source": "kami-oracle + Yominet RPC, recorded 2026-08-28 at HARNESS_350 gate 1; re-pulled at HARNESS_360 with the health and Time.Next writes",
  "killer_kami_id": 12649,
  "killer_harvest_entity": "98229845150935978216825163165892805415263956495973100012428181376391435547846",
- "note": "Four consecutive liquidations by shrike's kami 12649 inside ONE harvest session (started block 32677494, stopped 32677564 collecting 3217). Only component.value ComponentValueSet logs are kept. victim_kami_id is not recoverable from the receipt alone, so each row records the victim HARVEST entity the oracle names.",
+ "note": "Four consecutive liquidations by shrike's kami 12649 inside ONE harvest session (started block 32677494, stopped 32677564 collecting 3217). Kept logs: the three components the decoder reads \u2014 component.value, component.stat.health and component.Time.Next. The component.value logs are byte-identical to the 3.5.0 recording; the other two were added at 3.6.0, when the killer's post-kill health and cooldown stopped being live reads. victim_kami_id is not recoverable from the receipt alone, so each row records the victim HARVEST entity the oracle names.",
  "victim_harvest_entities": {
   "32677500": "689272690007724837243479850868931864664682577897694345337885744847683293322",
   "32677531": "113677026150095698614773163113684205025766682240336522244474478142311133161111",
@@ -14,25 +14,33 @@
    "victim_gross": 1798,
    "killer_write": 1191,
    "pre": 0,
-   "spoils": 1191
+   "spoils": 1191,
+   "attacker_hp_after": 0,
+   "cooldown_until": 1787926211
   },
   "32677531": {
    "victim_gross": 1130,
    "killer_write": 1904,
    "pre": 1191,
-   "spoils": 713
+   "spoils": 713,
+   "attacker_hp_after": 0,
+   "cooldown_until": 1787926242
   },
   "32677543": {
    "victim_gross": 1037,
    "killer_write": 2566,
    "pre": 1904,
-   "spoils": 662
+   "spoils": 662,
+   "attacker_hp_after": 0,
+   "cooldown_until": 1787926270
   },
   "32677552": {
    "victim_gross": 1007,
    "killer_write": 3217,
    "pre": 2566,
-   "spoils": 651
+   "spoils": 651,
+   "attacker_hp_after": 0,
+   "cooldown_until": 1787926295
   }
  },
  "harvest_stop": {
@@ -65,5 +73,6 @@
    "oracle_amount": 1007,
    "file": "32677552.json"
   }
- ]
+ ],
+ "killer_kami_entity": "72849883568349905703865226064063646706211101035933209960078708063381367787172"
 }
