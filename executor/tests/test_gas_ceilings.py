@@ -43,6 +43,18 @@ OBSERVED = {
     "cast_item": (3_773_000, 2_323_182, "p99 2,515,613 / max 2,578,486"),
     "newbie_vendor_buy": (7_806_000, 2_360_307, "p99 5,204,448 (n=6)"),
     "pool_swap": (1_281_000, 714_821, "p99 854,317 / max 881,129"),
+    # feed_kami is the ONE flat ceiling justified at 1.3x p95 rather
+    # than 1.5x p99 — the convention the three harvest families below
+    # already use, and the one HARNESS_350_BRIEF asked for. Measured
+    # 2026-08-28 over 329,709 successful system.kami.use.item txs since
+    # 2026-06-01: p50 1,361,543 / p95 2,185,084 / p99 2,203,762 / max
+    # 2,639,799. Floor 2,840,609 = 1.3x p95. NOTE for the next reviewer:
+    # travel_use_item is the SAME system id at 3,500,000 (1.5x p99), so
+    # this surface now carries two ceilings for one system that differ
+    # by 500,000, and feed_kami is the thinner at 1.14x the observed
+    # max. That is a deliberate ruling (R-2 session, 2026-08-28), not an
+    # oversight; aligning both at 3,500,000 is the obvious alternative.
+    "feed_kami": (2_840_609, 1_361_543, "p95 2,185,084 / max 2,639,799"),
     # The three harvest families are base + per_item, not flat per-kami
     # constants — see HARVEST below and TestHarvestCeilings.
 }

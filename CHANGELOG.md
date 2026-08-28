@@ -29,6 +29,160 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [3.5.0] — pipelined action sequences, the decoded kill, lens_skills
+
+MINOR. **104 tools** (ACT 56 / PERCEIVE 32 / OUTSOURCE 9 / META 7),
+registry mass **72,857** against a budget raised to **73,000**,
+`tools_hash` `a4e9aaf5...4c63` (Python 3.13), `SCHEMA_VERSION`
+**3.5.0**. Two new tools and optional result fields; nothing removed or
+renamed, so existing callers keep working — but the surface fingerprint
+moved. Consumers in priority order: autonomous benchmark agents first
+(defaults and the tool result only), hybrid-play second.
+
+Every item came from the four `zero_cd_play` entries of the operator's
+fourth play session on this stack.
+
+### `act_sequence` — one tool, a closed vocabulary, no general no-wait mode
+
+`act_sequence(steps, account="main")` runs up to **16** actions —
+`feed`, `liquidate`, `harvest_start`, `harvest_stop` — signed on
+consecutive nonces read ONCE at `pending` and broadcast back-to-back
+before any receipt is read. The shape was ruled rather than designed
+around: one closed-vocabulary tool, **not** a general no-wait mode
+(operator ruling R-1), because a no-wait flag on every ACT tool would
+have made every tool's contract conditional.
+
+**It was measured before it was built.** U-1, 2026-08-28, account
+shrike: two `system.kami.use.item` feeds of Energy Drink (item 11409)
+on kami 12649, signed at nonces **1513** and **1514** before either was
+sent, broadcast back-to-back on one keep-alive session to one endpoint.
+Both were **accepted** — no `account sequence mismatch` — and both
+mined status 1, tx `0xbfb8364d…5330` in block **32678986** and
+`0x89c27858…f203` in block **32678987**, adjacent blocks bearing the
+same timestamp, **0.974 s** from the first send to the second receipt.
+That measurement did two things: it established that pipelining works
+on this chain at all (so the rejection-and-resend path is a defensive
+branch, not the expected one), and it CORRECTED the design's own
+wording — a burst lands within a block or two, not necessarily in one
+block, and the tool description says the measured thing.
+
+- **Only step 1 is dry-run.** Later steps' preconditions are earlier
+  steps' effects, which do not exist at the pending block; an
+  `eth_call` for step 2 would fail correct sequences and pass wrong
+  ones. Whole-sequence validation is instead STATIC and forward-walked
+  — every kami owned, per item a balance covering the number of feed
+  steps naming it, each victim's harvest ACTIVE now, each killer
+  harvesting now **or started by an earlier step in the same sequence**
+  — and the description says the later steps are the caller's plan.
+- **A reverted step consumes its nonce, is final, and does not stop the
+  sequence** (operator ruling R-3). Later steps still execute. A revert
+  is never resent; a broadcast REJECTION (nothing landed, nonce not
+  consumed) resends the tail exactly once and then reports `not_sent`.
+  A rejection and a revert are never merged.
+- **Gas is a fixed table ceiling per step, never `estimateGas`** — an
+  estimate for step 2 prices a world that has not happened yet.
+- P4 gains the rule that a sequence has K terminal states plus a
+  call-level `complete`/`partial` that is not one of them, and the call
+  raises ONLY when step 1 fails pre-send. Once anything is in flight it
+  reports, because an exception is a text block that cannot carry the
+  hashes of the steps that landed.
+
+### The decoded kill — and an asymmetry that would have been a live bug
+
+`liquidate_kami` and every liquidate step now return `victim_gross`,
+`spoils`, `attacker_hp_after` and `cooldown_until`, ported from
+kami-oracle's `ingester/musu.py`. **The two sides of a kill reduce
+differently, and using one rule for both is wrong in both directions.**
+The victim's harvest entity is written then drained (`[N, 0]`), so the
+gross is the MAX non-zero write — musu.py's drain rule. The killer's
+harvest entity is ADDED to and not drained, so its value is the LAST
+write, and `decode_musu_drains` must not be used for it: against real
+receipts it reports a drain of N that never happened on the first
+liquidation of a session (writes `[0, N]`) and omits the entity
+entirely on every later one (no zero write).
+
+Verified against four consecutive liquidations from the 2026-08-28
+shrike sweep, recorded as fixtures under
+`executor/tests/fixtures/liquidation_32677500/`:
+
+| block | victim_gross | oracle `amount` | killer write | pre | spoils |
+|---|---|---|---|---|---|
+| 32677500 | 1798 | 1798 | 1191 | 0 | 1191 |
+| 32677531 | 1130 | 1130 | 1904 | 1191 | 713 |
+| 32677543 | 1037 | 1037 | 2566 | 1904 | 662 |
+| 32677552 | 1007 | 1007 | 3217 | 2566 | 651 |
+
+`victim_gross` matched the oracle on all four and the chain closes: the
+`harvest_stop` at block 32677564 drained exactly **3,217**, which is
+both the last liquidation's post-value and the oracle's stop amount.
+That series is also the evidence for the sequence rule — the previous
+step's post-value IS the next step's pre-value.
+
+- `recoil` is returned by the single call **only** (its `hp_before` is
+  read once before the send). A sequence row omits it rather than
+  inventing one: step *i* had no "before" to read.
+- **`salvage` is NOT returned**, and the description says why — the
+  victim's share is written to its inventory as an ABSOLUTE balance, so
+  the receipt carries the new total and not the delta.
+- **No path reads historical chain state.** The pinned RPC is not an
+  archive node (`historical version not found` at block-1), so the
+  pre-send value is read at head before broadcast and, in a sequence,
+  carried forward from the previous step.
+- A decode failure sets the field to `null` and adds `decode_error`; it
+  never fails a landed transaction.
+
+### `lens_skills`, and lens 0.5.3
+
+`lens_skills(kami_index=-1)` serves the daemon's `skills` query — the
+skill registry, or one kami's `unspent` plus `invested[]`. The harness
+is no longer one wrapper short of the daemon's query set; EXPOSURE's
+deferred row becomes a served row (served 39 -> 40).
+
+The lens pin advances `8b74007` (0.5.2) -> `8277408` (0.5.3), and
+**Family D is not servable below it — a 0.5.2 daemon answers the old
+meaning with `ok: true`, so the lab redeploys the lens FIRST**, the
+same lesson as 3.4.0's Family D. `--eligible-only` becomes
+attacker-blind: until 0.5.3 it filtered on the full pairing verdict,
+which folds in the attacker's own starving/cooldown gates, so in a
+zero-cooldown kill loop — where the attacker sits at 0 HP for 4-6 s
+after every kill — a read inside that window answered
+`harvestsEligible: 0` with 20+ targets under threshold, a payload
+indistinguishable from "everyone withdrew" (observed node 35, block
+32677631). An empty list was reporting a fact about the CALLER. The
+filter is now target-side and the attacker's own gate is a separate
+required field, `attacker.blocked`. `lens_node`'s description says
+both. No schema change harness-side.
+
+### Gas, budget, docs
+
+- **`_GAS_CEILINGS["feed_kami"] = 3,000,000`, and `feed_kami` now
+  passes it — it estimated gas per call before.** Measured from
+  kami-oracle on 2026-08-28 over 329,709 successful
+  `system.kami.use.item` transactions since 2026-06-01: p50 1,361,543 /
+  p95 2,185,084 / p99 2,203,762 / max 2,639,799; restricting to the 44
+  Food item indices moves p95 only to 2,191,206. 3,000,000 is 1.37x p95
+  and 1.14x the observed max. **Flagged for the next reviewer:**
+  `travel_use_item` is the SAME system id at 3,500,000 (1.5x p99), so
+  the table now carries two ceilings for one system, and `feed_kami` is
+  the thinner of the two by this table's own margin convention.
+- **Registry-mass budget 72,000 -> 73,000 by operator ruling R-2**, for
+  the named capability *pipelined action sequences*. The trim pass ran
+  first and reclaimed 288 characters — a `liquidate_kami`
+  cross-reference restating `lens_node`'s description, two `Args:`
+  glosses restating a schema type with no mechanic attached, five
+  numeric defaults the schema already carries, one `pool_swap` gloss
+  its own body already states. **That is the last of the slack.** Mass
+  71,012 -> **72,857**, 143 characters of headroom. The remaining
+  repetition is the two standing sentences, one of which is the
+  untrusted-data handling rule and is not a trim target at any budget;
+  the `allow_partial` prose only looks like a third one — factoring its
+  thirteen wordings into one appended sentence would COST about 100
+  characters. The next capability needing room needs a raise.
+- `tools_hash` `e7b0e942...9c09` -> `a4e9aaf5...4c63`. P1 counts, P2
+  hash, P3 version, P4's sequence paragraph, eleven invariant rows, the
+  D1 pin and README's counts updated. README's lens-wrapper count was
+  already one low at 3.4.0 (23 for 24) and is corrected to 25.
+
 ## [3.4.0] — travel that cannot strand, honest batch caps, the starving stop
 
 MINOR. **102 tools**, registry mass **71,012**, `tools_hash`

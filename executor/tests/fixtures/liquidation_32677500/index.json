@@ -1,0 +1,69 @@
+{
+ "source": "kami-oracle + Yominet RPC, recorded 2026-08-28 at HARNESS_350 gate 1",
+ "killer_kami_id": 12649,
+ "killer_harvest_entity": "98229845150935978216825163165892805415263956495973100012428181376391435547846",
+ "note": "Four consecutive liquidations by shrike's kami 12649 inside ONE harvest session (started block 32677494, stopped 32677564 collecting 3217). Only component.value ComponentValueSet logs are kept. victim_kami_id is not recoverable from the receipt alone, so each row records the victim HARVEST entity the oracle names.",
+ "victim_harvest_entities": {
+  "32677500": "689272690007724837243479850868931864664682577897694345337885744847683293322",
+  "32677531": "113677026150095698614773163113684205025766682240336522244474478142311133161111",
+  "32677543": "95418308809855468353468218244357700704592427400838843132987591668132187302357",
+  "32677552": "19969167312093022499340715376049371515122015761194978089340319274343736149067"
+ },
+ "expected": {
+  "32677500": {
+   "victim_gross": 1798,
+   "killer_write": 1191,
+   "pre": 0,
+   "spoils": 1191
+  },
+  "32677531": {
+   "victim_gross": 1130,
+   "killer_write": 1904,
+   "pre": 1191,
+   "spoils": 713
+  },
+  "32677543": {
+   "victim_gross": 1037,
+   "killer_write": 2566,
+   "pre": 1904,
+   "spoils": 662
+  },
+  "32677552": {
+   "victim_gross": 1007,
+   "killer_write": 3217,
+   "pre": 2566,
+   "spoils": 651
+  }
+ },
+ "harvest_stop": {
+  "tx_hash": "0x466225876ec2e385b041d9210dde16fd7c18286d6b1433018ae45ca27d474d49",
+  "block": 32677564,
+  "drained": 3217
+ },
+ "receipts": [
+  {
+   "block": 32677500,
+   "tx_hash": "0xb9222447b7a66120d26b8e8b99bb1925a61efc5ffef5c198ef5f5c1f285fc3d3",
+   "oracle_amount": 1798,
+   "file": "32677500.json"
+  },
+  {
+   "block": 32677531,
+   "tx_hash": "0xd9e727c5b4258f228076467038b0520ab7b4516db2aab7b7ab6af342e6037790",
+   "oracle_amount": 1130,
+   "file": "32677531.json"
+  },
+  {
+   "block": 32677543,
+   "tx_hash": "0xca6fed42b0f0a7529e52629301e940c6f559d4bd2a7605549598a1537b889343",
+   "oracle_amount": 1037,
+   "file": "32677543.json"
+  },
+  {
+   "block": 32677552,
+   "tx_hash": "0xb3ce0c60f44f35c571497f8ed8f3c8b03c838069e07a258e02c56cb52f87cf24",
+   "oracle_amount": 1007,
+   "file": "32677552.json"
+  }
+ ]
+}

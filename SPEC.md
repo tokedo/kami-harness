@@ -21,18 +21,18 @@ this registry says *what holds*, not *how it is built*.
 
 ### P1 — MCP tool surface
 
-- The registry advertises exactly **102 tools**.
+- The registry advertises exactly **104 tools**.
 - Every registered tool carries exactly one class tag in
   `server.TOOL_CLASSES`; the tag set is `{ACT, PERCEIVE, OUTSOURCE,
   META}` and the key set equals the registered tool names exactly.
-- Class counts: **ACT 55 / PERCEIVE 31 / OUTSOURCE 9 / META 7**.
+- Class counts: **ACT 56 / PERCEIVE 32 / OUTSOURCE 9 / META 7**.
 - Class meanings, as the code partitions them:
   - `ACT` — signs and broadcasts at least one transaction.
   - `PERCEIVE` — world-state read; signs nothing, changes no remote state.
   - `OUTSOURCE` — reaches the third-party strategy service.
   - `META` — wallet, account-registry, and bridge infrastructure; not
     world state.
-- `server.READ_TOOLS` is the non-mutating subset: **39 tools** = all 31
+- `server.READ_TOOLS` is the non-mutating subset: **40 tools** = all 32
   `PERCEIVE` + 5 `OUTSOURCE` reads + 3 `META` reads. `ACT ∩ READ_TOOLS`
   is empty.
 - **Routing lives in descriptions, not in error text.** A tool named
@@ -52,8 +52,8 @@ this registry says *what holds*, not *how it is built*.
   carries `server._LENS_SERVING_SENTENCE`. Non-read tools carry neither.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **71,012 characters** at this ref, against a `REGISTRY_MASS_BUDGET`
-  of 72,000. The budget is capacity that has to be earned: every
+  **72,857 characters** at this ref, against a `REGISTRY_MASS_BUDGET`
+  of 73,000. The budget is capacity that has to be earned: every
   character is spent out of the agent's context before it acts, so the
   ceiling rises only for named capability, never to make room for
   wording that could be tightened instead. Two raises are on record.
@@ -73,6 +73,24 @@ this registry says *what holds*, not *how it is built*.
   already carries (`quest_index: Quest index to accept.`, and eleven
   copies of `kami_id: Kami token index.`). A gloss that adds a
   mechanic — a range, a sentinel, a catalog pointer — was kept.
+  72,000 -> 73,000 is an operator ruling of 2026-08-28 (**R-2**), made
+  for the named capability *pipelined action sequences*
+  (`act_sequence`). Its trim pass ran first and was measured before the
+  raise was asked for, and it is the point at which this registry ran
+  out of slack: the four trims together reclaimed **288 characters** —
+  a cross-reference in `liquidate_kami` that restated `lens_node`'s own
+  description, two `Args:` glosses (`lens_portal`, `lens_transfers`)
+  that restated a schema type with no mechanic attached, five numeric
+  defaults the schema already carries, and one `pool_swap` gloss its
+  own body already states. **No larger reclaim exists.** The only bulk
+  repetition left is the two standing sentences below (4,017 characters
+  over 39 and 24 descriptions), already shortened once at 3.3.0, and
+  one of them is the handling rule for untrusted player data — not a
+  trim target at any budget. The `allow_partial` prose looks like a
+  fifth standing sentence and is not: factoring its thirteen wordings
+  into one appended sentence COSTS about 100 characters, because five
+  of the thirteen currently pay 55 rather than 150. The next capability
+  that needs room will need a raise, not a trim.
 - Registry mass and `tools_hash` are **interpreter-dependent**: both are
   computed from schemas that the interpreter's own JSON and typing
   machinery generates, so a different Python version can yield different
@@ -93,7 +111,7 @@ this registry says *what holds*, not *how it is built*.
 - The MCP `initialize` handshake carries it in the `instructions` field
   as the exact string `tools_hash=<64 hex chars>`.
 - Value at this ref (Python 3.13):
-  `e7b0e942ddd69f93c982692e54935b15bfd6f16473fdc9b392a3960692849c09`.
+  `a4e9aaf57fa193d650b98660f5a68e11ae34f79168273e77e1f4fcdab37c4c63`.
 - The MCP `initialize` handshake additionally carries
   `schema_version=<SCHEMA_VERSION>` and `error_snippets=<on|off>` in the
   same `instructions` field, space-separated after the hash. The
@@ -104,7 +122,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.4.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.5.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -164,6 +182,47 @@ ever reported as another:
   **non-idempotent** transfer: a level-up, a feed or an ETH send
   resubmitted after a stale-sequence rejection can execute twice, and
   no retry logic can un-spend it.
+- **A pipelined sequence has K terminal states, one per step, and a
+  call-level status that is not one of them.** `act_sequence` signs all
+  K steps on consecutive nonces read ONCE at `pending` and broadcasts
+  them in order before reading any receipt, so the three-state rule
+  above binds each STEP and never the call: every step is reported in
+  `steps[]` with its own `status` — `success`, `reverted`,
+  `unconfirmed`, or `not_sent` — and its own receipt evidence. The call
+  returns `status: "complete"` when every step succeeded and
+  `"partial"` otherwise, and it RAISES only when step 1 fails before
+  anything is broadcast. Once any transaction is in flight the call
+  reports rather than raises, because an exception is a text block that
+  cannot carry the hashes of the steps that landed.
+  - **Only step 1 is dry-run.** Later steps' preconditions are earlier
+    steps' effects, which do not exist at the pending block, so an
+    `eth_call` for step 2 would fail correct sequences and pass wrong
+    ones. Whole-sequence validation is therefore STATIC and forward-
+    walked (a killer counts as harvesting if an earlier step starts it),
+    and the description says the later steps are the caller's plan.
+  - **A reverted step consumes its nonce, is final, and does not stop
+    the sequence** (operator ruling R-3): later steps still execute, and
+    a revert is NEVER resent — the existing rule that nonce/retry logic
+    never resubmits a confirmed revert applies per step.
+  - **A broadcast-rejected step is resent at most once.** A rejection
+    means the node refused the raw transaction, so the nonce was not
+    consumed and NOTHING landed for that step or any after it: the
+    steps that did land are awaited, the nonce is re-read, and the tail
+    is re-signed and broadcast once more. A second rejection reports
+    the tail `not_sent`. A rejection is not a revert and the two are
+    never merged.
+  - **Cap 16 steps**, refused rather than auto-split — one tool call is
+    one reportable unit, the same reason the batch caps are not split.
+  - Measured before the design was fixed (U-1, 2026-08-28, account
+    shrike): two `system.kami.use.item` feeds signed at nonces 1513 and
+    1514 and broadcast back-to-back on one keep-alive session to one
+    endpoint were BOTH accepted — no `account sequence mismatch` — and
+    both mined status 1, in blocks 32678986 and 32678987 (adjacent
+    blocks bearing the same timestamp), 0.974 s from first send to
+    second receipt. Pipelining works on this chain; the rejection path
+    above is a defensive branch, not the expected one. The observation
+    also bounds the claim: a burst lands within a block or two, not
+    necessarily in ONE block, and the tool description says that.
 - Multi-transaction tools raise `BatchTxError` when any item failed. The
   error message carries **every** per-item outcome, successes included,
   and states that successful items are final on-chain and must not be
@@ -296,8 +355,11 @@ softened, and the pre-snippet text is unchanged.
 
 ### D1 — kami-lens daemon
 
-- **Pin:** `8b74007` (kami-lens release 0.5.2). **This row is the only
-  place the compatible lens version is stated.** It had been duplicated
+- **Pin:** `8277408` (kami-lens release 0.5.3). Built in parallel with
+  this release on the lens branch `lens-053`; the lab re-pins to the
+  release commit at audit if the branch is squashed or rebased before
+  it merges. **This row is the only place the compatible lens version
+  is stated.** It had been duplicated
   in a `server.KAMI_LENS_PIN` constant that no code path read; the
   constant held the 0.4.0 commit under a comment saying 0.2.0, and
   nothing could fail on the contradiction. The constant is deleted at
@@ -333,6 +395,29 @@ softened, and the pre-snippet text is unchanged.
   the chain-only `degraded`. (d) `NOT_READY` replaces the `NOT_FOUND`
   a pre-LIVE daemon used to answer, and is wrapped here as its own
   error class (EXPOSURE's error-class table).
+- **The 0.5.2 -> 0.5.3 advance at 3.5.0 makes `--eligible-only`
+  attacker-blind, and Family D is NOT SERVABLE BELOW IT — the same
+  lesson as 3.4.0's Family D, so the lab redeploys the lens FIRST.**
+  Until 0.5.3 the filter read `liquidation.eligible`, the full pairing
+  verdict, which folds in `isStarving(attacker)` and
+  `onCooldown(attacker)`. In a zero-cooldown kill loop the attacker
+  sits at 0 HP for 4-6 s after every kill, so a read inside that window
+  answered `harvestsEligible: 0` with 20+ targets under threshold —
+  a payload INDISTINGUISHABLE from "everyone withdrew" (observed node
+  35, block 32677631, 2026-08-28). An empty list was reporting a fact
+  about the CALLER. At 0.5.3 the filter is TARGET-side (`threshold > 0
+  && margin > 0`) and the attacker's own gate is reported once, on the
+  new REQUIRED field `attacker.blocked` (`null`,
+  `ATTACKER_STARVING` or `ATTACKER_COOLDOWN`), present with or without
+  the flag. Per-row `eligible`/`reason` keep their full-pairing
+  meaning, so a served row may read `eligible: false, reason:
+  ATTACKER_STARVING`. **A 0.5.2 daemon answers the OLD meaning with
+  `ok: true`** — it does not fail, it filters on the wrong predicate
+  and omits `attacker.blocked` entirely — which is why the version
+  floor is stated here rather than left to a runtime check. The harness
+  change is description-only: no schema moves, and `lens_node` now says
+  eligible_only keeps target-side rows and that `attacker.blocked`
+  names the attacker's own gate.
 - **The socket honoured undeclared flags silently below this pin.**
   0.5.0 gave the CLI a declared argument vocabulary and made an unknown
   option a usage error, but the SOCKET — the path this harness and its
@@ -508,7 +593,17 @@ writer; no other module opens the keys file or the Keychain.
 
 | claim | enforcement |
 |---|---|
-| Registry description mass ≤ 72,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget` (71,012 at this ref, on Python 3.13) |
+| Registry description mass ≤ 73,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget`, `test_h350_families.py::test_registry_mass_within_the_raised_budget` (72,857 at this ref, on Python 3.13 — 143 characters of headroom) |
+| A sequence reports one terminal state per step and never conflates two: a success, a revert and a timeout in one call come back as themselves, each with its own receipt evidence | `test_h350_families.py::test_terminal_states_are_never_conflated` |
+| A reverted step does not stop the sequence and is never resent | `test_h350_families.py::test_a_reverted_step_does_not_stop_the_sequence`, `::test_a_reverted_step_is_never_resent` |
+| A broadcast-rejected tail is resent exactly once; a second rejection reports `not_sent` | `test_h350_families.py::test_a_broadcast_rejection_resends_the_tail_exactly_once`, `::test_a_second_rejection_reports_the_tail_not_sent` |
+| A sequence reads its nonce ONCE at `pending` and signs every step before the first broadcast | `test_h350_families.py::test_nonce_read_once_and_all_signed_before_first_broadcast` (the fake chain asserts the `pending` block identifier) |
+| `act_sequence` refuses more than 16 steps rather than splitting them | `test_h350_families.py::test_cap_is_sixteen_and_refuses_rather_than_splitting` |
+| Whole-sequence static validation counts feed steps against the item balance and accepts a killer started by an earlier step | `test_h350_families.py::test_item_balance_is_checked_against_the_NUMBER_of_feed_steps`, `::test_a_killer_started_by_an_earlier_step_passes_validation` |
+| Every step offers a FIXED table ceiling, never an estimate, and the gas gate sums them | `test_h350_families.py::test_ceilings_are_fixed_per_op_and_never_estimated`, `::test_gas_gate_sums_every_step` |
+| The decoded kill reproduces the oracle: `victim_gross` = the max non-zero write to the VICTIM harvest entity, `spoils` = the LAST write to the KILLER's minus its pre-send value | `test_h350_families.py::test_victim_gross_equals_the_oracle_amount`, `::test_spoils_is_the_last_killer_write_minus_the_pre_value`, `::test_the_sequence_rule_chains_across_the_whole_sweep` (four recorded receipts from the 2026-08-28 sweep; the chain closes on the harvest_stop that drained 3,217) |
+| The killer side is not a drain and musu.py's drain rule must not be used for it | `test_h350_families.py::test_killer_side_is_not_a_drain_and_musu_drain_rule_would_be_wrong` |
+| A decode failure never fails a landed transaction: the field is null and `decode_error` says why | `test_h350_families.py::test_decode_failure_never_fails_a_landed_tx` |
 | Harvest batch gas clears the measured p95 at every observed batch size, provisions a single kami, and fits 13 kamis in one transaction | `test_gas_ceilings.py::TestHarvestCeilings` (p95 per batch size pinned from the 2026-08-27 kami-oracle extract; the flat-constant shape is what these rows forbid) |
 | `MAX_TX_GAS` is the chain's per-transaction lane cap, and every stated per-call maximum is derived from it | `test_gas_ceilings.py::TestBlockLimitGuard::test_max_tx_gas_is_the_lane_cap`, `TestHarvestCeilings::test_docstring_caps_match_the_arithmetic` (the docstring's "(at most N)" must equal `_harvest_max_per_call`, and N+1 must be refused) |
 | A gated room exit is evaluated against the calling account before any hop is sent; with no ungated route the call refuses pre-send, and a gate that cannot be evaluated is never silently passed | `test_h340_families.py::TestGatedPlanning`, `::TestGateEvaluation` |

@@ -49,15 +49,15 @@ MCP client (any KamiBench agent) --MCP--> executor (server.py) --> kami-lens dae
 
 ## Tool surface
 
-The server exposes **102 tools**. Every tool carries exactly one class
+The server exposes **104 tools**. Every tool carries exactly one class
 tag, and the four classes partition the surface completely:
-**ACT 55 / PERCEIVE 31 / OUTSOURCE 9 / META 7**. The class is not a
+**ACT 56 / PERCEIVE 32 / OUTSOURCE 9 / META 7**. The class is not a
 filing convenience — it says what the tool touches and what calling it
 can cost you. The counts, and the class of each tool, are contract rows
 checked by the suite ([`SPEC.md`](SPEC.md) §P1). The authoritative,
 per-tool reference is [`executor/README.md`](executor/README.md).
 
-**ACT — 55 tools.** Signed on-chain transactions into the game:
+**ACT — 56 tools.** Signed on-chain transactions into the game:
 harvesting, movement, leveling, equipment, crafting, trading, quests,
 scavenging, gacha, and PvP liquidation. Every game-system write
 validates its mechanically-determinable preconditions against chain
@@ -69,10 +69,12 @@ best-effort replay reason), and an unconfirmed transaction raises with
 its hash rather than guessing. A returned result never carries
 `status="reverted"`. Examples: `harvest_start`, `travel_to_room`,
 `craft_item`, `create_trade`, `complete_quest`, `liquidate_kami`,
-`level_and_allocate_batch`.
+`level_and_allocate_batch`. `act_sequence` runs up to 16 of them as
+one pipelined burst — signed on consecutive nonces and broadcast
+without waiting for receipts — and reports a terminal state per step.
 
-**PERCEIVE — 31 tools.** World-state reads. They sign nothing and change
-no remote state. 23 of them are thin wrappers over the local
+**PERCEIVE — 32 tools.** World-state reads. They sign nothing and change
+no remote state. 25 of them are thin wrappers over the local
 [kami-lens](https://github.com/tokedo/kami-lens) daemon — a headless
 Kamigotchi client that keeps a live mirror of on-chain state and
 projects it through the game's own formulas, so a read answers with what
@@ -284,7 +286,7 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`3.4.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
+Current: **`3.5.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
 reads served as thin `kami-lens` wrappers with verbatim envelope
 pass-through; every tool class-tagged ACT / PERCEIVE / OUTSOURCE /
 META; three non-conflatable transaction terminal states (a confirmed

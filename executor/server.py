@@ -158,6 +158,21 @@ _GAS_CEILINGS = {
     # 2,639,799. Was 1,500,000 — BELOW p99, so stamina-item hops during
     # travel were failing on anything but the cheapest path.
     "travel_use_item": 3_500_000,
+    # -- system.kami.use.item (the FEED path): p50 1,361,543 / p95
+    # 2,185,084 / p99 2,203,762 / max 2,639,799 over 329,709 successful
+    # (receipt status=1) transactions since 2026-06-01, measured from
+    # kami-oracle on 2026-08-28. Restricting the same window to the 44
+    # Food item indices in catalogs/items.csv moves p95 only to
+    # 2,191,206, so feeding is not a cheaper use of this system than
+    # the others and one ceiling serves it honestly. 1.3x p95 rounds to
+    # 3,000,000 — 1.37x p95 and 1.14x the observed max.
+    #
+    # feed_kami provisioned NO ceiling before 3.5.0: it estimated gas
+    # per call. act_sequence cannot, because a pipelined step is signed
+    # before its predecessor's effects exist, so estimateGas for step 2
+    # prices a world that has not happened yet. Measuring the ceiling
+    # once removes the estimate from both paths.
+    "feed_kami": 3_000_000,
     # -- system.listing.buy: p50 949,468 / p99 2,395,753 / max 3,114,738
     "listing_buy_base": 1_200_000,
     "listing_buy_per_item": 900_000,
@@ -3782,6 +3797,18 @@ def lens_kami(kami_index: int, stats: bool = False) -> dict:
 
 
 @mcp.tool()
+def lens_skills(kami_index: int = -1) -> dict:
+    """Skill registry; with a kami, that kami's tree.
+
+    Args:
+        kami_index: Kami index — returns its unspent points and
+            invested[] (index, name, type, tier, cost, max, points).
+            -1: the registry alone.
+    """
+    return _lens_request("skills", [kami_index] if kami_index >= 0 else [])
+
+
+@mcp.tool()
 def lens_account(
     account_key: str = "", prose: bool = False, identity_only: bool = False
 ) -> dict:
@@ -3853,7 +3880,9 @@ def lens_node(
     hpRatePerHr, musuAccrued, cooldownSec); attacker_kami_index (any
     kami; requires with_vitals) adds a liquidation preview per
     non-attacker row (eligible, threshold, spoils, salvage, recoil).
-    eligible_only keeps only rows the attacker can liquidate now.
+    eligible_only keeps TARGET-side eligible rows (occupant HP under
+    the attacker's threshold); attacker.blocked names the attacker's own
+    gate (null when clear).
 
     Args:
         with_vitals: Include occupant vitals.
@@ -3863,7 +3892,7 @@ def lens_node(
             description. Large: node 86 with vitals is ~1 MB.
         stats: Add the stat block (as lens_kami) per occupant.
             Requires with_vitals.
-        eligible_only: Only liquidation-eligible rows.
+        eligible_only: Only target-side eligible rows.
     """
     args: list = [node_index]
     if attacker_kami_index >= 0:
@@ -4091,21 +4120,13 @@ def lens_market(account_index: int = -1, full: bool = False) -> dict:
 
 @mcp.tool()
 def lens_portal(account_index: int) -> dict:
-    """Token portal history for an account, plus open withdrawals.
-
-    Args:
-        account_index: Account index.
-    """
+    """Token portal history for an account, plus open withdrawals."""
     return _lens_request("portal", [account_index])
 
 
 @mcp.tool()
 def lens_transfers(account_index: int) -> dict:
-    """Item transfer history for an account.
-
-    Args:
-        account_index: Account index.
-    """
+    """Item transfer history for an account."""
     return _lens_request("transfers", [account_index])
 
 
@@ -5364,6 +5385,8 @@ def feed_kami(kami_id: int, food_item_id: int, account: str = "main") -> dict:
         "system.kami.use.item",
         _ABI_FEED,
         [_kami_entity_id(kami_id), food_item_id],
+        gas_limit=_GAS_CEILINGS["feed_kami"],
+        ceiling_key="feed_kami",
     )
 
 
@@ -6065,7 +6088,7 @@ def equip_all_batch(
 
     Args:
         equips: List of {"kami_id": int, "item_index": int}.
-        delay_seconds: Pause between cycles (default 2.0; 0 disables).
+        delay_seconds: Pause between cycles (0 disables).
     """
     src = _get_account(account)
     # Resolved before the per-item dry-run loop: a missing operator
@@ -6186,7 +6209,7 @@ def unequip_all_batch(
     Args:
         kami_ids: Kami token indices to unequip.
         slot_type: Slot name (default "Kami_Pet_Slot").
-        delay_seconds: Pause between cycles (default 2.0; 0 disables).
+        delay_seconds: Pause between cycles (0 disables).
     """
     src = _get_account(account)
     # Resolved before the per-item dry-run loop: a missing operator
@@ -7324,7 +7347,7 @@ def pool_swap_quote(
         item_out: Item index being bought (1 for MUSU).
         amount_in: Exact amount of item_in to sell.
         slippage_bps: Tolerance in basis points used to derive
-            min_amount_out (default 100 = 1%).
+            min_amount_out (100 = 1%).
     """
     return _pool_quote(item_in, item_out, amount_in, slippage_bps)
 
@@ -7361,7 +7384,6 @@ def pool_swap(
         amount_in: Exact amount of item_in to sell.
         min_amount_out: Minimum acceptable amount of item_out.
         account: Account label whose operator wallet signs.
-        dry_run: Validate and price only; send no transaction.
     """
     if min_amount_out <= 0:
         raise PreTxValidationError(
@@ -8467,7 +8489,7 @@ def speed_craft_batch(
     Args:
         recipe_index: Recipe to craft (catalogs/recipes.csv).
         count: Number of crafts (one stamina item each).
-        stamina_item_id: Stamina-restore item (default 21205, +80).
+        stamina_item_id: Stamina-restore item (+80 stamina).
         delay_seconds: Pause between cycles (default 0).
     """
     _get_account(account)
@@ -9151,7 +9173,7 @@ def sacrifice_kami_batch(
 
     Args:
         kami_ids: Kami token indices to sacrifice.
-        delay_seconds: Pause between cycles (default 3.0; 0 disables).
+        delay_seconds: Pause between cycles (0 disables).
     """
     src = _get_account(account)
     # Resolved before the per-item dry-run loop: a missing operator
@@ -9295,6 +9317,220 @@ _REROLL_TICKET_INDEX = 11
 _GACHA_COMMIT_MARKER = b"GACHA_COMMIT"
 
 
+# ---------------------------------------------------------------------------
+# Decoded kill (3.5.0) — what a liquidation actually moved, from its own
+# receipt. Ported from ~/kami-oracle/ingester/musu.py, which is the
+# derivation of record; the rule below is DELIBERATELY ASYMMETRIC and
+# that asymmetry is the whole content of this section.
+# ---------------------------------------------------------------------------
+
+# uint256(keccak256("component.value")) — the MUDS ValueComponent. MUSU is
+# not an ERC-20: it is an inventory item (index 1) tracked on this
+# component, and a harvest entity holds its unclaimed accrued bounty on
+# its own slot of it. There is no Transfer event to read.
+_VALUE_COMPONENT_ID = int.from_bytes(
+    Web3.keccak(text="component.value"), "big"
+)
+
+# The MUD component-write event. Same topic0 as _STORE_SET_RECORD_EVENT
+# above (StoreSetRecord and ComponentValueSet are the same signature);
+# named separately here because this section reads it for its VALUE, not
+# for an entity-type marker.
+_COMPONENT_VALUE_SET_TOPIC0 = bytes.fromhex(_STORE_SET_RECORD_EVENT)
+
+
+def _decode_uint256_bytes(data: bytes) -> int | None:
+    """The uint256 packed inside a ComponentValueSet ABI-encoded `bytes`.
+
+    Layout: 32-byte offset, 32-byte length, then the content padded to a
+    multiple of 32. A component.value write is a single 32-byte
+    big-endian word. Returns None for anything else, so a component whose
+    payload is a struct or a string is skipped rather than misread.
+    """
+    if len(data) < 96:
+        return None
+    if int.from_bytes(data[32:64], "big") != 32:
+        return None
+    return int.from_bytes(data[64:96], "big")
+
+
+def _component_value_writes(receipt) -> dict[int, list[int]]:
+    """{entity_id: [values written, in log order]} for component.value.
+
+    One pass over the receipt logs. Order is preserved because the two
+    sides of a kill need different reductions over it (see
+    _decode_kill).
+    """
+    out: dict[int, list[int]] = {}
+    for log in receipt.logs:
+        topics = log.topics
+        if not topics or bytes(topics[0]) != _COMPONENT_VALUE_SET_TOPIC0:
+            continue
+        if len(topics) < 4:
+            continue
+        if int.from_bytes(bytes(topics[1]), "big") != _VALUE_COMPONENT_ID:
+            continue
+        value = _decode_uint256_bytes(bytes(log.data))
+        if value is None:
+            continue
+        out.setdefault(int.from_bytes(bytes(topics[3]), "big"), []).append(value)
+    return out
+
+
+def _killer_bounty(killer_kami_id: int) -> int | None:
+    """The killer's CURRENT unclaimed harvest bounty, read at head.
+
+    Read before broadcast, never at a historical block: the pinned RPC
+    is not an archive node and refuses state at any height but the tip
+    (`historical version not found`), so no path in this module may
+    reconstruct a prior value by reading the chain at block-1. That is
+    also why a sequence carries the previous liquidate step's
+    post-value forward instead of re-reading it.
+    """
+    try:
+        comp = w3.eth.contract(
+            address=_resolve_component("component.value"), abi=_UINT_VALUE_ABI
+        )
+        return int(comp.functions.safeGet(_harvest_entity_id(killer_kami_id)).call())
+    except Exception:
+        return None
+
+
+def _kami_cooldown_until(kami_index: int) -> int | None:
+    """Raw on-chain cooldown end, in chain seconds (component.Time.Next).
+
+    0 means the component holds no NextTime for this kami — it has never
+    acted, or has not synced. Treat 0 as unknown, never as "ready"; this
+    is the lens's cooldownUntil semantics and the same caveat.
+    """
+    try:
+        comp = w3.eth.contract(
+            address=_resolve_component("component.Time.Next"), abi=_UINT_VALUE_ABI
+        )
+        return int(comp.functions.safeGet(_kami_entity_id(kami_index)).call())
+    except Exception:
+        return None
+
+
+def _decode_kill(
+    receipt,
+    victim_kami_id: int,
+    killer_kami_id: int,
+    killer_bounty_before: int | None,
+) -> dict:
+    """The decoded kill for one landed liquidation.
+
+    Returns victim_gross, spoils, attacker_hp_after, cooldown_until,
+    and killer_bounty_after (the value a following liquidate step in the
+    same sequence carries forward as its `killer_bounty_before`).
+
+    THE TWO SIDES REDUCE DIFFERENTLY, and using one rule for both is a
+    live bug rather than a simplification:
+
+      victim  — the system writes the accrued bounty to the victim's
+                harvest entity and then drains it, so the writes are
+                [N, 0] and the gross is the MAX non-zero write. This is
+                musu.py's drain rule exactly, and its result equals the
+                oracle's kami_action.amount (verified below).
+      killer  — the spoils are ADDED to the killer's own harvest bounty,
+                which is not drained, so the value that matters is the
+                LAST write, not the max and not a "drain".
+
+    Do NOT run musu.py's decode_musu_drains over the killer side. It
+    requires both a non-zero and a zero write, and against real receipts
+    it is wrong in BOTH directions: on the FIRST liquidation of a
+    harvest session the killer entity's writes are [0, N] and it reports
+    a drain of N that never happened, and on every subsequent one they
+    are [prev, next] with no zero write and it omits the entity
+    entirely.
+
+    Verified against the 2026-08-28 shrike sweep, four consecutive
+    liquidations inside one harvest session (started block 32677494,
+    stopped 32677564), recorded as fixtures in
+    executor/tests/fixtures/liquidation_32677500/:
+
+        block     victim_gross  oracle amount  killer write  pre    spoils
+        32677500  1798          1798           1191          0      1191
+        32677531  1130          1130           1904          1191    713
+        32677543  1037          1037           2566          1904    662
+        32677552  1007          1007           3217          2566    651
+
+    victim_gross matched the oracle on all four, and the chain closes:
+    the harvest_stop at 32677564 drained exactly 3,217, which is both
+    the last liquidation's post-value and the oracle's stop amount. That
+    series is also the evidence for the sequence rule — the previous
+    step's post-value IS the next step's pre-value.
+
+    `salvage` is deliberately NOT returned: the victim's share is
+    written to its inventory as an ABSOLUTE balance, so the receipt
+    carries the new total and not the delta, and the prior value is not
+    in the receipt. Deriving it would need a pre-send read of another
+    account's inventory, which is a different claim than "what this
+    receipt says". lens_node's preview estimates it before the fact.
+
+    A decode failure never fails a landed transaction: the field is set
+    to None and `decode_error` names what could not be read.
+    """
+    out: dict = {
+        "victim_gross": None,
+        "spoils": None,
+        "attacker_hp_after": None,
+        "cooldown_until": None,
+    }
+    errors: list[str] = []
+
+    try:
+        writes = _component_value_writes(receipt)
+    except Exception as e:
+        writes = {}
+        errors.append(f"receipt log walk failed: {type(e).__name__}: {e}")
+
+    # NOT guarded on `writes` being non-empty: an empty walk must still
+    # report WHY each field is None. Returning None with no decode_error
+    # would be the decoder claiming it looked and found nothing, when it
+    # found nothing to look at.
+    victim_writes = writes.get(_harvest_entity_id(victim_kami_id), [])
+    non_zero = [v for v in victim_writes if v > 0]
+    if non_zero:
+        out["victim_gross"] = max(non_zero)
+    else:
+        errors.append(
+            "no non-zero component.value write to the victim's harvest "
+            "entity in this receipt"
+        )
+    killer_writes = writes.get(_harvest_entity_id(killer_kami_id), [])
+    if killer_writes:
+        after = killer_writes[-1]
+        out["killer_bounty_after"] = after
+        if killer_bounty_before is None:
+            errors.append(
+                "killer bounty before the send was not read, so spoils "
+                "cannot be a difference"
+            )
+        else:
+            out["spoils"] = after - killer_bounty_before
+    else:
+        errors.append(
+            "no component.value write to the killer's harvest entity in "
+            "this receipt"
+        )
+
+    hp = _kami_last_synced_hp(killer_kami_id)
+    if hp is None:
+        errors.append("attacker HP could not be read after the receipt")
+    else:
+        out["attacker_hp_after"] = hp
+    cd = _kami_cooldown_until(killer_kami_id)
+    if cd is None:
+        errors.append("attacker cooldown could not be read after the receipt")
+    else:
+        out["cooldown_until"] = cd
+
+    if errors:
+        out["decode_error"] = "; ".join(errors)
+    return out
+
+
 @mcp.tool()
 def liquidate_kami(
     victim_kami_id: int, killer_kami_id: int, account: str = "main"
@@ -9315,8 +9551,10 @@ def liquidate_kami(
     accumulated harvest strain), possibly to 0 HP, where it cannot stop
     or collect until fed; the attacker's liquidation cooldown resets,
     and the attacker's account receives 1 Obol (item 1015).
-    lens_node with with_vitals=true and attacker_kami_index previews
-    eligibility, threshold, spoils, salvage, and recoil per occupant.
+
+    Returns the decoded kill: victim_gross, spoils, attacker_hp_after,
+    cooldown_until, recoil. No salvage — the victim's inventory write is
+    absolute, so its prior value is not in the receipt.
 
     Validates before signing (no gas spent on failure): account
     registered, attacker owned and HARVESTING, victim harvest ACTIVE,
@@ -9343,6 +9581,14 @@ def liquidate_kami(
                 "requires": "harvest ACTIVE",
             },
         )
+    # Read once before the send, at head: the two values the receipt
+    # cannot supply on its own. hp_before is what makes `recoil` a
+    # difference rather than a guess, and it is available here only
+    # because this is the single-call path — a sequence signs every step
+    # before the first lands, so no step but the first has a "before"
+    # to read, and recoil is omitted there rather than invented.
+    hp_before = _kami_last_synced_hp(killer_kami_id)
+    killer_bounty_before = _killer_bounty(killer_kami_id)
     result = _send_tx(
         account,
         "system.harvest.liquidate",
@@ -9350,11 +9596,435 @@ def liquidate_kami(
         [_harvest_entity_id(victim_kami_id), _kami_entity_id(killer_kami_id)],
         gas_limit=_GAS_CEILINGS["liquidate_kami"],
         ceiling_key="liquidate_kami",
+        return_receipt=True,
     )
+    receipt = result.pop("_receipt", None)
     result.update(
         {"victim_kami_id": victim_kami_id, "killer_kami_id": killer_kami_id}
     )
+    decoded = _decode_kill(
+        receipt, victim_kami_id, killer_kami_id, killer_bounty_before
+    )
+    decoded.pop("killer_bounty_after", None)
+    if hp_before is not None and decoded.get("attacker_hp_after") is not None:
+        decoded["recoil"] = hp_before - decoded["attacker_hp_after"]
+    result.update(decoded)
     return result
+
+
+# ---------------------------------------------------------------------------
+# act_sequence (3.5.0) — pipelined submission. One tool, a closed op
+# vocabulary, no general no-wait mode (operator ruling R-1, 2026-08-28).
+# ---------------------------------------------------------------------------
+
+# Operator ruling R-3 (2026-08-28). The cap is the batch-cap reason
+# again: one tool call is a bounded, reportable unit, and auto-splitting
+# would break the plan/act accounting an agent keeps.
+_ACT_SEQUENCE_MAX_STEPS = 16
+
+# A1: the vocabulary is CLOSED. An op outside this table, or a step
+# missing one of its fields, is a pre-send refusal naming the step index
+# — not a step quietly dropped from a sequence the caller believes ran.
+_SEQ_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    "feed": ("kami_id", "item_id"),
+    "liquidate": ("kami_id", "victim_kami_id"),
+    "harvest_start": ("kami_ids", "node_index"),
+    "harvest_stop": ("kami_ids",),
+}
+
+# Broadcast-level rejections that mean NOTHING LANDED for this step and
+# every step after it: the node refused the raw transaction, so the
+# nonce was never consumed and the whole tail is unsent. Distinct from a
+# revert, which consumed its nonce and is final (P4).
+_SEQ_REJECTION_MARKERS = _RETRY_ROUTING_MARKERS
+
+
+def _seq_step_ids(step: dict) -> dict:
+    """The identifying fields of a step, for its result row."""
+    op = step["op"]
+    if op == "feed":
+        return {"kami_id": step["kami_id"], "item_id": step["item_id"]}
+    if op == "liquidate":
+        return {
+            "kami_id": step["kami_id"],
+            "victim_kami_id": step["victim_kami_id"],
+        }
+    if op == "harvest_start":
+        return {
+            "kami_ids": step["kami_ids"], "node_index": step["node_index"]
+        }
+    return {"kami_ids": step["kami_ids"]}
+
+
+def _seq_owned_kamis(step: dict) -> list[int]:
+    """Kamis this step requires `account` to own (the victim is not one)."""
+    if step["op"] in ("feed", "liquidate"):
+        return [step["kami_id"]]
+    return list(step["kami_ids"])
+
+
+def _seq_parse(steps: list) -> list[dict]:
+    """A1 — shape, vocabulary and cap. Nothing is read from chain here."""
+    if not isinstance(steps, list) or not steps:
+        raise PreTxValidationError(
+            "steps is empty; act_sequence requires at least one step"
+        )
+    if len(steps) > _ACT_SEQUENCE_MAX_STEPS:
+        raise PreTxValidationError(
+            f"{len(steps)} steps; act_sequence takes at most "
+            f"{_ACT_SEQUENCE_MAX_STEPS}. Split into separate calls — this "
+            f"is not auto-split, because one call is one reportable unit."
+        )
+    parsed: list[dict] = []
+    for i, raw in enumerate(steps):
+        if not isinstance(raw, dict):
+            raise PreTxValidationError(
+                f"step {i} is not an object; each step is a dict with an "
+                f"'op' key"
+            )
+        op = raw.get("op")
+        if op not in _SEQ_REQUIRED_FIELDS:
+            raise PreTxValidationError(
+                f"step {i} has op {op!r}; act_sequence ops are "
+                f"{', '.join(sorted(_SEQ_REQUIRED_FIELDS))}"
+            )
+        missing = [f for f in _SEQ_REQUIRED_FIELDS[op] if raw.get(f) is None]
+        if missing:
+            raise PreTxValidationError(
+                f"step {i} ({op}) is missing {', '.join(missing)}; "
+                f"{op} takes {', '.join(_SEQ_REQUIRED_FIELDS[op])}"
+            )
+        step = {"op": op}
+        for f in _SEQ_REQUIRED_FIELDS[op]:
+            v = raw[f]
+            if f == "kami_ids":
+                if not isinstance(v, list) or not v:
+                    raise PreTxValidationError(
+                        f"step {i} ({op}): kami_ids must be a non-empty list"
+                    )
+                try:
+                    step[f] = [int(k) for k in v]
+                except (TypeError, ValueError):
+                    raise PreTxValidationError(
+                        f"step {i} ({op}): kami_ids must be integers"
+                    ) from None
+            else:
+                try:
+                    step[f] = int(v)
+                except (TypeError, ValueError):
+                    raise PreTxValidationError(
+                        f"step {i} ({op}): {f} must be an integer"
+                    ) from None
+        parsed.append(step)
+    return parsed
+
+
+def _seq_plan(step: dict) -> tuple:
+    """(system_id, abi, fn_name, args, gas, ceiling_key) for one step.
+
+    A3: FIXED ceilings, never estimateGas. A pipelined step is signed
+    before its predecessor has landed, so an estimate for step 2 would
+    price a world that has not happened yet — it would either revert in
+    the estimate or return a number for the wrong state.
+    """
+    op = step["op"]
+    if op == "feed":
+        return (
+            "system.kami.use.item", _ABI_FEED, "executeTyped",
+            [_kami_entity_id(step["kami_id"]), step["item_id"]],
+            _GAS_CEILINGS["feed_kami"], "feed_kami",
+        )
+    if op == "liquidate":
+        return (
+            "system.harvest.liquidate", _ABI_LIQUIDATE, "executeTyped",
+            [
+                _harvest_entity_id(step["victim_kami_id"]),
+                _kami_entity_id(step["kami_id"]),
+            ],
+            _GAS_CEILINGS["liquidate_kami"], "liquidate_kami",
+        )
+    ids = step["kami_ids"]
+    if op == "harvest_start":
+        eids = [_kami_entity_id(k) for k in ids]
+        gas = _harvest_gas("harvest_start", len(ids))
+        if len(eids) == 1:
+            return ("system.harvest.start", _ABI_HARVEST_START, "executeTyped",
+                    [eids[0], step["node_index"], 0, 0], gas, "harvest_start")
+        return ("system.harvest.start", _ABI_HARVEST_START, "executeBatched",
+                [eids, step["node_index"], 0, 0], gas, "harvest_start")
+    hids = [_harvest_entity_id(k) for k in ids]
+    gas = _harvest_gas("harvest_stop", len(ids))
+    if len(hids) == 1:
+        return ("system.harvest.stop", _ABI_HARVEST_STOP, "executeTyped",
+                [hids[0]], gas, "harvest_stop")
+    return ("system.harvest.stop", _ABI_HARVEST_STOP, "executeBatched",
+            [hids], gas, "harvest_stop")
+
+
+def _seq_static_validate(
+    steps: list[dict], account: str, aid: int, total_gas: int
+) -> dict:
+    """A2 — whole-sequence pre-send validation. Nothing is spent here.
+
+    Every check is against state as it is NOW, plus the sequence's own
+    declared effects: a liquidate step's killer counts as harvesting if
+    an earlier harvest_start named it, and a harvest_stop counts as
+    valid if an earlier step started that kami. That is the only way to
+    validate a plan whose later preconditions do not exist yet, and it
+    is why the eth_call dry-run runs for step 1 only.
+
+    Returns the pre-send killer bounties the decoded kill needs, read
+    once at head here because after the first broadcast there is no
+    "before" left to read.
+    """
+    problems: list[str] = []
+
+    # Ownership, once per distinct kami, across the whole sequence.
+    owned: dict[int, bool] = {}
+    for i, st in enumerate(steps):
+        for k in _seq_owned_kamis(st):
+            if k not in owned:
+                owned[k] = _kami_owner_id(k) == aid
+            if not owned[k]:
+                problems.append(
+                    f"step {i} ({st['op']}): kami #{k} is not owned by "
+                    f"account '{account}'"
+                )
+
+    # Inventory: one item balance covers ALL the feed steps naming it.
+    wanted: dict[int, int] = {}
+    for st in steps:
+        if st["op"] == "feed":
+            wanted[st["item_id"]] = wanted.get(st["item_id"], 0) + 1
+    for item_id, count in sorted(wanted.items()):
+        held = _inventory_balance(aid, item_id)
+        if held < count:
+            problems.append(
+                f"the sequence feeds item {item_id} {count} time(s) but the "
+                f"account holds {held}"
+            )
+
+    # Harvest state, walked FORWARD so a step can satisfy a later one.
+    harvesting: dict[int, bool] = {}
+
+    def _is_harvesting(k: int) -> bool:
+        if k not in harvesting:
+            harvesting[k] = _harvest_state(k) == "ACTIVE"
+        return harvesting[k]
+
+    killer_bounty: dict[int, int | None] = {}
+    for i, st in enumerate(steps):
+        op = st["op"]
+        if op == "harvest_start":
+            for k in st["kami_ids"]:
+                harvesting[k] = True
+        elif op == "harvest_stop":
+            for k in st["kami_ids"]:
+                if not _is_harvesting(k):
+                    problems.append(
+                        f"step {i} (harvest_stop): kami #{k} is not "
+                        f"harvesting now and no earlier step starts it"
+                    )
+                harvesting[k] = False
+        elif op == "liquidate":
+            killer = st["kami_id"]
+            if not _is_harvesting(killer):
+                problems.append(
+                    f"step {i} (liquidate): killer kami #{killer} is not "
+                    f"harvesting now and no earlier step starts it"
+                )
+            victim_state = _harvest_state(st["victim_kami_id"])
+            if victim_state != "ACTIVE":
+                problems.append(
+                    f"step {i} (liquidate): victim kami "
+                    f"#{st['victim_kami_id']} has no ACTIVE harvest (state "
+                    f"{victim_state!r})"
+                )
+            if killer not in killer_bounty:
+                killer_bounty[killer] = _killer_bounty(killer)
+
+    if problems:
+        raise PreTxValidationError("; ".join(problems))
+
+    # Gas for the WHOLE sequence, at the ceilings it will actually offer.
+    acct = _get_account(account)
+    _require_gas_balance(acct.operator_addr, total_gas, 0, "operator")
+    return killer_bounty
+
+
+@mcp.tool()
+def act_sequence(steps: list[dict], account: str = "main") -> dict:
+    """Run up to 16 actions in one pipelined burst: feed, liquidate, harvest_start, harvest_stop.
+
+    Steps run in order on consecutive nonces, all signed and broadcast
+    before any receipt is read, so the whole sequence lands within a
+    block or two rather than one block per step. Only step 1 is dry-run
+    — later steps' preconditions are earlier steps' effects, absent at
+    the pending block, so they are the caller's plan and not a checked
+    one. A reverted step consumes its nonce and does not stop the
+    sequence. Each step reports its own terminal state (success,
+    reverted, unconfirmed, not_sent) with receipt fields; liquidate rows
+    carry the decoded kill (as liquidate_kami). Raises only if step 1
+    fails before anything is broadcast.
+
+    Validates before signing (no gas spent on failure): account
+    registered, kamis owned, item balances covering the feed steps,
+    victims' harvests ACTIVE, killers HARVESTING or started earlier in
+    the sequence, gas covering the steps' ceilings.
+
+    Args:
+        steps: Ordered, max 16. All ids int. {"op": "feed", "kami_id",
+            "item_id"} | {"op": "liquidate", "kami_id" (killer),
+            "victim_kami_id"} | {"op": "harvest_start", "kami_ids":
+            [..], "node_index"} | {"op": "harvest_stop", "kami_ids":
+            [..]}.
+    """
+    parsed = _seq_parse(steps)
+    aid = _require_registered_operator(account)
+    plans = [_seq_plan(st) for st in parsed]
+    total_gas = sum(p[4] for p in plans)
+    killer_bounty = _seq_static_validate(parsed, account, aid, total_gas)
+
+    acct = _get_account(account)
+    fns = []
+    for system_id, abi, fn_name, args, _gas, _ck in plans:
+        contract = w3.eth.contract(address=_resolve_system(system_id), abi=abi)
+        fns.append(getattr(contract.functions, fn_name)(*args))
+
+    # The dry run is STEP 1 ONLY, and deliberately so: an eth_call for
+    # step 2 executes against the pending block, where step 1 has not
+    # happened. A dry run of the whole plan would fail correct sequences
+    # and pass wrong ones.
+    _dry_run(fns[0], acct.operator_addr, account=account)
+
+    def _sign_from(start: int, nonce: int) -> list:
+        signed = []
+        for j in range(start, len(parsed)):
+            built = fns[j].build_transaction({
+                "from": acct.operator_addr,
+                "chainId": CHAIN_ID,
+                "nonce": nonce + (j - start),
+                "gas": plans[j][4],
+                **_GAS_PRICE,
+            })
+            signed.append(
+                (j, built, w3.eth.account.sign_transaction(
+                    built, private_key=acct.operator_key))
+            )
+        return signed
+
+    rows: list[dict] = [
+        {"index": i, "op": st["op"], **_seq_step_ids(st), "status": "not_sent"}
+        for i, st in enumerate(parsed)
+    ]
+    builts: dict[int, dict] = {}
+    hashes: dict[int, str] = {}
+
+    # A4. Nonce read ONCE, at `pending`, and every step signed before the
+    # first broadcast. Measured on 2026-08-28 (U-1, account shrike, two
+    # system.kami.use.item feeds at nonces 1513/1514 on one keep-alive
+    # session to one endpoint): both broadcasts were ACCEPTED, no
+    # `account sequence mismatch`, both mined status 1 in blocks
+    # 32678986 and 32678987 — adjacent blocks in the same second — in
+    # 0.974 s wall from first send to second receipt. The rejection path
+    # below is therefore a defensive branch, not the expected one.
+    nonce = w3.eth.get_transaction_count(acct.operator_addr, _NONCE_BLOCK)
+    pending = _sign_from(0, nonce)
+    resent = False
+    while pending:
+        rejected_at: int | None = None
+        for j, built, signed in pending:
+            try:
+                h = w3.eth.send_raw_transaction(signed.raw_transaction)
+            except Exception as e:
+                text = str(e)
+                if any(m in text for m in _SEQ_REJECTION_MARKERS) and not resent:
+                    # Nothing landed for j..K: the node refused the raw
+                    # transaction, so this nonce was never consumed.
+                    rejected_at = j
+                    break
+                # Any other send error, or a second rejection: this step
+                # and every later one are unsent. Do NOT raise —
+                # earlier steps are in flight and must be reported.
+                for k in range(j, len(parsed)):
+                    rows[k]["status"] = "not_sent"
+                    rows[k]["reason"] = text[:300]
+                pending = []
+                rejected_at = None
+                break
+            builts[j] = built
+            hashes[j] = _hex_hash(h)
+            rows[j]["tx_hash"] = hashes[j]
+            rows[j]["status"] = "unconfirmed"
+        else:
+            pending = []
+            continue
+        if rejected_at is None:
+            break
+        # Resend the tail EXACTLY ONCE: wait for the steps that did land,
+        # re-read the nonce, re-sign j..K. A reverted step is never
+        # resent by this path — a revert is not a rejection, it consumed
+        # its nonce and is final (P4).
+        resent = True
+        for k in range(rejected_at):
+            if k in hashes:
+                try:
+                    w3.eth.wait_for_transaction_receipt(hashes[k], timeout=120)
+                except Exception:
+                    pass
+        nonce = w3.eth.get_transaction_count(acct.operator_addr, _NONCE_BLOCK)
+        pending = _sign_from(rejected_at, nonce)
+
+    # A5. Receipts in order, on ONE budget, each caught: a step's
+    # terminal state is its own and is never inferred from a neighbour's.
+    deadline = time.monotonic() + 120 + 10 * len(parsed)
+    for i in range(len(parsed)):
+        if i not in hashes:
+            continue
+        remaining = max(1, int(deadline - time.monotonic()))
+        try:
+            receipt = _await_receipt(
+                hashes[i], builts.get(i), timeout=remaining,
+                account=account, ceiling_key=plans[i][5],
+            )
+        except Exception as e:
+            rows[i].update(_failed_tx_fields(e))
+            reason = getattr(e, "reason", None)
+            if reason:
+                rows[i]["reason"] = reason
+            continue
+        rows[i].update({
+            "status": "success",
+            "tx_hash": _hex_hash(receipt.transactionHash),
+            "block": receipt.blockNumber,
+            "gas_used": receipt.gasUsed,
+        })
+        if parsed[i]["op"] == "liquidate":
+            killer = parsed[i]["kami_id"]
+            decoded = _decode_kill(
+                receipt, parsed[i]["victim_kami_id"], killer,
+                killer_bounty.get(killer),
+            )
+            after = decoded.pop("killer_bounty_after", None)
+            if after is not None:
+                # The sequence rule: this step's post-value is the next
+                # liquidate's pre-value. Verified against the 2026-08-28
+                # sweep (see _decode_kill). `recoil` is NOT reported
+                # here — hp_before for step i would have to have been
+                # read before step i-1 landed, which never happened.
+                killer_bounty[killer] = after
+            rows[i].update(decoded)
+
+    landed = sum(1 for r in rows if r["status"] == "success")
+    sent = sum(1 for r in rows if r["status"] != "not_sent")
+    return {
+        "status": "complete" if landed == len(rows) else "partial",
+        "steps": rows,
+        "sent": sent,
+        "landed": landed,
+        "account": account,
+    }
+
 
 
 def _send_gacha_reveal_tx(account: str, ids: list[int]) -> dict:
@@ -9810,7 +10480,8 @@ def newbie_vendor_buy(
 # ---------------------------------------------------------------------------
 
 _ACT_TOOLS = {
-    "accept_quest", "allocate_skills", "auction_buy", "burn_items",
+    "accept_quest", "act_sequence", "allocate_skills", "auction_buy",
+    "burn_items",
     "buy_kami", "cancel_kami_listing", "cancel_trade", "cast_item",
     "chat_send",
     "complete_all_trades", "complete_quest", "complete_trade",
@@ -9838,7 +10509,7 @@ _PERCEIVE_TOOLS = {
     "lens_items", "lens_kami", "lens_killers", "lens_leaderboard",
     "lens_market", "lens_merchant", "lens_node", "lens_party",
     "lens_phase", "lens_portal", "lens_quests", "lens_room",
-    "lens_roster",
+    "lens_roster", "lens_skills",
     "lens_status", "lens_trades", "lens_transfers",
     # native holdouts (see EXPOSURE.md for serving path + migration note)
     "check_quest_completable", "get_expected_objective",
@@ -9943,7 +10614,18 @@ _finalize_descriptions()
 # daemon passed 0.5.0. The two standing sentences were tightened in the
 # same change (-711) and that reclaim was spent on the capability
 # before the raise was asked for, not banked against it.
-REGISTRY_MASS_BUDGET = 72_000
+#
+# 72,000 -> 73,000 on 2026-08-28, by operator ruling R-2, for the named
+# capability *pipelined action sequences* (act_sequence). The trim pass
+# ran first and was measured before the raise was asked for: it
+# reclaimed 288 characters from a cross-reference that restated another
+# tool's description, two Args glosses that restated a schema type with
+# no mechanic attached, five numeric defaults the schema already
+# carries, and one Args gloss the tool's own body already states. That
+# is all the slack this registry had — the remaining repetition is the
+# two standing sentences above, one of which is a handling rule for
+# untrusted player data and is not a trim target at any budget.
+REGISTRY_MASS_BUDGET = 73_000
 
 
 def registry_mass() -> int:

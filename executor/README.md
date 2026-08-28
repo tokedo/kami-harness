@@ -188,7 +188,8 @@ owner wallet (noted per tool).
 | `level_and_allocate_batch(targets, account, allow_partial)` | Batch level-up and skill allocation across many kamis in one call. |
 | `level_to(kami_id, target_level, account, allow_partial)` | Level up a kami repeatedly until it reaches target_level. |
 | `level_up_kami(kami_id, account)` | Level up a kami if it has enough XP. Grants 1 skill point. |
-| `liquidate_kami(victim_kami_id, killer_kami_id, account)` | Liquidate another player's harvesting kami (system.harvest.liquidate). |
+| `liquidate_kami(victim_kami_id, killer_kami_id, account)` | Liquidate another player's harvesting kami (system.harvest.liquidate). Returns the decoded kill: victim_gross, spoils, attacker_hp_after, cooldown_until, recoil. |
+| `act_sequence(steps, account)` | Run up to 16 actions (feed / liquidate / harvest_start / harvest_stop) in one pipelined burst: consecutive nonces, broadcast before any receipt is read, a terminal state reported per step. |
 | `list_kami(kami_id, price_eth, expiry, account)` | List a kami for sale on KamiSwap (ETH price). Operator wallet. |
 | `listing_buy(merchant_index, item_indices, amounts, account)` | Buy items from an NPC merchant. Must be in the merchant's room. |
 | `move_to_room(room_index, account)` | Move the account to a different room. Costs stamina. |
@@ -276,6 +277,7 @@ serves them at this pin: `quest_state` and `check_quest_completable`
 | `lens_quests(account_index, full)` | Quest registry; with account_index, that account's accepted quests and completion state. |
 | `lens_room(room_index, full)` | Room occupancy: its exits, and the accounts in it — first 50 rows of {index, name, kamiCount}, with accountsTotal/accountsServed. |
 | `lens_roster(account_index, stats)` | Compact roster: one line per kami (index, state, HP) plus where the account is. Uncapped, until stats caps it. |
+| `lens_skills(kami_index)` | Skill registry; with a kami, that kami's unspent points and invested skills. |
 | `lens_status()` | kami-lens daemon status: sync state, live block, blocks behind chain head (blockLag), stream health, degraded flags, per-feed service health, and the daemon's version and configuration. |
 | `lens_trades(account_index, full)` | Open chain trades, first 50 (openTotal/openServed); with account_index, that account's trade history and open offers. |
 | `lens_transfers(account_index)` | Item transfer history for an account. |

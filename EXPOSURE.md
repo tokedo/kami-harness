@@ -20,6 +20,7 @@ rows below go missing.
 | `lens_account` | PERCEIVE | account identity, room, stamina, roster; opt-in identity-only form (no roster) | official web client account panel | kami-lens daemon socket | 2026-07-23 |
 | `lens_party` | PERCEIVE | one account's kamis with vitals (first 50; opt-in full list, opt-in stat block) | official web client party view | kami-lens daemon socket | 2026-07-23 |
 | `lens_roster` | PERCEIVE | one line per kami (index, state, HP) + the account's room; opt-in stat block, which caps the list | official web client party sidebar | kami-lens daemon socket | 2026-08-25 |
+| `lens_skills` | PERCEIVE | skill registry; one kami's unspent points + invested skills | official web client skill tree | kami-lens daemon socket | 2026-08-28 |
 | `lens_node` | PERCEIVE | node occupancy (first 50); opt-in occupant vitals + liquidation preview, opt-in full row list, opt-in stat block, opt-in eligible-only filter | official web client node/liquidation view | kami-lens daemon socket | 2026-07-23 |
 | `lens_room` | PERCEIVE | room occupancy (first 50 accounts + kami counts; the kamis themselves on the full form) | official web client room view | kami-lens daemon socket | 2026-07-23 |
 | `lens_inventory` | PERCEIVE | any account's item balances | official web client inventory panel | kami-lens daemon socket | 2026-07-23 |
@@ -65,7 +66,6 @@ rows below go missing.
 | quest-status-natives | superseded | get_active_quests and get_quest_status left the surface in the 2.0.0 budget trim (2026-07-23, pre-approved): lens_quests and quest_state serve the same reads |
 | windowed-killers | deferred | `lens_killers` is the all-time ranking; the time-windowed variant is upstream ApiKey-gated at lens pin `8b74007` and is not served |
 | room-exit gates | served, not as a tool | room-exit access conditions reach the surface only as `travel_to_room`'s planning and refusals (`catalogs/room-gates.csv`, extracted from the lens `room` query during the 3.4.0 build, at the then-current pin `f07b578`; the gate data is chain state and unchanged at `8b74007`). No tool answers "what gates room N" on its own; `lens_room` serves the daemon's `exits[].gates` verbatim for a caller that wants the live form |
-| lens-skills | deferred | the lens registry serves a `skills` query from 0.5.1 (0.5.2 adds no query; the sets are identical) (the skill registry, and a named kami's unspent points + taken skills); no wrapper is served at this version, so the harness is one wrapper short of the daemon's query set — the gap is here rather than silent. `lens_kami`/`lens_roster` serve the unspent-point COUNT (`skillPoints`), never the skill list |
 
 ## Error classes a READ can raise
 
