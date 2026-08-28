@@ -9699,10 +9699,18 @@ def liquidate_kami(
 # vocabulary, no general no-wait mode (operator ruling R-1, 2026-08-28).
 # ---------------------------------------------------------------------------
 
-# Operator ruling R-3 (2026-08-28). The cap is the batch-cap reason
-# again: one tool call is a bounded, reportable unit, and auto-splitting
-# would break the plan/act accounting an agent keeps.
-_ACT_SEQUENCE_MAX_STEPS = 16
+# Operator ruling R-3, RE-RULED 2026-08-28 to the MEASURED per-sender
+# mempool acceptance: 16 -> 64. The reason the cap exists is unchanged —
+# one tool call is a bounded, reportable unit, and auto-splitting would
+# break the plan/act accounting an agent keeps — but 16 was never a
+# chain fact, and the number now is one. Ladder on account shrike, 32 /
+# 48 / 64 consecutive feed nonces in one batch: every rung accepted with
+# ZERO rejections, every transaction mined, 64 of them inside 3 seconds
+# of chain time at nine per block in blocks 21% full. The wall was not
+# reached — the ceiling is above 64 — and 64 is what was measured, so 64
+# is what is ruled. Evidence:
+# docs/measurements/mempool-acceptance-2026-08-28.md.
+_ACT_SEQUENCE_MAX_STEPS = 64
 
 # A1: the vocabulary is CLOSED. An op outside this table, or a step
 # missing one of its fields, is a pre-send refusal naming the step index
@@ -10060,7 +10068,7 @@ def _seq_broadcast(pending: list) -> tuple[str, list[tuple[int, bool, str]]]:
 
 @mcp.tool()
 def act_sequence(steps: list[dict], account: str = "main") -> dict:
-    """Run up to 16 actions in one pipelined burst: feed, liquidate, harvest_start, harvest_stop.
+    """Run up to 64 actions in one pipelined burst: feed, liquidate, harvest_start, harvest_stop.
 
     Steps run in order on consecutive nonces, all signed and broadcast
     before any receipt is read, so the whole sequence lands within a
@@ -10079,7 +10087,7 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
     the sequence, gas covering the steps' ceilings.
 
     Args:
-        steps: Ordered, max 16. All ids int. {"op": "feed", "kami_id",
+        steps: Ordered, max 64. All ids int. {"op": "feed", "kami_id",
             "item_id"} | {"op": "liquidate", "kami_id" (killer),
             "victim_kami_id"} | {"op": "harvest_start", "kami_ids":
             [..], "node_index"} | {"op": "harvest_stop", "kami_ids":

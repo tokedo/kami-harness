@@ -189,7 +189,7 @@ owner wallet (noted per tool).
 | `level_to(kami_id, target_level, account, allow_partial)` | Level up a kami repeatedly until it reaches target_level. |
 | `level_up_kami(kami_id, account)` | Level up a kami if it has enough XP. Grants 1 skill point. |
 | `liquidate_kami(victim_kami_id, killer_kami_id, account)` | Liquidate another player's harvesting kami (system.harvest.liquidate). Returns the decoded kill: victim_gross, spoils, attacker_hp_after, cooldown_until, recoil. |
-| `act_sequence(steps, account)` | Run up to 16 actions (feed / liquidate / harvest_start / harvest_stop) in one pipelined burst: consecutive nonces, broadcast before any receipt is read, a terminal state reported per step. |
+| `act_sequence(steps, account)` | Run up to 64 actions (feed / liquidate / harvest_start / harvest_stop) in one pipelined burst: consecutive nonces, one JSON-RPC batch broadcast before any receipt is read, a terminal state reported per step. The cap is the measured per-sender mempool acceptance (`docs/measurements/mempool-acceptance-2026-08-28.md`). |
 | `list_kami(kami_id, price_eth, expiry, account)` | List a kami for sale on KamiSwap (ETH price). Operator wallet. |
 | `listing_buy(merchant_index, item_indices, amounts, account)` | Buy items from an NPC merchant. Must be in the merchant's room. |
 | `move_to_room(room_index, account)` | Move the account to a different room. Costs stamina. |

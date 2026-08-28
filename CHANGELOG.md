@@ -29,6 +29,145 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [3.6.0] — the strike that fits in one round-trip
+
+MINOR. **104 tools** (ACT 56 / PERCEIVE 32 / OUTSOURCE 9 / META 7),
+registry mass **72,857** against the 73,000 budget — unchanged, because
+the only description edit swapped one two-digit number for another —
+`tools_hash` `d4289f9e...c446` (Python 3.13), `SCHEMA_VERSION` **3.6.0**.
+No tool added, removed or renamed; one tool's contract widens and two
+result fields stop being wrong.
+
+Source: Anatoly's fifth and sixth play sessions on 3.5.0 (2026-08-28, 20
+kills, deploy → kill in 3 blocks) and the report they produced, which
+asked three questions this release answers with measurements rather than
+judgement.
+
+### The step cap is 64, because 64 is what the chain accepted
+
+`act_sequence` takes up to **64** steps, up from 16. The cap is operator
+ruling R-3 and 16 was never a chain fact — it was a bounded-reportable-
+unit argument with no number attached to it. 64 is the number a ladder
+returned.
+
+Measured 2026-08-28 on account shrike, feed-only (Energy Drink 11409 on
+kami 12649), driving the shipped internals with the cap raised only
+inside the measuring process
+(`executor/tests/live/measure_mempool_acceptance.py`, table in
+`docs/measurements/mempool-acceptance-2026-08-28.md`):
+
+| steps | accepted | rejected | batch call | blocks | chain time | gas |
+|--:|--:|--:|--:|--:|--:|--:|
+| 32 | 32 | **0** | 0.500 s | 5 | 2 s | 34,406,592 |
+| 48 | 48 | **0** | 0.611 s | 6 | 2 s | 51,609,888 |
+| 64 | 64 | **0** | 2.354 s | 8 | 3 s | 68,813,184 |
+
+Zero rejections at every rung; every transaction mined successfully; the
+64-step rung landed inside **3 seconds of chain time**. The ceiling was
+NOT found — acceptance stops somewhere above 64, and the drink budget
+(152, of which 148 were spent) left no room for a higher rung. The cap
+is set to the largest number there is evidence for, not past it.
+
+Two facts fell out of the same runs. **Nine of one sender's transactions
+land in one block**, not the four the play session had seen: every rung
+filled three transactions into the block its broadcast arrived in, then
+nine per block, in blocks holding nothing but those transactions at
+9,676,854 gas of a 45,000,000 limit — 21% full, so nine is a per-block
+ceiling in the node and not gas pressure. And **wall time is not chain
+time**: the 64-step rung's 16 s wall figure is the harness collecting
+receipts, one poll per step, after the broadcast; on chain it was over in
+three seconds.
+
+Cost of the ladder: 148 Energy Drinks and 159,439,711 gas ≈ **0.0004
+ETH**. *Operator note, 2026-08-28: Energy Drinks are crafted and scarce.
+Any future feed-path measurement must use the cheapest consumable on
+hand, not this one.*
+
+### One round-trip, not one per step
+
+`act_sequence` broadcast its pre-signed tail one `eth_sendRawTransaction`
+HTTP call at a time. The play session measured what that costs: ~0.42 s
+per step against a 0.27 s bare round-trip, so a 90-step strike would have
+taken 38 seconds — longer than the 30–60 s a node watcher takes to react.
+Raising the cap alone would not have delivered a burst; the sender, not
+the chain, was the pace-setter.
+
+The whole tail now goes out as **one JSON-RPC batch — one HTTP body, one
+round-trip** — over the provider's existing keep-alive session. Measured
+against the same endpoint: 32 items in 0.500 s where serial would have
+taken ~13 s, 64 items in 2.354 s where serial would have taken ~27 s. A
+16- and 32-item body costs 0.25–0.32 s, the same as a single bare
+`eth_blockNumber` call.
+
+web3 v7's own `w3.batch_requests()` cannot carry this: the library lists
+`eth_sendRawTransaction` in `RPC_METHODS_UNSUPPORTED_DURING_BATCH` and
+refuses it in the `Method` descriptor before a request is built, whatever
+the endpoint supports. The provider's `make_batch_request` is the same
+JSON-RPC array over the same session without that guard, and the pinned
+endpoint serves it. A test pins the refusal so a web3 upgrade that lifts
+it is noticed rather than silently ignored.
+
+**Results map back to steps by nonce, never by position.** The batch's
+JSON-RPC ids ARE the nonces, so a node that reorders, drops or duplicates
+a response cannot shift a result onto the wrong step; a nonce with no
+response in the reply is `not_sent`, not inferred. Rejection semantics
+are unchanged: outcomes are read in step order, the first
+rejection-marker item still triggers wait / re-read the nonce / re-sign
+and re-broadcast the tail once, any other per-item error still marks that
+step and the tail `not_sent`, and a reverted step is still never resent.
+Serial sending survives only as a transport fallback — if the batch CALL
+fails it is retried once, then the tail goes out one send at a time and
+those rows carry `broadcast: "serial"`.
+
+### The decoded kill stops reading live
+
+`attacker_hp_after` and `cooldown_until` were read LIVE at decode time.
+That is correct for a single `liquidate_kami` — nothing lands after it —
+and wrong for every row of a sequence but the last, because the rest of
+the burst is landing while the decoder reads. On the 32682485–496 burst,
+3.5.0 reported `cooldown_until` **1787938453 on all four kills**:
+
+| kill block | 3.5.0 reported | the receipt says |
+|---|--:|--:|
+| 32682485 | 1787938453 | **1787938418** |
+| 32682490 | 1787938453 | **1787938421** |
+| 32682494 | 1787938453 | **1787938422** |
+| 32682496 (last) | 1787938453 | **1787938453** ✓ |
+
+Both fields now come from the kill receipt's own `ComponentValueSet`
+writes on the killer's kami entity — `component.stat.health` (a packed
+Stat of four big-endian signed 64-bit fields, `sync` last) and
+`component.Time.Next` — through the same log walk that already served
+`spoils`, with both component ids derived as keccak of the registered
+name exactly as `component.value` is. **No live read happens inside a
+decode on either path**, and the single-call `liquidate_kami` switches to
+the receipt too (both writes were present on 8 of 8 kill receipts
+examined), which also saves it two round-trips; it keeps its pre-send
+`hp_before`, so `recoil` is still a difference and not a guess.
+
+The pinned RPC is not archival, so the proof is the LAST kill of a burst,
+where a live read has nothing landing after it and is the one correct
+read: there the receipt-side value is 1787938453, exactly what 3.5.0
+returned. A component write missing from a receipt yields `null` plus a
+`decode_error` naming that component, never a substituted read.
+
+### Tests
+
+701 pass (the 680 of 3.5.0, unchanged, plus 21 new in
+`test_h360_families.py`), Python 3.13.12. The 3.5.0 sequence assertions
+all still run — the scripted fake chain now answers a batch item by item
+off the same script, so the rejection semantics are asserted across the
+new transport rather than around it. Fixtures: the
+`liquidation_32677500` series was re-pulled with its health and
+Time.Next writes (its `component.value` logs byte-identical to the 3.5.0
+recording), and `burst_32682485` is new — the four landed kills of the
+burst that exposed the live-read bug.
+
+Not in this release, on record: the opt-in skip of a liquidate step whose
+victim went INACTIVE before the sequence ran. It needs a new optional
+parameter, which is description text, which is a budget raise. It stays
+an open item.
+
 ## [3.5.0] — pipelined action sequences, the decoded kill, lens_skills
 
 MINOR. **104 tools** (ACT 56 / PERCEIVE 32 / OUTSOURCE 9 / META 7),

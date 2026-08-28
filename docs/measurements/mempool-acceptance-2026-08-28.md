@@ -2,8 +2,13 @@
 
 What the node accepts from ONE sender in one broadcast, measured rather
 than assumed. This is the number the step cap (`_ACT_SEQUENCE_MAX_STEPS`,
-operator ruling R-3, 16 today) is re-ruled against; the cap is NOT
-changed by this document and nothing here recommends a number.
+operator ruling R-3, 16 at the time of measuring) is re-ruled against;
+the cap is NOT changed by this document and nothing here recommends a
+number.
+
+> **Outcome.** Anatoly re-ruled R-3 to **64** on 2026-08-28, on this
+> table: the largest rung measured, accepted whole with no rejections,
+> and not the ceiling — which was not reached. Shipped in 3.6.0.
 
 **Method.** `executor/tests/live/measure_mempool_acceptance.py` drives
 the shipped `act_sequence` internals — the same validate / sign /

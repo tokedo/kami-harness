@@ -408,16 +408,25 @@ def test_a_second_rejection_reports_the_tail_not_sent(seq_env):
     assert "sequence mismatch" in out["steps"][1]["reason"]
 
 
-def test_cap_is_sixteen_and_refuses_rather_than_splitting(seq_env):
+def test_cap_is_the_measured_number_and_refuses_rather_than_splitting(
+    seq_env,
+):
+    """R-3, re-ruled 2026-08-28 from 16 to the measured acceptance, 64.
+
+    The refusal is still a refusal — the cap moved, the no-auto-split
+    rule did not.
+    """
+    assert server._ACT_SEQUENCE_MAX_STEPS == 64
     with pytest.raises(server.PreTxValidationError) as e:
-        server.act_sequence(_steps(17), account="testa")
-    assert "at most 16" in str(e.value)
+        server.act_sequence(_steps(65), account="testa")
+    assert "at most 64" in str(e.value)
     assert "not auto-split" in str(e.value)
-    # 16 is allowed.
-    outcomes = ["ok"] * 16
+    # 64 is allowed, and goes out as ONE batch.
+    outcomes = ["ok"] * 64
     chain = FakeChain(outcomes)
     _install(seq_env, chain, outcomes)
-    assert server.act_sequence(_steps(16), account="testa")["landed"] == 16
+    assert server.act_sequence(_steps(64), account="testa")["landed"] == 64
+    assert chain.batches == [64]
 
 
 def test_unknown_op_and_missing_field_name_the_step_index(seq_env):
@@ -598,7 +607,7 @@ def test_act_sequence_description_states_the_contract():
         "block or two",
         "Only step 1 is dry-run",
         "does not stop the sequence",
-        "max 16",
+        "max 64",
         "not_sent",
     ]:
         assert phrase in desc, phrase

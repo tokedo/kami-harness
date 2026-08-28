@@ -111,7 +111,7 @@ this registry says *what holds*, not *how it is built*.
 - The MCP `initialize` handshake carries it in the `instructions` field
   as the exact string `tools_hash=<64 hex chars>`.
 - Value at this ref (Python 3.13):
-  `a4e9aaf57fa193d650b98660f5a68e11ae34f79168273e77e1f4fcdab37c4c63`.
+  `d4289f9ee1091f2f81dfdcb3a25907631cd6a66ef90c10deb071cd92864bc446`.
 - The MCP `initialize` handshake additionally carries
   `schema_version=<SCHEMA_VERSION>` and `error_snippets=<on|off>` in the
   same `instructions` field, space-separated after the hash. The
@@ -122,7 +122,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.5.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.6.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -185,7 +185,8 @@ ever reported as another:
 - **A pipelined sequence has K terminal states, one per step, and a
   call-level status that is not one of them.** `act_sequence` signs all
   K steps on consecutive nonces read ONCE at `pending` and broadcasts
-  them in order before reading any receipt, so the three-state rule
+  the whole tail in ONE round-trip before reading any receipt, so the
+  three-state rule
   above binds each STEP and never the call: every step is reported in
   `steps[]` with its own `status` — `success`, `reverted`,
   `unconfirmed`, or `not_sent` — and its own receipt evidence. The call
@@ -211,8 +212,44 @@ ever reported as another:
     is re-signed and broadcast once more. A second rejection reports
     the tail `not_sent`. A rejection is not a revert and the two are
     never merged.
-  - **Cap 16 steps**, refused rather than auto-split — one tool call is
+  - **Cap 64 steps**, refused rather than auto-split — one tool call is
     one reportable unit, the same reason the batch caps are not split.
+    64 is the MEASURED per-sender mempool acceptance, not a judgement
+    call: operator ruling R-3 of 2026-08-28 re-ruled it from 16 to the
+    number the ladder in
+    `docs/measurements/mempool-acceptance-2026-08-28.md` returned. Feed-
+    only rungs of 32, 48 and 64 consecutive nonces from account shrike,
+    each broadcast as one batch, were accepted with **zero rejections**
+    and mined in full; the 64 rung landed inside **3 seconds of chain
+    time**. The ceiling was NOT reached — acceptance stops somewhere
+    above 64 — so 64 is the largest number this repository has evidence
+    for, and the cap is not raised past its evidence.
+  - **The tail is broadcast as ONE JSON-RPC batch**: a single HTTP body
+    of `eth_sendRawTransaction` calls over the provider's existing
+    session, not one call per step. web3 v7's `w3.batch_requests()`
+    cannot carry it — the library lists `eth_sendRawTransaction` in
+    `RPC_METHODS_UNSUPPORTED_DURING_BATCH` and refuses it in the Method
+    descriptor before a request is built, whatever the endpoint
+    supports — so the provider's own `make_batch_request` is used, which
+    is the same array over the same session. **The batch's JSON-RPC ids
+    ARE the nonces**, so every response is attributed to its step by
+    nonce and never by position: a node that reorders, drops or
+    duplicates a response cannot shift a result onto the wrong step, and
+    a nonce with no response in the reply is `not_sent`, never inferred.
+    Serial sending survives ONLY as a transport fallback — if the batch
+    CALL fails (a transport failure, not a refused transaction) it is
+    retried once and only then does the tail go out one send at a time,
+    with those rows carrying `broadcast: "serial"`. Rejection semantics
+    are unchanged by the transport: the outcomes are read in step order
+    and the first refusal stops the tail exactly as the serial loop did.
+  - **Chain fact (2026-08-28): nine of one sender's transactions land in
+    one block.** Every rung of the ladder filled its blocks the same
+    way — three in the block the broadcast arrived mid-way through, then
+    nine per block. Those blocks carried nothing but that sender's
+    transactions, at 9,676,854 gas against a 45,000,000 block limit
+    (21% full), so nine is not gas pressure and not competition for
+    space; it is a per-block ceiling in the node. The earlier
+    play-session observation of four in one block was a floor.
   - Measured before the design was fixed (U-1, 2026-08-28, account
     shrike): two `system.kami.use.item` feeds signed at nonces 1513 and
     1514 and broadcast back-to-back on one keep-alive session to one
@@ -223,6 +260,25 @@ ever reported as another:
     above is a defensive branch, not the expected one. The observation
     also bounds the claim: a burst lands within a block or two, not
     necessarily in ONE block, and the tool description says that.
+  - **A decoded kill is decoded from its OWN receipt, on both paths.**
+    `victim_gross`, `spoils`, `attacker_hp_after` and `cooldown_until`
+    all come from that transaction's `ComponentValueSet` writes —
+    `component.value` for the two bounty figures, `component.stat.health`
+    (a packed Stat of four big-endian signed 64-bit fields, `sync` last)
+    and `component.Time.Next` on the KILLER's kami entity for the other
+    two, each component identified as keccak of its registered name. **No
+    live read happens inside a decode**, on the sequence path or the
+    single-call one. Reading the killer's state live at decode time is
+    wrong by construction inside a burst, because the later steps are
+    landing while the decoder reads: on the 32682485-496 burst that
+    reported `cooldown_until` 1787938453 on all four kills where the
+    receipts say 1787938418, 1787938421, 1787938422 and 1787938453. The
+    pinned RPC is not archival, so the check is the LAST kill of a burst,
+    where a live read has nothing landing after it — and there the two
+    agree exactly. A component write absent from a receipt yields `null`
+    plus a `decode_error` naming that component, never a substituted
+    read. `recoil` still needs the single-call path's pre-send
+    `hp_before` and is still omitted on a sequence row.
 - Multi-transaction tools raise `BatchTxError` when any item failed. The
   error message carries **every** per-item outcome, successes included,
   and states that successful items are final on-chain and must not be
@@ -601,7 +657,16 @@ writer; no other module opens the keys file or the Keychain.
 | A reverted step does not stop the sequence and is never resent | `test_h350_families.py::test_a_reverted_step_does_not_stop_the_sequence`, `::test_a_reverted_step_is_never_resent` |
 | A broadcast-rejected tail is resent exactly once; a second rejection reports `not_sent` | `test_h350_families.py::test_a_broadcast_rejection_resends_the_tail_exactly_once`, `::test_a_second_rejection_reports_the_tail_not_sent` |
 | A sequence reads its nonce ONCE at `pending` and signs every step before the first broadcast | `test_h350_families.py::test_nonce_read_once_and_all_signed_before_first_broadcast` (the fake chain asserts the `pending` block identifier) |
-| `act_sequence` refuses more than 16 steps rather than splitting them | `test_h350_families.py::test_cap_is_sixteen_and_refuses_rather_than_splitting` |
+| `act_sequence` refuses more than 64 steps rather than splitting them, and 64 goes out as ONE batch | `test_h350_families.py::test_cap_is_the_measured_number_and_refuses_rather_than_splitting` (asserts the constant is 64, that 65 is refused with "at most 64", and that the 64-step call made exactly one batch POST) |
+| The whole pre-signed tail is broadcast in ONE round-trip | `test_h360_families.py::test_the_whole_tail_goes_out_in_one_round_trip` (16 steps, one POST) |
+| Broadcast results are mapped back to steps BY NONCE, never by position: the batch's JSON-RPC ids are the nonces, a reordered reply still lands on the right steps, and a nonce with no response is `not_sent` | `test_h360_families.py::test_the_batch_ids_are_the_nonces`, `::test_responses_returned_out_of_order_still_land_on_their_own_steps`, `::test_a_nonce_missing_from_the_response_is_not_sent_not_guessed` |
+| A batch CALL failure is retried once as a batch and only then falls back to serial sending, which says so in the row | `test_h360_families.py::test_a_transport_failure_is_retried_once_as_a_batch`, `::test_two_transport_failures_fall_back_to_serial_and_say_so`, `::test_a_serial_fallback_still_stops_the_tail_at_a_refusal` |
+| A rejected tail is re-broadcast as a second batch, and the provider's request-id counter is left as it was found | `test_h360_families.py::test_a_rejected_tail_is_re_broadcast_as_a_second_batch`, `::test_the_provider_id_counter_is_restored_after_a_batch` |
+| web3's own batch API still refuses `eth_sendRawTransaction`, which is why the provider's `make_batch_request` is used | `test_h360_families.py::test_web3s_own_batch_api_cannot_carry_this_and_that_is_why` (fails loudly if a web3 upgrade lifts the ban) |
+| `attacker_hp_after` and `cooldown_until` come from the kill receipt's own writes on the killer kami entity, so each row of a burst carries its OWN values; no live read happens inside a decode | `test_h360_families.py::test_series_rows_decode_their_own_hp_and_cooldown`, `::test_the_burst_rows_carry_FOUR_DIFFERENT_cooldowns`, `::test_no_live_read_happens_inside_a_decode` (the 32682485-496 burst, where 3.5.0 reported one live-read value on all four kills) |
+| The receipt-side values are the true ones where a live read is known correct — the LAST kill of a burst | `test_h360_families.py::test_the_last_kill_of_the_burst_is_the_proof` (receipt 1787938453 = the live read 3.5.0 returned there; the pinned RPC is not archival, so this is the check that is available) |
+| A component write missing from a receipt is null plus a `decode_error` naming that component, never a substituted read | `test_h360_families.py::test_a_missing_health_write_is_null_and_names_the_component`, `::test_a_missing_cooldown_write_is_null_and_names_the_component` |
+| The health Stat is decoded as four big-endian SIGNED 64-bit fields with `sync` last, and both component ids are keccak of the registered name | `test_h360_families.py::test_the_stat_word_is_four_signed_64_bit_fields_and_sync_is_last`, `::test_component_ids_are_the_keccak_of_the_registered_name` |
 | Whole-sequence static validation counts feed steps against the item balance and accepts a killer started by an earlier step | `test_h350_families.py::test_item_balance_is_checked_against_the_NUMBER_of_feed_steps`, `::test_a_killer_started_by_an_earlier_step_passes_validation` |
 | Every step offers a FIXED table ceiling, never an estimate, and the gas gate sums them | `test_h350_families.py::test_ceilings_are_fixed_per_op_and_never_estimated`, `::test_gas_gate_sums_every_step` |
 | The decoded kill reproduces the oracle: `victim_gross` = the max non-zero write to the VICTIM harvest entity, `spoils` = the LAST write to the KILLER's minus its pre-send value | `test_h350_families.py::test_victim_gross_equals_the_oracle_amount`, `::test_spoils_is_the_last_killer_write_minus_the_pre_value`, `::test_the_sequence_rule_chains_across_the_whole_sweep` (four recorded receipts from the 2026-08-28 sweep; the chain closes on the harvest_stop that drained 3,217) |

@@ -69,9 +69,12 @@ best-effort replay reason), and an unconfirmed transaction raises with
 its hash rather than guessing. A returned result never carries
 `status="reverted"`. Examples: `harvest_start`, `travel_to_room`,
 `craft_item`, `create_trade`, `complete_quest`, `liquidate_kami`,
-`level_and_allocate_batch`. `act_sequence` runs up to 16 of them as
-one pipelined burst — signed on consecutive nonces and broadcast
-without waiting for receipts — and reports a terminal state per step.
+`level_and_allocate_batch`. `act_sequence` runs up to 64 of them as
+one pipelined burst — signed on consecutive nonces and broadcast in a
+single JSON-RPC batch without waiting for receipts — and reports a
+terminal state per step. The cap is the measured per-sender mempool
+acceptance (`docs/measurements/mempool-acceptance-2026-08-28.md`), not
+a judgement call.
 
 **PERCEIVE — 32 tools.** World-state reads. They sign nothing and change
 no remote state. 25 of them are thin wrappers over the local
@@ -286,7 +289,7 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`3.5.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
+Current: **`3.6.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
 reads served as thin `kami-lens` wrappers with verbatim envelope
 pass-through; every tool class-tagged ACT / PERCEIVE / OUTSOURCE /
 META; three non-conflatable transaction terminal states (a confirmed
