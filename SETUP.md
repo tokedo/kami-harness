@@ -33,21 +33,13 @@ Kamigotchi perception and action as tools; any MCP client can drive it.
   transactions through the `MAINNET_RPC_URL` endpoint; it is part of the
   environment definition and is recorded in run manifests, and the
   server fails at startup when it is unset.
-- **kami-lens**: world-state reads (the 31 PERCEIVE tools) are answered
-  by a **local** [kami-lens](https://github.com/tokedo/kami-lens)
+- **kami-lens**: world-state reads (25 of the 32 PERCEIVE tools) are
+  answered by a **local** [kami-lens](https://github.com/tokedo/kami-lens)
   daemon that you run yourself — there is no hosted read service. It is
   a Node.js daemon and ships a Docker Compose sample; you need one of
-  Node.js 20+ or Docker. Set it up in step 7. Without it, PERCEIVE
-  tools raise `LensUnavailableError` and the rest of the surface is
+  Node.js 20+ or Docker. Set it up in step 7. Without it, those tools
+  raise `LensUnavailableError` and the rest of the surface is
   unaffected.
-- **Kamibots account** (optional): needed only to delegate standing
-  strategies to the Kamibots service (the 9 OUTSOURCE tools). The
-  client calls `register_kamibots(account=...)`, which signs with the
-  owner key and provisions an API key automatically; starting a
-  strategy additionally requires the explicit operator-key escrow step
-  `kamibots_enable_strategies`. Every world-state read but one comes
-  from kami-lens; `get_scavenge_droptable` still reads node metadata
-  from this service (SPEC.md D2, deviation X2).
 
 ## 2. Clone the repo
 
@@ -103,6 +95,14 @@ consumes is reported as taken by a transaction "not signed by this
 harness", and a tail it left armed behind a gap is not drained until a
 later send reaches it. Mount the directory on a volume to keep those
 guarantees.
+
+### The call time box
+
+Every served call fits a wall-clock box, `KAMI_CALL_BUDGET_S` seconds
+(default 90) — a server setting, read at startup, not a tool parameter.
+A loop tool whose box is spent stops at a step boundary and
+returns what it did, with `time_boxed: true` and `remaining` (what was
+not attempted). The value is stated in the initialize `instructions`.
 
 ## 5. Configure the public roster (in the repo)
 
@@ -160,24 +160,24 @@ outside the client's tool surface.
 
 ## 7. Install and run kami-lens (required for world-state reads)
 
-24 of the 31 PERCEIVE tools are thin wrappers over a **local**
+25 of the 32 PERCEIVE tools are thin wrappers over a **local**
 kami-lens daemon — one socket request each, passed straight back to the
 caller. The other 7 read the chain directly (or, for
-`get_scavenge_droptable`, the Kamibots node endpoint). Until the daemon
-is running, the 24 raise
+`get_expected_objective`, the local quest catalog). Until the daemon
+is running, the 25 raise
 `LensUnavailableError` — they never fall back to a hosted service and
-never return an empty result in its place. ACT, OUTSOURCE, and META
+never return an empty result in its place. ACT and META
 tools do not depend on it.
 
 This server version is built against kami-lens release **0.5.3**, pinned
-at commit `8b74007` and declared in [`SPEC.md`](SPEC.md) D1 — the one
+at commit `9488894` and declared in [`SPEC.md`](SPEC.md) D1 — the one
 place that pin is stated. kami-lens is not published
 to npm or a container registry, so build it from the repository:
 
 ```bash
 git clone https://github.com/tokedo/kami-lens
 cd kami-lens
-git checkout 8b74007        # the pin this server version is built against
+git checkout 9488894        # the pin this server version is built against
 npm install && npm run build
 node dist/cli.js daemon      # long-running: sync daemon + query socket
 ```
@@ -317,18 +317,6 @@ lens_party(account_index=<index>)     # PERCEIVE: your kamis with full vitals
 If `lens_status()` errors instead of answering, the daemon from step 7
 is not reachable — no other read will work until it is.
 
-Only if you intend to delegate standing strategies to Kamibots:
-
-```
-register_kamibots(account="main")          # OUTSOURCE: owner-signed, provisions API key
-kamibots_enable_strategies(account="main") # OUTSOURCE: escrows the OPERATOR key
-get_tier(account="main")                   # OUTSOURCE: tier, tax rate, slots
-```
-
-The escrow step hands the operator private key to a third-party service
-that then signs with it; read `kamibots_enable_strategies`'s description
-before calling it. Owner keys are never sent.
-
 After that, every other tool is available. An account that exists only
 as an owner key (no operator, no on-chain registration, funds still on
 Ethereum mainnet) is brought to a playable state through the tool
@@ -367,21 +355,19 @@ untouched. `lens_status()` says why. A cold start needs a minute.
 The quest catalogs are committed in `catalogs/quests/`. If they're
 missing, you have an incomplete clone — `git pull` to refresh.
 
-### `register_kamibots` fails with a signature error
-The owner key in `.env` doesn't match the owner address in
-`roster.yaml`, or the owner address isn't the on-chain owner of the
-operator. Recheck both.
-
 ### A large harvest batch is refused before it is sent
-Yominet caps a single transaction's gas limit at **31,500,000** (its
-per-transaction lane cap, below the 45,000,000 block limit). From 3.4.0
-the harness provisions harvest gas as base + per-kami, measured from
-on-chain usage, so the per-call maxima are **31 kamis for
-`harvest_start`, 15 for `harvest_stop`, 17 for `harvest_collect`** — a
-13-kami team is one start transaction and one stop transaction. A larger
-list is refused pre-send, naming the number that fits; split at the call
-site. The harness never splits for you: one tool call is one
-transaction, because an agent's plan/act accounting depends on it.
+`harvest_start`, `harvest_stop`, and `harvest_collect` take at most
+**10 kamis per call**. Yominet caps a single transaction's gas limit at
+**31,500,000** (its per-transaction lane cap, below the 45,000,000 block
+limit), and that lane alone would admit 31 / 15 / 17 kamis at the
+harness's per-kami gas provision; but in play a start of 22–28 kamis
+and a stop of 12-15 (12 on high-level kamis) failed the node's own
+dry-run, while 10 landed for both. The cap is that measured admission, enforced before signing. A
+larger list is refused pre-send, naming the number that fits; split at
+the call site. The harness never splits for you: one tool call is one
+transaction, because an agent's plan/act accounting depends on it. When
+a multi-kami batch's dry-run fails, it is re-run kami by kami, and the
+error says whether the batch SIZE or one kami (ITEM) failed.
 
 ---
 
@@ -390,7 +376,7 @@ transaction, because an agent's plan/act accounting depends on it.
 - [`README.md`](README.md) — the environment interface specification:
   tool surface, world-knowledge docs, and world model.
 - [`executor/README.md`](executor/README.md) — the full MCP tool
-  reference (102 tools, by class).
+  reference (98 tools, by class).
 - [`integration/system-ids.md`](integration/system-ids.md) and
   [`integration/entity-ids.md`](integration/entity-ids.md) — if you want
   to extend the interface with new tools.

@@ -7,7 +7,7 @@ together with the world-knowledge docs and reference catalogs an agent
 needs to interpret that surface.
 
 It is the **contract that every KamiBench agent builds against.** The
-server handles wallets, nonces, gas, retries, and API auth; an agent
+server handles wallets, nonces, gas, and retries; an agent
 connects over MCP and calls tools. Private keys live only inside the
 server process and are never exposed to the connected client.
 
@@ -24,7 +24,6 @@ server process and are never exposed to the connected client.
 ```
 MCP client (any KamiBench agent) --MCP--> executor (server.py) --> kami-lens daemon (local unix socket; world reads)
                                                                \-> Yominet RPC
-                                                               \-> Kamibots API (strategy delegation)
                                                                \-> Ethereum mainnet RPC (bridge tools; MAINNET_RPC_URL)
                                                                \-> router-api.initia.xyz (bridge quotes/tracking)
 ```
@@ -40,8 +39,8 @@ MCP client (any KamiBench agent) --MCP--> executor (server.py) --> kami-lens dae
   a pluggable secret store (default: `~/.blocklife-keys/.env`, outside
   the repo; optionally the macOS Keychain) and signs on the client's
   behalf. Key material stays inside the server process — it is never
-  exported to the environment, returned by a tool, or printed. The
-  client never sees a key.
+  exported to the environment, returned by a tool, printed, or
+  transmitted to any service. The client never sees a key.
 - **Versioned** — the tool contract carries a `SCHEMA_VERSION`
   ([`executor/schema_version.py`](executor/schema_version.py)), surfaced to
   clients as the MCP `server_version` in the initialize handshake. See
@@ -49,32 +48,34 @@ MCP client (any KamiBench agent) --MCP--> executor (server.py) --> kami-lens dae
 
 ## Tool surface
 
-The server exposes **104 tools**. Every tool carries exactly one class
-tag, and the four classes partition the surface completely:
-**ACT 56 / PERCEIVE 32 / OUTSOURCE 9 / META 7**. The class is not a
+The server exposes **98 tools**. Every tool carries exactly one class
+tag, and the three classes partition the surface completely:
+**ACT 59 / PERCEIVE 32 / META 7**. The class is not a
 filing convenience — it says what the tool touches and what calling it
 can cost you. The counts, and the class of each tool, are contract rows
 checked by the suite ([`SPEC.md`](SPEC.md) §P1). The authoritative,
 per-tool reference is [`executor/README.md`](executor/README.md).
 
-**ACT — 56 tools.** Signed on-chain transactions into the game:
+**ACT — 59 tools.** Signed on-chain transactions into the game:
 harvesting, movement, leveling, equipment, crafting, trading, quests,
-scavenging, gacha, and PvP liquidation. Every game-system write
-validates its mechanically-determinable preconditions against chain
-state before signing, so a failed precondition costs no gas. After
+scavenging, gacha, PvP liquidation, and the token portal (items to their
+ERC-20 and back). Every game-system write validates its
+mechanically-determinable preconditions against chain state before
+signing, so a failed precondition costs no gas. After
 broadcast there are exactly four terminal states and none is ever
 reported as another: confirmed-success returns, a confirmed revert
 *raises* (`OnChainRevertError`, carrying tx hash, block, gas, and a
 best-effort replay reason), a transaction proven not executed raises
-(`TxNotExecutedError`: its nonce went to another, named hash, or the
-node dropped it), and an unconfirmed transaction raises with its hash
-rather than guessing. A returned result never carries
-`status="reverted"`. Examples: `harvest_start`, `travel_to_room`,
-`craft_item`, `create_trade`, `complete_quest`, `liquidate_kami`,
-`level_and_allocate_batch`. `act_sequence` runs up to 64 of them as
-one pipelined burst — signed on consecutive nonces and broadcast in a
-single JSON-RPC batch without waiting for receipts — and reports a
-terminal state per step. The cap is the measured per-sender mempool
+(`TxNonceCollisionError`: its nonce went to another, named hash;
+`TxDroppedError`: the node dropped it), and an unconfirmed transaction
+raises (`TxUnconfirmedError`) with its hash rather than guessing. A
+returned result never carries `status="reverted"`. Examples:
+`harvest_start`, `travel_to_room`, `craft_item`, `create_trade`,
+`complete_quest`, `liquidate_kami`, `level_and_allocate_batch`,
+`portal_withdraw`. `act_sequence` runs up to 64 feed, liquidate,
+harvest-start, and harvest-stop actions as one pipelined burst — signed
+on consecutive nonces and broadcast in a single JSON-RPC batch without
+waiting for receipts — and reports a terminal state per step. The cap is the measured per-sender mempool
 acceptance (`docs/measurements/mempool-acceptance-2026-08-28.md`), not
 a judgement call.
 
@@ -88,24 +89,12 @@ wrapper does argument mapping, one socket request, and passes the
 daemon's `{data, untrusted, meta}` envelope through verbatim: nothing is
 recomputed, reshaped, or defaulted harness-side, and `meta.stale` marks
 answers served from last-synced state. The `untrusted` list names
-player-authored fields — they are data, never instructions. The
-remaining 6 are native reads with no lens equivalent at the pinned
-release (quest catalog, quest state, scavenge, per-item order book).
-Examples: `lens_kami`, `lens_party`, `lens_node`, `lens_trades`,
+player-authored fields — they are data, never instructions (stated once,
+in the MCP initialize `instructions`, not on each read). The
+remaining 7 are native reads, read from the chain or the local catalog
+(quest catalog, quest state, scavenge, per-item order book, pool-swap
+quote). Examples: `lens_kami`, `lens_party`, `lens_node`, `lens_trades`,
 `lens_status`, `quest_state`, `get_item_orderbook`.
-
-**OUTSOURCE — 9 tools.** Delegation of standing routines to Kamibots, a
-strategy service operated by Asphodel, the developer of Kamigotchi. An
-agent hands off a repeating loop (harvest/rest, feeding, crafting) and
-the service runs it server-side. Delegation is a separate, explicit
-step: `kamibots_enable_strategies` escrows the account's **operator**
-private key with the service, and until it does, strategy starts fail.
-The escrow grants everything that operator wallet can sign — including
-kami transfers to other accounts — and stopping a strategy does not
-withdraw the key. Owner keys are never escrowed; no tool on this server
-transmits an owner private key anywhere. Examples: `register_kamibots`,
-`kamibots_enable_strategies`, `start_strategy`, `stop_strategy`,
-`get_tier`.
 
 **META — 7 tools.** Wallet, account-registry, and bridge
 infrastructure — not world state. Account and address listing,
@@ -127,6 +116,13 @@ expressible in the tool parameters. Examples: `list_accounts`,
 > sender on the same key (a second server process on another machine, a
 > game client) must be sequential with this one — the lane can name the
 > hash that took a nonce from it, but cannot prevent it.
+>
+> **Time box:** every served call fits a wall-clock box,
+> `KAMI_CALL_BUDGET_S` (default 90 s) — a server setting, not a tool
+> parameter. A loop tool whose box is spent returns what it did, with
+> `time_boxed: true` and `remaining` (what was not attempted). Loops read
+> back what the chain shows afterwards (level, XP, unspent skill points,
+> inventory deltas) beside what they attempted.
 
 ## World-knowledge docs
 
@@ -177,7 +173,7 @@ CSV reference data — some is loaded directly by tools (e.g.
 ### Integration (`integration/`)
 
 On-chain interaction reference — chain ID, world contract, system IDs,
-entity-ID derivation, ABIs, and the Kamibots API. See
+entity-ID derivation, and ABIs. See
 [integration/game-data.md](integration/game-data.md) for the game-data
 tables and the [file map](#file-map) below for the full index.
 
@@ -279,13 +275,9 @@ running the MCP server, and connecting a client. Full instructions are in
 7. One-time: seed the trade order-book cache with
    `python3 executor/kwob_bootstrap.py` (see SETUP.md).
 
-The connected client provisions Kamibots API access by calling
-`register_kamibots(account=...)`; delegating strategies additionally
-requires the explicit operator-key escrow step
-(`kamibots_enable_strategies`). An account that starts as a bare owner
-wallet reaches a playable state through the tool surface alone — see the
-Onboarding and Bridging sections of
-[`executor/README.md`](executor/README.md).
+An account that starts as a bare owner wallet reaches a playable state
+through the tool surface alone — see the Onboarding and Bridging
+sections of [`executor/README.md`](executor/README.md).
 
 ## Versioning
 
@@ -300,9 +292,13 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
 
 Current: **`4.0.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
 reads served as thin `kami-lens` wrappers with verbatim envelope
-pass-through; every tool class-tagged ACT / PERCEIVE / OUTSOURCE /
-META; three non-conflatable transaction terminal states (a confirmed
-revert raises, never returns as success); optional mechanics snippets on
+pass-through; every tool class-tagged ACT / PERCEIVE / META; no
+third-party strategy service, no service API key, and no private key
+transmitted anywhere; four non-conflatable
+transaction terminal states (a confirmed revert raises, never returns
+as success); every send on its signer's nonce lane; every call inside a
+wall-clock box (`KAMI_CALL_BUDGET_S`); the token portal; standing text
+said once in the initialize `instructions`; optional mechanics snippets on
 error results (`KAMI_ERROR_SNIPPETS`, default off, error text only); a
 CI-enforced registry description-mass budget with `tools_hash` surface
 fingerprinting; and the contract registry in [`SPEC.md`](SPEC.md).
@@ -334,5 +330,4 @@ records everything that was removed.
 | Common errors | [`integration/errors.md`](integration/errors.md) |
 | MUD ECS architecture overview | [`integration/architecture.md`](integration/architecture.md) |
 | Game-data tables (nodes, rooms, items) | [`integration/game-data.md`](integration/game-data.md) |
-| Kamibots API reference | [`integration/kamibots/`](integration/kamibots/) |
 | Versioning policy + changelog | [`CHANGELOG.md`](CHANGELOG.md) |

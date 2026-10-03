@@ -5,31 +5,23 @@ Covers state queries and local projection formulas.
 
 ## Overview
 
-Three read paths:
+Two read paths:
 
-### 1. Kamibots API (V1 primary)
-
-Pre-computed game-meaningful state — projected HP, earnings, node
-occupancy, strategy status. No local computation or interpretation needed.
-
-See [integration/kamibots/](../integration/kamibots/)
-
-**V1 agents use this.** External dependency — will be replaced by a
-local interpretation layer on top of the MUD sync in Phase 2.
-
-### 2. Local headless sync client (planned)
+### 1. Local headless sync client
 
 A previous draft here pointed to a local MUD indexer
 (`integration/sync/`, now removed): it targeted MUD v2, while
 Kamigotchi runs MUD classic (solecs) — the drafted stack would have
-indexed nothing. The planned replacement is a headless run of the
+indexed nothing. The replacement is a headless run of the
 game's own client sync stack (snapshot/stream service + RPC
-event-replay fallback into a local ECS mirror). That mirror is also
+event-replay fallback into a local ECS mirror): the
+[kami-lens](https://github.com/tokedo/kami-lens) daemon, which answers
+the MCP server's world-state reads. That mirror is also
 the only complete path for discovery queries (node occupancy, room
 presence): most components are `BareComponent`, so on-chain reverse
 lookup reverts.
 
-### 3. Direct RPC (fallback)
+### 2. Direct RPC (fallback)
 
 The patterns documented below. Still useful for:
 - One-off queries when the sync isn't running

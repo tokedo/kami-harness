@@ -420,9 +420,9 @@ def _harvest_gas(key: str, count: int) -> int:
 
 # MEASURED admission per harvest call, not lane arithmetic. The lane
 # (MAX_TX_GAS) admits 31 / 15 / 17 at the ceilings above, but in play a
-# start of 22-28 kamis and a stop of 15 failed the node's own dry-run
-# (the RPC's eth_call gas cap, lower than the lane, and per-kami gas that
-# grows with level), while 10 landed for both. Start and stop are 10. Collect
+# start of 22-28 kamis and a stop of 12-15 (12 on high-level kamis) failed
+# the node's own dry-run (the RPC's eth_call gas cap, lower than the lane,
+# and per-kami gas that grows with level), while 10 landed for both. Start and stop are 10. Collect
 # has no admission measurement of its own: its per-kami ceiling (1.7M)
 # sits between start's (0.95M) and stop's (1.95M) and its 12-kami p95
 # (16.8M) is below stop's, so the stricter measured number, 10, binds it

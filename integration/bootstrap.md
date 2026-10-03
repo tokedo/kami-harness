@@ -10,21 +10,21 @@ This page is for agent and bot setup only.
 
 ## 0) Read Access (Infrastructure)
 
-V1 needs no local read infrastructure: game-meaningful state comes from
-the Kamibots API (see [integration/kamibots/](kamibots/)) plus direct
-RPC and Kamiden queries
-(see [systems/state-reading.md](../systems/state-reading.md)).
+Game-meaningful state comes from direct RPC and Kamiden queries
+(see [systems/state-reading.md](../systems/state-reading.md)), or from
+a local [kami-lens](https://github.com/tokedo/kami-lens) daemon — a
+headless run of the game's own client sync stack, which also answers
+the MCP server's world-state reads.
 
 > A local MUD state indexer was previously drafted here
 > (`integration/sync/`) and has been removed: it targeted the MUD v2
 > `store-indexer`, while Kamigotchi runs MUD classic (solecs) — state
 > changes are emitted as `ComponentValueSet`/`ComponentValueRemoved`
-> World events, which a v2 indexer would never decode. The planned
-> replacement is a headless run of the game's own client sync stack.
-> Until it lands, note that aggregate queries like "who is on my
-> node?" have no complete on-chain path (most components are
-> `BareComponent` — no reverse lookup) and are served stale by the
-> Kamibots API.
+> World events, which a v2 indexer would never decode. Its replacement
+> is a headless run of the game's own client sync stack (kami-lens,
+> above). Aggregate queries like "who is on my node?" have no complete
+> on-chain path (most components are `BareComponent` — no reverse
+> lookup); a local mirror of the client state answers them.
 
 ---
 
