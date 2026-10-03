@@ -267,16 +267,20 @@ class _HoldReceipt:
         self.entered = threading.Event()
         self.release = threading.Event()
         self.released_by_watchdog = False
-        sends = []
+        sends = []          # (hash, the thread that broadcast it)
         original = node.rpc
 
         def rpc(request):
             resp = original(request)
             if request["method"] == "eth_sendRawTransaction" and "result" in resp:
-                sends.append(resp["result"])
+                sends.append((resp["result"], threading.get_ident()))
+            # Only the BROADCASTING thread's receipt wait is held: another
+            # call's one-shot ledger lookup of the same hash answers, as a
+            # node would.
             if (request["method"] == "eth_getTransactionReceipt"
                     and len(sends) >= nth and request["params"]
-                    and request["params"][0] == sends[nth - 1]
+                    and request["params"][0] == sends[nth - 1][0]
+                    and threading.get_ident() == sends[nth - 1][1]
                     and not self.release.is_set()):
                 self.entered.set()
                 if not self.release.wait(watchdog_s):
@@ -347,7 +351,10 @@ def test_one_signer_interleaves_at_step_boundaries(wall_env):
             hold.release.set()
 
     _mcp(body)
-    assert marks["error"] is False and marks["while_held"]
+    assert marks["error"] is False
+    # Released by the test, not by the watchdog: the emergency write
+    # finished while the loop's receipt wait was still held.
+    assert marks["while_held"] and not hold.released_by_watchdog
     nonces = sorted(t.nonce for t in node.executed)
     assert nonces == list(range(nonces[0], nonces[0] + 3))   # no gap, no dup
 
@@ -582,3 +589,66 @@ def test_droptable_reveal_reports_the_rolls_left(scav_env):
     out = server.droptable_reveal(claim["commit_ids"], account="testa")
     assert out["rolls_remaining"] == {str(Game.COMMIT_ID): 7_000}
     assert "7000 rolls are still unrevealed" in out["notice"]
+
+
+# ---------------------------------------------------------------------------
+# Each layer on its own (no _send_tx_retry wrapper in front of it)
+# ---------------------------------------------------------------------------
+
+def test_a_readiness_refused_broadcast_is_re_offered_as_the_same_bytes(
+    chain_env,
+):
+    """level_up_kami sends through _send_tx directly: the re-offer of the
+    SAME signed bytes inside the lane is the only thing between the
+    readiness answer and an aborted call."""
+    node, game, clock, op = chain_env
+    game.xp[server._kami_entity_id(5)] = 1_000
+    node.fail("eth_sendRawTransaction", times=1, error=READINESS_ERROR)
+    r = server.level_up_kami(5, account="testa")
+    assert r["status"] == "success"
+    offered = [p[0] for m, p in node.requests if m == "eth_sendRawTransaction"]
+    assert len(offered) == 2 and offered[0] == offered[1]    # same bytes
+
+
+@pytest.mark.parametrize("method", [
+    "eth_getTransactionCount", "eth_getBalance", "eth_estimateGas",
+    "eth_call",
+])
+def test_a_readiness_answer_on_a_pre_send_read_is_retried(chain_env, method):
+    node, game, clock, op = chain_env
+    game.xp[server._kami_entity_id(5)] = 1_000
+    node.fail(method, times=1, error=READINESS_ERROR)
+    t0 = clock.now
+    r = server.level_up_kami(5, account="testa")
+    assert r["status"] == "success"
+    assert clock.now - t0 >= 0.5            # one 0.5 s backoff, then ok
+
+
+def test_a_commit_drained_before_the_reveal_is_not_revealed_again(scav_env):
+    node, game, clock, op = scav_env
+
+    def reveal_elsewhere(now):
+        if Game.COMMIT_ID in game.commits:
+            game.drain(Game.COMMIT_ID, game.commits[Game.COMMIT_ID])
+
+    clock.on_sleep.append(reveal_elsewhere)
+    out = server.scavenge_claim_and_reveal(53, account="testa")
+    assert out["reveals"] == 0 and out["reveal"] is None
+    assert out["already_revealed"] is True
+    reveal_to = addr_for("system.droptable.item.reveal").lower()
+    assert not [t for t in node.executed if t.to == reveal_to]
+
+
+def test_a_level_result_is_read_back_not_counted(chain_env):
+    """A level-up transaction that succeeds without moving the chain's
+    level (the field's `leveled to 32` against a live 31) is reported
+    as the chain shows it."""
+    node, game, clock, op = chain_env
+    eid = server._kami_entity_id(9)
+    game.level[eid], game.xp[eid] = 31, 10_000
+    node.handle(addr_for("system.kami.level"), "executeTyped(uint256)",
+                lambda n, c, a, commit: Result(gas_used=600_000))
+    out = asyncio.run(server.level_to(9, 32, account="testa"))
+    assert out["levels_gained"] == 1          # what was attempted, landed
+    assert out["reached_level"] == 31         # what the chain shows
+    assert out["chain"]["level"] == 31

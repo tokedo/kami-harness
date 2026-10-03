@@ -84,6 +84,8 @@ class Game:
         eid = _eid(args)
         if eid in self.commits:
             return _uint(self.commits[eid])
+        if eid == self.COMMIT_ID:
+            return _uint(0)       # safeGet of a removed value reads 0
         for item, count in list(self.inv.items()):
             if eid == server._inventory_entity_id(AID, item):
                 return _uint(count)
