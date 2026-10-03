@@ -4139,7 +4139,8 @@ def fund_operator(amount_eth: str, account: str = "main") -> dict:
 # landed every time. The fee the chain actually deducts could not be
 # derived read-only: the public RPC has pruned those blocks and its
 # eth_call ignores fees (a full-balance self-transfer passes with gas and
-# fee set). So this is an empirical floor, not a model.
+# fee set). So this is an empirical floor, not a model; a measured fee
+# model is owed to a live write test.
 _SWEEP_RESERVE_FLOOR_WEI = 2 * 10 ** 14
 
 
@@ -4149,9 +4150,9 @@ def withdraw_operator(amount_eth: str = "all", account: str = "main") -> dict:
 
     Plain value transfer signed by the operator key; the recipient is
     pinned to this account's owner address. The gas reserve is the
-    larger of eth_estimateGas x2 at the flat price and 0.0002 ETH (a
-    smaller reserve lands and reverts "insufficient balance for
-    transfer" on this chain); amount_eth="all" sweeps the balance minus
+    larger of eth_estimateGas x2 at the flat price and 0.0002 ETH (an
+    empirical floor: a smaller reserve lands and reverts "insufficient
+    balance for transfer" on this chain); amount_eth="all" sweeps the balance minus
     the reserve, and an explicit amount must leave it. A failed
     validation broadcasts nothing.
 
@@ -8704,32 +8705,56 @@ def _portal_receipt(receipt_id: int) -> dict:
     }
 
 
-def _portal_signer(account: str, rec: dict) -> tuple[str, str, str]:
-    """(address, key, role) allowed to settle this receipt, or a refusal.
+def _portal_signer(account: str, rec: dict) -> tuple[str, str, str, str]:
+    """(address, key, role, payee) allowed to settle this receipt, or a
+    refusal before signing.
 
-    Owner receipt: the owner. Operator-lane receipt: the CURRENT operator
-    on chain if this server holds its key, else the owner."""
+    Upstream's rule (TokenPortalSystem claim/cancel): an owner receipt is
+    settled by the account's owner only and pays the owner; an
+    operator-lane receipt is settled by the owner OR the account's
+    CURRENT operator and pays the operator as it stands at claim time.
+    This server signs as the current operator when it holds that key,
+    else as the owner; holding neither is refused here, not by a revert."""
     acct = _get_account(account)
-    aid = _account_entity_id(account)
+    if acct.owner_addr:
+        aid = int(acct.owner_addr, 16)
+    else:
+        aid = (_account_id_for_operator(acct.operator_addr)
+               if acct.has_operator else None)
+        if aid is None:
+            raise PreTxValidationError(
+                f"account '{account}' holds no owner key and its operator "
+                f"wallet {acct._operator_addr} is not the operator of any "
+                f"account on chain; a portal receipt is settled by its "
+                f"account's owner or, for an operator-lane receipt, its "
+                f"CURRENT operator")
     if rec["account_id"] != aid:
         raise PreTxValidationError(
             f"portal receipt belongs to account entity {rec['account_id']}, "
             f"not account '{account}'")
     if rec["paused"]:
-        raise PreTxValidationError("the portal receipt is paused by an admin")
-    if rec["operator_lane"]:
-        current = _account_address("component.address.operator", aid)
-        if current is None:
-            raise PreTxValidationError(
-                "operator-lane receipt but the account has no operator on "
-                "chain; the claim would have no payee")
-        if acct.has_operator and acct.operator_addr == current:
-            return acct.operator_addr, acct.operator_key, "operator"
-    if not acct.owner_key:
         raise PreTxValidationError(
-            f"account '{account}' has no owner key; this receipt is settled "
-            f"by the owner")
-    return acct.owner_addr, acct.owner_key, "owner"
+            "the portal receipt is paused by an admin; it cannot be claimed "
+            "or cancelled until it is unpaused")
+    if not rec["operator_lane"]:
+        if not acct.owner_key:
+            raise PreTxValidationError(
+                f"owner receipt: settled by the account's owner only, and "
+                f"account '{account}' has no owner key on this server")
+        return acct.owner_addr, acct.owner_key, "owner", acct.owner_addr
+    current = _account_address("component.address.operator", aid)
+    if current is None:
+        raise PreTxValidationError(
+            "operator-lane receipt but the account has no operator on "
+            "chain; the claim would have no payee")
+    if acct.has_operator and acct.operator_addr == current:
+        return acct.operator_addr, acct.operator_key, "operator", current
+    if acct.owner_key:
+        return acct.owner_addr, acct.owner_key, "owner", current
+    raise PreTxValidationError(
+        f"operator-lane receipt: settled by the account's owner or its "
+        f"CURRENT operator {current}; this server holds neither key (its "
+        f"operator wallet {acct._operator_addr} is not the current operator)")
 
 
 def _portal_send(fn, addr, key, role, account) -> object:
@@ -8852,17 +8877,20 @@ def portal_withdraw(
 def portal_claim(receipt_id: str, account: str = "main") -> dict:
     """Claim a portal withdrawal receipt once its delay has passed: the ERC-20 is paid out.
 
-    Owner receipts are paid to the owner wallet; operator-lane receipts to
-    the account's operator wallet as it is on chain NOW (signed by that
-    operator when this server holds its key, else by the owner).
+    Owner receipt: signed by and paid to the owner. Operator-lane receipt:
+    signed by the owner or the CURRENT operator, paid to the operator AS
+    OF THIS CLAIM, not of the withdraw (notice says so when that is not
+    this server's operator wallet).
 
     Validates before signing: portal enabled, receipt pending and this
-    account's, not paused, delay ended, payee set. Returns payee and the
-    amount paid, from the token transfer in this transaction.
+    account's, not paused, delay ended, an allowed signer's key held,
+    payee set. Returns payee and the amount paid, from the token transfer
+    in this transaction.
 
     Args:
         receipt_id: From portal_withdraw, decimal or 0x-hex string.
     """
+    acct = _get_account(account)
     rid = _parse_commit_id(receipt_id)
     rec = _portal_receipt(rid)
     p = _portal_item(rec["item"])
@@ -8871,10 +8899,17 @@ def portal_claim(receipt_id: str, account: str = "main") -> dict:
         raise PreTxValidationError(
             f"portal receipt claimable at {rec['claimable_at']} (in "
             f"{rec['claimable_at'] - now} s)")
-    addr, key, role = _portal_signer(account, rec)
+    addr, key, role, payee = _portal_signer(account, rec)
+    notice = None
+    if rec["operator_lane"] and payee != acct._operator_addr:
+        notice = (
+            f"operator-lane receipt: the payout goes to the account's "
+            f"operator as of this claim, {payee}, which is not this "
+            f"server's operator wallet ({acct._operator_addr or 'none'})")
     receipt = _portal_send(p["portal"].functions.claim(rid), addr, key, role,
                            account)
-    out = {**_tx_fields(receipt), "receipt_id": str(rid),
+    out = {**({"notice": notice} if notice else {}),
+           **_tx_fields(receipt), "receipt_id": str(rid),
            "route": "operator" if rec["operator_lane"] else "owner",
            "item": rec["item"], "token": p["token"], "payee": None,
            "amount_wei": None}
@@ -8898,7 +8933,8 @@ def portal_cancel(receipt_id: str, account: str = "main") -> dict:
     """Cancel a pending portal withdrawal receipt: its items return to the inventory, the export tax does not.
 
     Same signer rule as portal_claim. Validates before signing: portal
-    enabled, receipt pending and this account's, not paused.
+    enabled, receipt pending and this account's, not paused, an allowed
+    signer's key held.
 
     Args:
         receipt_id: From portal_withdraw, decimal or 0x-hex string.
@@ -8906,7 +8942,7 @@ def portal_cancel(receipt_id: str, account: str = "main") -> dict:
     rid = _parse_commit_id(receipt_id)
     rec = _portal_receipt(rid)
     p = _portal_item(rec["item"])
-    addr, key, role = _portal_signer(account, rec)
+    addr, key, role, _payee = _portal_signer(account, rec)
     receipt = _portal_send(p["portal"].functions.cancel(rid), addr, key, role,
                            account)
     return {

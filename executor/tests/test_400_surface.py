@@ -63,6 +63,7 @@ class Portal:
         self.next_id = 2 ** 160 + 1
         self.token_bal = defaultdict(int)
         self.allowance = defaultdict(int)
+        self.approvals: list[tuple[str, str, int]] = []   # (owner, spender, value)
         sys_ = addr_for("system.erc20.portal")
         h = node.handle
         h(sys_, "isEnabled()", lambda n, c, a, k: _bool(self.enabled))
@@ -172,11 +173,15 @@ class Portal:
     def _claim(self, n, caller, args, commit):
         (rid,) = eth_abi.decode(["uint256"], args)
         r = self.receipts.get(rid)
-        if r is None:
+        if r is None or not self._may_settle(r, caller.sender):
             return Result(status=0, revert="not receipt owner")
+        if r["paused"]:
+            return Result(status=0, revert="entity not enabled")
         if self.clock.now < r["end"]:
             return Result(status=0, revert="withdrawal not ready")
         payee = self.operator if r["lane"] else self.owner
+        if int(payee, 16) == 0:
+            return Result(status=0, revert="Token Portal: no operator")
         logs = []
         if commit:
             token = self.items[r["item"]][0]
@@ -190,19 +195,27 @@ class Portal:
     def _cancel(self, n, caller, args, commit):
         (rid,) = eth_abi.decode(["uint256"], args)
         r = self.receipts.get(rid)
-        if r is None:
+        if r is None or not self._may_settle(r, caller.sender):
             return Result(status=0, revert="not receipt owner")
+        if r["paused"]:
+            return Result(status=0, revert="entity not enabled")
         if commit:
             scale = self.items[r["item"]][1]
             self.game.inv[r["item"]] += r["wei"] // 10 ** (18 - scale)
             del self.receipts[rid]
         return Result(gas_used=300_000)
 
+    def _may_settle(self, r, sender):
+        # Owner receipts: the owner. Operator-lane receipts: the owner or
+        # the account's CURRENT operator.
+        return sender == self.owner or (r["lane"] and sender == self.operator)
+
     def _approve(self, token):
         def run(n, caller, args, commit):
             spender, value = eth_abi.decode(["address", "uint256"], args)
             if commit:
                 self.allowance[(token, caller.sender)] = value
+                self.approvals.append((caller.sender, spender.lower(), value))
             return Result(gas_used=60_000, output=eth_abi.encode(["bool"], [True]))
         return run
 
@@ -309,8 +322,10 @@ def test_portal_claim_waits_for_the_delay_then_pays_the_current_operator(
     node, game, clock, portal, split = portal_env
     rid = server.portal_withdraw(103, 100_000, to="operator",
                                  account="split")["receipt_id"]
+    sent = len(node.sends)
     with pytest.raises(server.PreTxValidationError, match="claimable at"):
         server.portal_claim(rid, account="split")
+    assert len(node.sends) == sent          # refused before signing
     clock.sleep(43_201)
     out = server.portal_claim(rid, account="split")
     assert out["route"] == "operator"
@@ -318,6 +333,102 @@ def test_portal_claim_waits_for_the_delay_then_pays_the_current_operator(
     assert out["amount_wei"] == str(99_499 * 10 ** 13)
     assert out["amount"] == "0.99499"
     assert portal.claim_sender == split.operator_addr.lower()
+    assert "notice" not in out              # paid to this server's operator
+
+
+ROTATED = "0x" + "ab" * 20
+
+
+def _operator_lane_receipt(portal_env):
+    node, game, clock, portal, split = portal_env
+    rid = server.portal_withdraw(103, 100_000, to="operator",
+                                 account="split")["receipt_id"]
+    clock.sleep(43_201)
+    return rid
+
+
+@pytest.mark.parametrize("tool", ["portal_claim", "portal_cancel"])
+def test_a_paused_receipt_is_refused_before_signing(portal_env, tool):
+    node, game, clock, portal, split = portal_env
+    rid = _operator_lane_receipt(portal_env)
+    portal.receipts[int(rid)]["paused"] = True
+    sent = len(node.sends)
+    with pytest.raises(server.PreTxValidationError,
+                       match="paused by an admin"):
+        getattr(server, tool)(rid, account="split")
+    assert len(node.sends) == sent
+
+
+@pytest.mark.parametrize("tool", ["portal_claim", "portal_cancel"])
+def test_a_signer_that_is_neither_owner_nor_current_operator_is_refused(
+    portal_env, monkeypatch, tool,
+):
+    """This server holds only the account's OLD operator key: the operator
+    was rotated on chain, so neither key the receipt accepts is here."""
+    node, game, clock, portal, split = portal_env
+    rid = _operator_lane_receipt(portal_env)
+    old = server._Account("old-op", KEY_B, None)       # operator key only
+    monkeypatch.setitem(server._accounts, "old-op", old)
+    portal.operator = ROTATED.lower()
+    monkeypatch.setattr(
+        server, "_account_id_for_operator",
+        lambda a: portal.aid if a.lower() == portal.operator else None)
+    sent = len(node.sends)
+    with pytest.raises(server.PreTxValidationError) as ei:
+        getattr(server, tool)(rid, account="old-op")
+    msg = str(ei.value)
+    assert "holds no owner key" in msg
+    assert old.operator_addr in msg and "CURRENT operator" in msg
+    assert len(node.sends) == sent
+
+
+@pytest.mark.parametrize("tool", ["portal_claim", "portal_cancel"])
+def test_an_owner_receipt_needs_the_owner_key(portal_env, monkeypatch, tool):
+    """An owner receipt is settled by the owner only — the current
+    operator's key does not do."""
+    node, game, clock, portal, split = portal_env
+    rid = server.portal_withdraw(103, 100_000, account="split")["receipt_id"]
+    clock.sleep(43_201)
+    op_only = server._Account("op-only", KEY_B, None)
+    monkeypatch.setitem(server._accounts, "op-only", op_only)
+    monkeypatch.setattr(
+        server, "_account_id_for_operator",
+        lambda a: portal.aid if a.lower() == portal.operator else None)
+    sent = len(node.sends)
+    with pytest.raises(server.PreTxValidationError,
+                       match="owner receipt: settled by the account's owner only"):
+        getattr(server, tool)(rid, account="op-only")
+    assert len(node.sends) == sent
+
+
+def test_after_an_operator_rotation_the_claim_pays_and_names_the_new_operator(
+    portal_env,
+):
+    """The payout goes to the operator as of the claim, not of the
+    withdraw: rotated away from this server's operator wallet, the owner
+    signs and the result says where the tokens went."""
+    node, game, clock, portal, split = portal_env
+    rid = _operator_lane_receipt(portal_env)
+    portal.operator = ROTATED.lower()
+    out = server.portal_claim(rid, account="split")
+    assert portal.claim_sender == split.owner_addr.lower()
+    assert out["payee"].lower() == ROTATED.lower()
+    assert next(iter(out)) == "notice"
+    assert "as of this claim" in out["notice"]
+    assert out["notice"].lower().count(ROTATED.lower()) == 1
+    assert split.operator_addr in out["notice"]
+
+
+def test_an_operator_lane_receipt_with_no_operator_on_chain_is_refused(
+    portal_env,
+):
+    node, game, clock, portal, split = portal_env
+    rid = _operator_lane_receipt(portal_env)
+    portal.operator = "0x" + "00" * 20
+    sent = len(node.sends)
+    with pytest.raises(server.PreTxValidationError, match="no payee"):
+        server.portal_claim(rid, account="split")
+    assert len(node.sends) == sent
 
 
 def test_portal_claim_refuses_a_receipt_that_is_not_pending(portal_env):
@@ -349,6 +460,35 @@ def test_portal_deposit_approves_the_spender_when_short_then_deposits(
     portal.allowance[(ETH_TOKEN.lower(), owner)] = 10 ** 18
     out2 = server.portal_deposit(103, 10_000, account="split")
     assert [t["step"] for t in out2["txs"]] == ["deposit"]
+
+
+def test_portal_deposit_approves_exactly_its_token_amount_and_only_when_short(
+    portal_env,
+):
+    """Never an unlimited allowance: the approve is the deposit's own token
+    amount (items x 10^(18 - scale)), to the on-chain token spender, sent
+    only when the allowance does not already cover it — and `txs` lists
+    the approve step only when one was sent."""
+    node, game, clock, portal, split = portal_env
+    owner, t = split.owner_addr.lower(), ETH_TOKEN.lower()
+    spender = server._resolve_component("component.token.allowance").lower()
+    portal.token_bal[(t, owner)] = 10 ** 18
+    wei = 50_000 * 10 ** (18 - 5)
+
+    portal.allowance[(t, owner)] = wei - 1               # one unit short
+    out = server.portal_deposit(103, 50_000, account="split")
+    assert portal.approvals == [(owner, spender, wei)]
+    assert [s["step"] for s in out["txs"]] == ["approve", "deposit"]
+    assert out["txs"][0]["tx_hash"] != out["txs"][1]["tx_hash"]
+    assert out["token"]["amount_wei"] == str(wei)
+
+    portal.allowance[(t, owner)] = 10_000 * 10 ** 13      # covers exactly
+    sent = len(node.sends)
+    out2 = server.portal_deposit(103, 10_000, account="split")
+    assert portal.approvals == [(owner, spender, wei)]     # none sent
+    assert len(node.sends) == sent + 1                     # the deposit only
+    assert [s["step"] for s in out2["txs"]] == ["deposit"]
+    assert out2["txs"][0]["tx_hash"] == out2["tx_hash"]
 
 
 def test_portal_deposit_refuses_a_short_token_balance(portal_env):
