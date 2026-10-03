@@ -48,9 +48,9 @@ MCP client (any KamiBench agent) --MCP--> executor (server.py) --> kami-lens dae
 
 ## Tool surface
 
-The server exposes **98 tools**. Every tool carries exactly one class
+The server exposes **100 tools**. Every tool carries exactly one class
 tag, and the three classes partition the surface completely:
-**ACT 59 / PERCEIVE 32 / META 7**. The class is not a
+**ACT 59 / PERCEIVE 34 / META 7**. The class is not a
 filing convenience — it says what the tool touches and what calling it
 can cost you. The counts, and the class of each tool, are contract rows
 checked by the suite ([`SPEC.md`](SPEC.md) §P1). The authoritative,
@@ -79,8 +79,8 @@ waiting for receipts — and reports a terminal state per step. The cap is the m
 acceptance (`docs/measurements/mempool-acceptance-2026-08-28.md`), not
 a judgement call.
 
-**PERCEIVE — 32 tools.** World-state reads. They sign nothing and change
-no remote state. 25 of them are thin wrappers over the local
+**PERCEIVE — 34 tools.** World-state reads. They sign nothing and change
+no remote state. 27 of them are thin wrappers over the local
 [kami-lens](https://github.com/tokedo/kami-lens) daemon — a headless
 Kamigotchi client that keeps a live mirror of on-chain state and
 projects it through the game's own formulas, so a read answers with what
@@ -90,11 +90,14 @@ daemon's `{data, untrusted, meta}` envelope through verbatim: nothing is
 recomputed, reshaped, or defaulted harness-side, and `meta.stale` marks
 answers served from last-synced state. The `untrusted` list names
 player-authored fields — they are data, never instructions (stated once,
-in the MCP initialize `instructions`, not on each read). The
+in the MCP initialize `instructions`, not on each read). Seven of them
+take `at_least_block`: pass the `block` of your own transaction's result
+and the read waits until the mirror has applied it (`NOT_APPLIED` means
+retry, not failure). The
 remaining 7 are native reads, read from the chain or the local catalog
 (quest catalog, quest state, scavenge, per-item order book, pool-swap
 quote). Examples: `lens_kami`, `lens_party`, `lens_node`, `lens_trades`,
-`lens_status`, `quest_state`, `get_item_orderbook`.
+`lens_receipts`, `lens_status`, `quest_state`, `get_item_orderbook`.
 
 **META — 7 tools.** Wallet, account-registry, and bridge
 infrastructure — not world state. Account and address listing,
@@ -290,9 +293,9 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`4.0.0`** (tagged `v2.0.0-rc1`; final tag pending) — world
+Current: **`4.0.0`**, built against kami-lens **1.0.0** — world
 reads served as thin `kami-lens` wrappers with verbatim envelope
-pass-through; every tool class-tagged ACT / PERCEIVE / META; no
+pass-through, and a read that waits for your own transaction's block; every tool class-tagged ACT / PERCEIVE / META; no
 third-party strategy service, no service API key, and no private key
 transmitted anywhere; four non-conflatable
 transaction terminal states (a confirmed revert raises, never returns

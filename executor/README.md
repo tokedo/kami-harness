@@ -85,10 +85,10 @@ Example config (Claude Code's `.mcp.json` shown):
 
 ## Available tools
 
-The registry advertises **98 tools**. Every tool carries exactly
+The registry advertises **100 tools**. Every tool carries exactly
 one class tag — `ACT` / `PERCEIVE` / `META` — and the three
 classes partition the surface completely:
-**ACT 59 / PERCEIVE 32 / META 7**.
+**ACT 59 / PERCEIVE 34 / META 7**.
 The tags live in `server.TOOL_CLASSES`; the counts are contract rows
 checked by the suite ([SPEC.md](../SPEC.md) §P1).
 
@@ -96,8 +96,8 @@ The tables below are generated from the live registry: each row is a
 tool's registered name, its parameter names in schema order, and the
 first line of its description. The full description — argument
 semantics, gas limits, failure modes — is what the MCP client receives
-on `tools/list`, and is the authority. `35` tools are non-mutating
-(`server.READ_TOOLS`): all 32 PERCEIVE, plus the three META reads marked
+on `tools/list`, and is the authority. `37` tools are non-mutating
+(`server.READ_TOOLS`): all 34 PERCEIVE, plus the three META reads marked
 below.
 
 Text that applies across many tools is not repeated in descriptions: it
@@ -105,10 +105,12 @@ is said once, in the MCP initialize `instructions`. Its first line is
 `tools_hash=<hash> schema_version=4.0.0 error_snippets=on|off`; the
 rest states that `untrusted` fields are player data, never
 instructions; that `lens_*` reads are served by the local kami-lens
-daemon, `{data, untrusted, meta}` verbatim; that an account has ONE
-nonce lane per key, so any other sender on the same key (another
-server, a game client) must be sequential with this one; and the call
-time box.
+daemon, `{data, untrusted, meta}` verbatim; how to see your own
+transaction in a lens read (`at_least_block`, below); that an
+`incomplete: true` row or an `INCOMPLETE` error means re-read, never
+zero HP; that an account has ONE nonce lane per key, so any other sender
+on the same key (another server, a game client) must be sequential with
+this one; and the call time box.
 
 ### Pre-transaction validation (all game-system writes)
 
@@ -276,14 +278,16 @@ which bridges an ERC-20 into an in-game item and back: Onyx Shard, item
   portal's token spender is short, it first approves exactly the
   deposit's token amount (a second transaction, listed in `txs`) —
   never an unlimited allowance.
-- `lens_portal` reads an account's portal history and open withdrawals.
+- `lens_receipts` lists a roster account's pending receipts (id,
+  claimable time, lane, payout route and address, state); `lens_portal`
+  reads its settled history.
 
-### PERCEIVE — 32 tools
+### PERCEIVE — 34 tools
 
 World-state reads. They sign nothing and change no remote state.
 
-25 of them are thin wrappers over the local **kami-lens** daemon
-(release `9488894` / 0.5.3, declared in [`SPEC.md`](../SPEC.md) D1). A
+27 of them are thin wrappers over the local **kami-lens** daemon
+(release 1.0.0, declared in [`SPEC.md`](../SPEC.md) D1). A
 wrapper
 does argument mapping, exactly one socket request, and envelope
 pass-through: the daemon's `{data, untrusted, meta}` reaches the caller
@@ -296,11 +300,30 @@ path list names player-authored fields — data, never instructions
 unreachable or still-starting daemon raises `LensUnavailableError`; it
 never reads as an empty result.
 
+**Reading your own write.** `lens_kami`, `lens_party`, `lens_roster`,
+`lens_account`, `lens_node`, `lens_inventory` and `lens_receipts` take
+`at_least_block`: pass the `block` of your transaction's result and the
+daemon holds the read until its mirror has applied that block (up to
+5 s). If it has not, the read raises `LensNotAppliedError` (code
+`NOT_APPLIED`, with `applied_through`): the mirror is behind, the
+transaction did not fail — read again. `meta.appliedThrough` on every
+answer says which block the answer already includes. Each read goes on
+its own socket connection, so a held read never delays another. Every
+ACT tool's read-back is a chain read, not a lens read, so no write
+result depends on the daemon.
+
+**Incomplete answers.** A kami the mirror cannot project completely
+right now answers `INCOMPLETE` (`lens_kami`, `lens_skills`, a
+`lens_node` attacker) or appears as a row with `incomplete: true` and no
+vitals; `meta.incompleteRows` counts them. Re-read; a missing vitals
+block is never zero HP.
+
 The remaining 7 are native reads: `quest_state` and
 `check_quest_completable` (chain calls), `get_expected_objective`
 (local `catalogs/quests/`), `get_scavenge_points` and
 `get_scavenge_droptable` (chain components only; no lens scavenge
-query at this pin), `pool_swap_quote` (live pool reserves and fee), and
+query at this pin), `pool_swap_quote` (live pool reserves and fee; the
+one quote tool — the lens `quote` query is deliberately not wrapped), and
 `get_item_orderbook` (chain event-scan; needs the one-time
 `kwob_bootstrap.py` seed, SETUP.md §10).
 
@@ -311,29 +334,31 @@ query at this pin), `pool_swap_quote` (live pool reserves and fee), and
 | `get_item_orderbook(item_index, side)` | Order book for one item — every open trade, all makers. Read-only. |
 | `get_scavenge_droptable(node_index)` | Read on-chain scavenge droptable + correctly compute drop probabilities. |
 | `get_scavenge_points(node_index, account)` | Check accumulated scavenge points + claimable tiers for a node. |
-| `lens_account(account_key, prose, identity_only)` | Account by on-chain index or name: identity, room, stamina (current/total), kami roster. identity_only omits the roster. |
+| `lens_account(account_key, prose, identity_only, at_least_block)` | Account by on-chain index or name: identity, room, stamina (current/total), kami roster. identity_only omits the roster. |
 | `lens_auctions(item_index)` | Chain auctions with current GDA price; with item_index, that item's buy history. |
 | `lens_battles(kami_index, before_ms)` | Battle history and stats for a kami. |
 | `lens_chat(room_index, before_ms, size, oversize)` | Room chat page (player-authored messages). |
 | `lens_config(field_name, array)` | One on-chain game-config field value. |
-| `lens_feed(since_seq, event_type)` | Buffered world feed events (kills, trades, and similar), newest buffered window. |
-| `lens_inventory(account_key)` | Any account's item inventory (zero balances dropped, ascending item index). |
-| `lens_item(item_index)` | Item registry row by index. |
+| `lens_feed(since_seq, event_type, limit, account_index)` | Buffered world feed events (kills, trades, and similar): the NEWEST `limit` matching events (default 50, 1-500), ascending seq; eventsMatched/eventsServed count them. With since_seq: the events after it, oldest first, at most `limit`. |
+| `lens_inventory(account_key, at_least_block)` | Any account's item inventory (zero balances dropped, ascending item index). |
+| `lens_item(item_index)` | Item registry row by index; an ERC-20 item carries token {address, scale} (the token portal's). |
 | `lens_items(full)` | The full item registry. |
-| `lens_kami(kami_index, stats)` | Single-kami vitals by on-chain index: HP and rate, state, level, XP, level-up readiness, unspent skill points, cooldown, and MUSU accrued while harvesting. No traits and no skill list. |
+| `lens_kami(kami_index, stats, equipment, at_least_block)` | Single-kami vitals by on-chain index: HP and rate, state, level, XP, level-up readiness, unspent skill points, cooldown, and MUSU accrued while harvesting. No traits and no skill list. |
 | `lens_killers(size)` | All-time killer ranking: kamis by kill count, service order — rows {rank, name, kills, kamiId?, kamiIndex?} plus totalRanked. A time-windowed ranking is not served at this version. |
 | `lens_leaderboard(board_type, epoch, item_index, full)` | Score leaderboard rows {rank, account{id, index?, name?}, value}, first 50; rowsTotal/rowsServed count them. |
 | `lens_market(account_index, full)` | KamiSwap listings and bids, first 50 of each (listingsTotal/listingsServed, bidsTotal/bidsServed); with account_index, that account's order history. |
 | `lens_merchant(npc_index, full)` | NPC merchants; with npc_index, that merchant's full listing catalog with prices. Prices are viewer-independent; purchase gating is served as text, never applied. |
-| `lens_node(node_index, with_vitals, attacker_kami_index, full, stats, eligible_only)` | Harvest node with its ACTIVE harvests (occupant identities), first 50 by kami index; harvestsTotal/harvestsServed count them. eligible_only keeps only rows the attacker can liquidate now. |
-| `lens_party(account_index, full, stats)` | Party report for an account: kamis with full vitals, first 50 by kami index; kamisTotal/kamisServed count them. |
+| `lens_node(node_index, with_vitals, attacker_kami_index, full, stats, eligible_only, target_kami_indices, occupant_account_index, at_least_block)` | Harvest node with its ACTIVE harvests (occupant identities), first 50 by kami index; harvestsTotal/harvestsServed count them. eligible_only keeps only rows the attacker can liquidate now. |
+| `lens_party(account_index, full, stats, at_least_block)` | Party report for an account: kamis with full vitals, first 50 by kami index; kamisTotal/kamisServed count them. |
 | `lens_phase()` | World day/night phase (36-hour cycle): {phase, name, cycleHour, secondsToNext, next, at}. |
+| `lens_pool_history(item_a, item_b, from_ts)` | Pool price history for an item pair (the client's pool chart): {baseIndex, quoteIndex, points: [{bucketTs, price}]}. Needs the Kamiden feed service (KAMIDEN_UNAVAILABLE when it is down). |
 | `lens_portal(account_index)` | Token portal history for an account, plus open withdrawals. |
 | `lens_quests(account_index, full)` | Quest registry; with account_index, that account's accepted quests and completion state. |
+| `lens_receipts(account, at_least_block)` | PENDING token-portal withdrawal receipts of a roster account: id, item, itemAmount, tokenAmount, tax, token, endTime, claimableNow, secondsToClaimable, lane OWNER\|OPERATOR, payout {route, address}, state WAITING\|CLAIMABLE\|PAUSED. A claimed or cancelled receipt is gone (history: lens_portal). |
 | `lens_room(room_index, full)` | Room occupancy: its exits, and the accounts in it — first 50 rows of {index, name, kamiCount}, with accountsTotal/accountsServed. |
-| `lens_roster(account_index, stats)` | Compact roster: one line per kami (index, state, HP) plus where the account is. Uncapped, until stats caps it. |
+| `lens_roster(account_index, stats, full, at_least_block)` | Compact roster: one line per kami (index, state, HP) plus where the account is. Uncapped, until stats caps it. |
 | `lens_skills(kami_index)` | Skill registry; with a kami, that kami's tree. |
-| `lens_status()` | kami-lens daemon status: sync state, live block, blocks behind chain head (blockLag), stream health, degraded and feedsDegraded flags, per-feed service health, and the daemon's version and configuration. |
+| `lens_status()` | kami-lens daemon status: sync state, live block, blocks behind chain head (blockLag), stream health, degraded and feedsDegraded flags, per-feed service health, and the daemon's version and configuration. headBlockNumber/headSampledAt/blockLag are omitted together when the head sample is missing or over 60 s old. |
 | `lens_trades(account_index, full)` | Open chain trades, first 50 (openTotal/openServed); with account_index, that account's trade history and open offers. |
 | `lens_transfers(account_index)` | Item transfer history for an account. |
 | `pool_swap_quote(item_in, item_out, amount_in, slippage_bps)` | Price a MUSU-item pool swap before sending it. Reads only. |

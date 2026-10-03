@@ -16,12 +16,12 @@ rows below go missing.
 
 | Tool | Class | Exposure | Precedent | Serving path | Admitted |
 |---|---|---|---|---|---|
-| `lens_kami` | PERCEIVE | one kami's live vitals + leveling; opt-in stat block + affinities | official web client kami panel | kami-lens daemon socket | 2026-07-23 |
+| `lens_kami` | PERCEIVE | one kami's live vitals + leveling; opt-in stat block + affinities; opt-in equipment slots (lens 1.0.0) | official web client kami panel | kami-lens daemon socket | 2026-07-23 |
 | `lens_account` | PERCEIVE | account identity, room, stamina, roster; opt-in identity-only form (no roster) | official web client account panel | kami-lens daemon socket | 2026-07-23 |
 | `lens_party` | PERCEIVE | one account's kamis with vitals (first 50; opt-in full list, opt-in stat block) | official web client party view | kami-lens daemon socket | 2026-07-23 |
-| `lens_roster` | PERCEIVE | one line per kami (index, state, HP) + the account's room; opt-in stat block, which caps the list | official web client party sidebar | kami-lens daemon socket | 2026-08-25 |
+| `lens_roster` | PERCEIVE | one line per kami (index, state, HP) + the account's room; opt-in stat block, which caps the list; opt-in full list with it (lens 1.0.0) | official web client party sidebar | kami-lens daemon socket | 2026-08-25 |
 | `lens_skills` | PERCEIVE | skill registry; one kami's unspent points + invested skills | official web client skill tree | kami-lens daemon socket | 2026-08-28 |
-| `lens_node` | PERCEIVE | node occupancy (first 50); opt-in occupant vitals + liquidation preview, opt-in full row list, opt-in stat block, opt-in eligible-only filter | official web client node/liquidation view | kami-lens daemon socket | 2026-07-23 |
+| `lens_node` | PERCEIVE | node occupancy (first 50); opt-in occupant vitals + liquidation preview, opt-in full row list, opt-in stat block, opt-in eligible-only filter; opt-in target-kami and occupant-account selectors (lens 1.0.0) | official web client node/liquidation view | kami-lens daemon socket | 2026-07-23 |
 | `lens_room` | PERCEIVE | room occupancy (first 50 accounts + kami counts; the kamis themselves on the full form) | official web client room view | kami-lens daemon socket | 2026-07-23 |
 | `lens_inventory` | PERCEIVE | any account's item balances | official web client inventory panel | kami-lens daemon socket | 2026-07-23 |
 | `lens_item` | PERCEIVE | one item registry row | official web client item tooltip | kami-lens daemon socket | 2026-07-23 |
@@ -36,16 +36,18 @@ rows below go missing.
 | `lens_auctions` | PERCEIVE | auctions + GDA price; buy history | official web client auction UI (Kamiden) | kami-lens daemon socket (+ Kamiden history) | 2026-07-23 |
 | `lens_quests` | PERCEIVE | quest registry; per-account acceptance; opt-in uncompacted registry | official web client quest log | kami-lens daemon socket | 2026-07-23 |
 | `lens_market` | PERCEIVE | KamiSwap listings/bids, first 50 of each; order history; opt-in every row + names | KamiSwap web UI (Kamiden) | kami-lens daemon socket → Kamiden | 2026-07-23 |
-| `lens_portal` | PERCEIVE | per-account portal history + withdrawals | official web client portal UI (Kamiden) | kami-lens daemon socket → Kamiden | 2026-07-23 |
+| `lens_portal` | PERCEIVE | per-account portal history + withdrawals (settled history; pending receipts: `lens_receipts`) | official web client portal UI (Kamiden) | kami-lens daemon socket → Kamiden | 2026-07-23 |
+| `lens_receipts` | PERCEIVE | one roster account's PENDING portal withdrawal receipts: amounts, tax, token, end time, claimability, lane, payout route + address, WAITING/CLAIMABLE/PAUSED | official web client portal UI (pending withdrawals) | kami-lens daemon socket (mirror; lens 1.0.0) | 2026-10-03 |
 | `lens_transfers` | PERCEIVE | per-account item transfer history | official web client transfer log (Kamiden) | kami-lens daemon socket → Kamiden | 2026-07-23 |
-| `lens_feed` | PERCEIVE | buffered world feed events | official web client feed ticker (Kamiden) | kami-lens daemon socket → Kamiden | 2026-07-23 |
+| `lens_feed` | PERCEIVE | buffered world feed events: newest 50 by default, opt-in limit (1-500) and account filter (lens 1.0.0) | official web client feed ticker (Kamiden) | kami-lens daemon socket → Kamiden | 2026-07-23 |
 | `lens_chat` | PERCEIVE | room chat page (flag-gated, default off) | official web client chat (Kamiden) | kami-lens daemon socket → Kamiden | 2026-07-23 |
-| `lens_status` | PERCEIVE | lens daemon health/config incl. blocks behind chain head and per-feed degradation (no world state) | daemon self-report | kami-lens daemon socket | 2026-07-23 |
+| `lens_status` | PERCEIVE | lens daemon health/config incl. blocks behind chain head (omitted when the head sample is stale), per-feed degradation, applied/reconciled marks (no world state) | daemon self-report | kami-lens daemon socket | 2026-07-23 |
+| `lens_pool_history` | PERCEIVE | price history of one item pair's pool, bucketed | official web client pool chart (Kamiden) | kami-lens daemon socket → Kamiden (lens 1.0.0) | 2026-10-03 |
 | `get_expected_objective` | PERCEIVE | quest catalog expectations (documentation, not chain truth) | community quest catalog export | local catalogs/ CSVs | ≤ v1.5.1 (2026-07-19); lens migration n/a (local catalog) |
 | `check_quest_completable` | PERCEIVE | act-guard: would quest-complete revert now | official web client complete button state | chain staticCall | ≤ v1.5.1 (2026-07-19); kept native as an ACT pre-check |
 | `quest_state` | PERCEIVE | one quest's on-chain state discriminated | official web client quest log | chain component reads | ≤ v1.5.1 (2026-07-19); kept native as an ACT pre-check |
-| `get_scavenge_points` | PERCEIVE | per-account scavenge points + claimable tiers | official web client scavenge panel | chain component reads | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (no lens scavenge query at pin 8b74007) |
-| `get_scavenge_droptable` | PERCEIVE | node droptable weights/probabilities | official web client scavenge panel | chain component reads (the node's scavenge registry, its anchored droptable rewards, their keys and weights; node name from catalogs/nodes.csv) — no third party since 4.0.0 | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (no lens scavenge query at pin 8b74007) |
+| `get_scavenge_points` | PERCEIVE | per-account scavenge points + claimable tiers | official web client scavenge panel | chain component reads | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (no lens scavenge query at lens 1.0.0) |
+| `get_scavenge_droptable` | PERCEIVE | node droptable weights/probabilities | official web client scavenge panel | chain component reads (the node's scavenge registry, its anchored droptable rewards, their keys and weights; node name from catalogs/nodes.csv) — no third party since 4.0.0 | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (no lens scavenge query at lens 1.0.0) |
 | `get_item_orderbook` | PERCEIVE | one item's complete order book | in-game World Order Book (kwob) | chain event-scan + component reads | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (per-item book exceeds lens_trades at this pin) |
 | `pool_swap_quote` | PERCEIVE | priced quote for one pool swap: amount out, min received, price impact | in-game swap panel quote | chain component reads (live reserves + fee) | 2.1.0 (2026-08-07); kept native as an ACT pre-check — the perception layer carries pool reserves, the per-trade quote is the act's own |
 | `list_accounts` | META | local roster labels + public addresses | standard multi-wallet tooling | local roster/env | ≤ v1.5.1 (2026-07-19) |
@@ -56,10 +58,11 @@ rows below go missing.
 
 | Read | Status | Reason |
 |---|---|---|
-| guild-members | deferred | the Kamibots guild-members read left the surface with the world-state read removal (2026-07-23); no lens guild query exists at pin `8b74007` |
+| guild-members | deferred | the Kamibots guild-members read left the surface with the world-state read removal (2026-07-23); no lens guild query exists at lens 1.0.0 |
 | general-leaderboards | deferred | the Kamibots `/api/leaderboards/{harvest,kill}` read left the surface (2026-07-23; upstream answered 500s in 2026-07); `lens_leaderboard` serves mirror Score components only |
 | quest-status-natives | superseded | get_active_quests and get_quest_status left the surface in the 2.0.0 budget trim (2026-07-23, pre-approved): lens_quests and quest_state serve the same reads |
-| windowed-killers | deferred | `lens_killers` is the all-time ranking; the time-windowed variant is upstream ApiKey-gated at lens pin `8b74007` and is not served |
+| lens-quote | served, not as a tool | the lens 1.0.0 `quote` query (exact-in / exact-out pool quote) is not wrapped: `pool_swap_quote` stays the one quote tool, read natively from live reserves, so an agent never meets two quotes for one swap |
+| windowed-killers | deferred | `lens_killers` is the all-time ranking; the time-windowed variant is upstream ApiKey-gated and the lens `killers` query has no window at 1.0.0; not served |
 | room-exit gates | served, not as a tool | room-exit access conditions reach the surface only as `travel_to_room`'s planning and refusals (`catalogs/room-gates.csv`, extracted from the lens `room` query during the 3.4.0 build, at the then-current pin `f07b578`; the gate data is chain state and unchanged at `8b74007`). No tool answers "what gates room N" on its own; `lens_room` serves the daemon's `exits[].gates` verbatim for a caller that wants the live form |
 
 ## Error classes a READ can raise
@@ -71,6 +74,8 @@ failure, and neither reads as an empty result.
 | Class | Raised when | Why it is not the other one |
 |---|---|---|
 | `LensQueryError` | the daemon answered an error envelope (`BAD_ARGS`, `NOT_FOUND`, `KAMIDEN_UNAVAILABLE`, `CHAT_DISABLED`, ...); code and message pass through verbatim (SPEC P5) | the daemon is serving and this is its answer |
+| `LensNotAppliedError` (subclass of `LensQueryError`, code `NOT_APPLIED`, lens 1.0.0) | a read given `at_least_block` timed out before the mirror applied that block; carries `applied_through` | the read is valid and the world answer exists, just not yet with that block in it: re-read, the transaction did not fail |
+| `LensQueryError` with code `INCOMPLETE` (lens 1.0.0) | `kami`, `skills`, or a `node` attacker could not be projected completely right now; list rows say `incomplete: true` instead | not an absent kami and not zero HP: re-read |
 | `LensUnavailableError` | the socket is unreachable, unresponsive, or the mirror is uninitialised | no answer exists; retrying later is the remedy |
 | `LensNotReadyError` (subclass of the above, code `NOT_READY`, served from lens 0.5.2) | a world read arrives while daemon `state != LIVE` | before 0.5.2 this was served as `NOT_FOUND: node 9 not in mirror`, which reads as "that node does not exist" and sends a caller hunting a missing entity instead of waiting for a sync |
 

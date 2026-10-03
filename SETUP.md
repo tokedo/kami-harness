@@ -33,7 +33,7 @@ Kamigotchi perception and action as tools; any MCP client can drive it.
   transactions through the `MAINNET_RPC_URL` endpoint; it is part of the
   environment definition and is recorded in run manifests, and the
   server fails at startup when it is unset.
-- **kami-lens**: world-state reads (25 of the 32 PERCEIVE tools) are
+- **kami-lens**: world-state reads (27 of the 34 PERCEIVE tools) are
   answered by a **local** [kami-lens](https://github.com/tokedo/kami-lens)
   daemon that you run yourself — there is no hosted read service. It is
   a Node.js daemon and ships a Docker Compose sample; you need one of
@@ -160,24 +160,28 @@ outside the client's tool surface.
 
 ## 7. Install and run kami-lens (required for world-state reads)
 
-25 of the 32 PERCEIVE tools are thin wrappers over a **local**
+27 of the 34 PERCEIVE tools are thin wrappers over a **local**
 kami-lens daemon — one socket request each, passed straight back to the
 caller. The other 7 read the chain directly (or, for
 `get_expected_objective`, the local quest catalog). Until the daemon
-is running, the 25 raise
+is running, the 27 raise
 `LensUnavailableError` — they never fall back to a hosted service and
 never return an empty result in its place. ACT and META
 tools do not depend on it.
 
-This server version is built against kami-lens release **0.5.3**, pinned
-at commit `9488894` and declared in [`SPEC.md`](SPEC.md) D1 — the one
-place that pin is stated. kami-lens is not published
-to npm or a container registry, so build it from the repository:
+This server version is built against kami-lens release **1.0.0**,
+declared in [`SPEC.md`](SPEC.md) D1 — the one place the compatible
+release and its commit are stated. Several 4.0.0 parameters
+(`at_least_block`, `equipment`, the node and feed selectors) and two
+tools (`lens_receipts`, `lens_pool_history`) need 1.0.0: an older daemon
+refuses them with an error, so upgrade the daemon first. kami-lens is
+not published to npm or a container registry, so build it from the
+repository:
 
 ```bash
 git clone https://github.com/tokedo/kami-lens
 cd kami-lens
-git checkout 9488894        # the pin this server version is built against
+git checkout <commit>       # the 1.0.0 release commit named in SPEC.md D1
 npm install && npm run build
 node dist/cli.js daemon      # long-running: sync daemon + query socket
 ```
@@ -197,9 +201,11 @@ minute before expecting complete answers.
 
 ### Point the server at the socket
 
-The daemon serves one newline-delimited JSON request per connection over
-an AF_UNIX socket at `<data dir>/kami-lens.sock`. The server looks for
-it at the daemon's own platform default:
+The server sends one newline-delimited JSON request per connection over
+an AF_UNIX socket at `<data dir>/kami-lens.sock` (the daemon answers a
+connection's requests in order, so a read held by `at_least_block` must
+not share one — none does). The server looks for it at the daemon's own
+platform default:
 
 | Platform | Default socket path |
 |---|---|
@@ -376,7 +382,7 @@ error says whether the batch SIZE or one kami (ITEM) failed.
 - [`README.md`](README.md) — the environment interface specification:
   tool surface, world-knowledge docs, and world model.
 - [`executor/README.md`](executor/README.md) — the full MCP tool
-  reference (98 tools, by class).
+  reference (100 tools, by class).
 - [`integration/system-ids.md`](integration/system-ids.md) and
   [`integration/entity-ids.md`](integration/entity-ids.md) — if you want
   to extend the interface with new tools.
