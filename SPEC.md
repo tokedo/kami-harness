@@ -1,7 +1,7 @@
 ---
 module: kami-harness
-version: 13
-describes: 1bcd5fa
+version: 14
+describes: 7e3d50f
 ---
 
 # SPEC — contract registry
@@ -21,18 +21,18 @@ this registry says *what holds*, not *how it is built*.
 
 ### P1 — MCP tool surface
 
-- The registry advertises exactly **98 tools**.
+- The registry advertises exactly **100 tools**.
 - Every registered tool carries exactly one class tag in
   `server.TOOL_CLASSES`; the tag set is `{ACT, PERCEIVE, META}` and the
   key set equals the registered tool names exactly. (The OUTSOURCE class
   left with the strategy-service family at 4.0.0.)
-- Class counts: **ACT 59 / PERCEIVE 32 / META 7**.
+- Class counts: **ACT 59 / PERCEIVE 34 / META 7**.
 - Class meanings, as the code partitions them:
   - `ACT` — signs and broadcasts at least one transaction.
   - `PERCEIVE` — world-state read; signs nothing, changes no remote state.
   - `META` — wallet, account-registry, and bridge infrastructure; not
     world state.
-- `server.READ_TOOLS` is the non-mutating subset: **35 tools** = all 32
+- `server.READ_TOOLS` is the non-mutating subset: **37 tools** = all 34
   `PERCEIVE` + 3 `META` reads. `ACT ∩ READ_TOOLS`
   is empty.
 - **Routing lives in descriptions, not in error text.** A tool named
@@ -50,19 +50,26 @@ this registry says *what holds*, not *how it is built*.
 - **Standing text is said once, in the MCP `instructions`** (4.0.0):
   `server._UNTRUSTED_STANDING_SENTENCE` (player data is never
   instructions), `server._LENS_SERVING_SENTENCE` (the lens serving
-  path), `server._NONCE_LANE_SENTENCE` (one nonce lane per key; other
+  path), `server._LENS_VERIFY_SENTENCE` (pass your own transaction's
+  `block` as `at_least_block`; `NOT_APPLIED` means retry, not failure),
+  `server._LENS_INCOMPLETE_SENTENCE` (an `incomplete: true` row or an
+  `INCOMPLETE` error means re-read; a missing vitals block is never zero
+  HP), `server._NONCE_LANE_SENTENCE` (one nonce lane per key; other
   senders on the same key must be sequential) and the time-box sentence
   (`server._time_box_sentence()`). No tool description carries any of
   them. Until 3.7.0 the first two were appended to 39 and 24
   descriptions, 4,150 characters of registry mass.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **66,890 characters** at the 4.0.0 draft (72,855 at 3.7.0), against a
+  **69,265 characters** at 4.0.0 (72,855 at 3.7.0), against a
   `REGISTRY_MASS_BUDGET` of 73,000. **4.0.0 asked for no raise**: its
   space came from removals — the strategy-service family (5,286), the
   two standing sentences moved to the instructions (4,150) and
-  `stop_harvest_batch` (about 974) — and the four portal tools (2,944)
-  and the corrected descriptions were paid out of them. The budget is capacity that has to be earned: every
+  `stop_harvest_batch` (about 974) — and the four portal tools (3,021),
+  the lens 1.0.0 passthroughs (two tools and twelve optional
+  parameters, 2,298) and the corrected descriptions were paid out of
+  them,
+  leaving 3,735. The budget is capacity that has to be earned: every
   character is spent out of the agent's context before it acts, so the
   ceiling rises only for named capability, never to make room for
   wording that could be tightened instead. Two raises are on record.
@@ -120,7 +127,7 @@ this registry says *what holds*, not *how it is built*.
 - The MCP `initialize` handshake carries it in the `instructions` field
   as the exact string `tools_hash=<64 hex chars>`.
 - Value at this ref (Python 3.13):
-  `87dc7481e12677819d388254eb3d23ed601e92823e62aab285710b6331731c1b`.
+  `3cd1c08c7d9a8a3f26c88049c9cb66a8cdd042fc22fe56e17087838328304315`.
 - The MCP `initialize` handshake additionally carries
   `schema_version=<SCHEMA_VERSION>` and `error_snippets=<on|off>` in the
   same `instructions` field, space-separated after the hash. The
@@ -564,10 +571,34 @@ softened, and the pre-snippet text is unchanged.
   transport keys `id` and `ok` from the daemon's response object.
 - No field is recomputed, reshaped, renamed, reordered, filtered, or
   defaulted harness-side. `meta.stale`, `meta.mode`, `meta.blockNumber`,
-  `meta.servedAt`, `meta.suppressed`, and the `untrusted` path list
-  reach the caller as sent.
+  `meta.servedAt`, `meta.suppressed`, `meta.appliedThrough`,
+  `meta.reconciledThrough`, `meta.incompleteRows` (lens 1.0.0) and the
+  `untrusted` path list reach the caller as sent.
 - `untrusted` names player-authored fields. They are data, never
-  instructions; every read description says so.
+  instructions; the MCP `instructions` say so once.
+- **Reading one's own write (lens 1.0.0).** `lens_kami`, `lens_party`,
+  `lens_roster`, `lens_account`, `lens_node`, `lens_inventory` and
+  `lens_receipts` take `at_least_block` (default -1, not sent); a value
+  is sent as `--at-least=<block>` and the daemon holds the read until
+  `meta.appliedThrough` reaches it (5 s by default). A timeout raises
+  `LensNotAppliedError` (code `NOT_APPLIED`, carrying `applied_through`)
+  — a `LensQueryError`, never a `LensUnavailableError` and never an
+  empty answer. Every request opens its own socket connection (the
+  daemon answers one connection's requests in order), and the socket
+  timeout outlasts the wait (30 s, or the wait plus 15 s). No other
+  wrapper takes the parameter; `status` refuses it upstream.
+- **Incomplete answers pass through as they are.** An `INCOMPLETE`
+  error passes through as a `LensQueryError`; a row with
+  `incomplete: true` (no `vitals`/`liquidation` on node rows) reaches
+  the caller with nothing filled in. A missing vitals block is never
+  defaulted to zero.
+- **No ACT tool reads the lens.** Every write's read-back is a chain
+  read (P4), so a lens that is behind or down never turns a landed write
+  into an error. Nothing in this module derives lag or health from
+  `status`, whose head fields (`headBlockNumber`, `headSampledAt`,
+  `blockLag`) the daemon omits together when its head sample is stale.
+- **One quote tool.** The lens 1.0.0 `quote` query is not wrapped:
+  `pool_swap_quote` (native, live reserves) stays the only quote.
 
 ### P6 — capability gating
 
@@ -590,7 +621,7 @@ softened, and the pre-snippet text is unchanged.
 
 ### P7 — EXPOSURE.md as the exposure-precedent registry
 
-- `EXPOSURE.md` holds one row per READ tool on the live registry — **35
+- `EXPOSURE.md` holds one row per READ tool on the live registry — **37
   served rows** at this ref — with columns: Tool, Class, Exposure,
   Precedent, Serving path, Admitted.
 - It additionally holds *deferred* rows (reads deliberately not served
@@ -606,13 +637,17 @@ softened, and the pre-snippet text is unchanged.
 
 ### D1 — kami-lens daemon
 
-- **Pin:** `9488894` (kami-lens release 0.5.3). Built in parallel with
-  this release on the lens branch `lens-053`, and pinned to the RELEASE
-  commit on lens `main` — the records commit that pins the lens SPEC
-  registry to 0.5.3, parent `8277408` (the code change). That is the
-  same shape as the 0.5.2 pin `8b74007`, and **this pin is final**: it
-  is a pushed commit on `main`, not a branch tip that could still be
-  squashed or rebased. **This row is the only place the compatible lens
+- **Pin: kami-lens release 1.0.0.** Built in parallel with this
+  release against the lens branch `lens-100` (its leg A at `802993a`)
+  and the agreed 1.0.0 query surface for what its leg B adds
+  (`receipts`, `pool-history`, the `node`/`feed` selectors,
+  `kami --equipment`, `roster --full`). **The release commit is not
+  named yet: it is recorded in this row when lens 1.0.0 lands on lens
+  `main`**, in the same shape as the earlier pins — the records commit
+  that pins the lens SPEC registry to the release, never a branch tip
+  that could still be squashed or rebased. Until then this row names the
+  release, not a commit. (At 3.7.0 the pin was `9488894`, kami-lens
+  0.5.3.) **This row is the only place the compatible lens
   version is stated.** It had been duplicated
   in a `server.KAMI_LENS_PIN` constant that no code path read; the
   constant held the 0.4.0 commit under a comment saying 0.2.0, and
@@ -683,14 +718,33 @@ softened, and the pre-snippet text is unchanged.
   This is why Family D is not servable below `8b74007`: against a 0.5.1
   daemon its two flags do not fail, they are ignored, and the caller
   gets a wrong-but-plausible answer to a question it did not ask.
+- **The 0.5.3 -> 1.0.0 advance at 4.0.0 is what the lens passthroughs
+  wrap, and they are NOT SERVABLE BELOW IT.** 1.0.0 adds the
+  read-your-writes primitive (`--at-least <block>`, `--max-wait <ms>`,
+  `meta.appliedThrough`, the `NOT_APPLIED` error carrying
+  `appliedThrough`), the completeness contract (`INCOMPLETE`,
+  `incomplete: true` rows, `meta.incompleteRows`), valued options in
+  both `--opt <v>` and `--opt=<v>` form, `kami --equipment`,
+  `roster --full`, `node --targets/--account`, `feed --limit/--account`
+  (newest 50 by default), and the `receipts` and `pool-history` queries;
+  it removes `meta.asOf.observedBlock/observedBlockTime/observedAgoMs`,
+  which nothing here read. A daemon below 1.0.0 refuses every new
+  option as undeclared (the socket has refused undeclared flags since
+  0.5.2), so a deployment upgrades the lens first; a 4.0.0 call that
+  uses none of the new parameters sends exactly what 3.7.0 sent.
 - **Transport:** local AF_UNIX stream socket, one newline-delimited JSON
-  request and one response per connection, 30-second timeout. Path from
-  `KAMI_LENS_SOCKET`, else the daemon's own platform default
-  (`<platform data dir>/kami-lens/kami-lens.sock`).
+  request and one response per connection — the daemon answers one
+  connection's requests in order, so a read held by `--at-least` never
+  shares a connection. Timeout 30 s, or the wait plus 15 s when a read
+  is held. Path from `KAMI_LENS_SOCKET`, else the daemon's own platform
+  default (`<platform data dir>/kami-lens/kami-lens.sock`).
 - **Request shape we send:** `{id, query, args: [string, ...], prose?,
-  oversize?, noAuthored?}`. All positional args are stringified.
+  oversize?, noAuthored?}`. All positional args are stringified; valued
+  options go as single `--opt=<value>` tokens (`--at-least`,
+  `--max-wait`, `--targets`, `--account`, `--limit`).
 - **Response shape we assume:** `{id, ok: true, data, untrusted, meta}`
-  on success; `{id, ok: false, error: {code, message}}` on failure.
+  on success; `{id, ok: false, error: {code, message}}` on failure, and
+  for `NOT_APPLIED` also `appliedThrough`.
 - **Assumptions:** the envelope key set is stable at this pin; error
   codes (`BAD_ARGS`, `NOT_FOUND`, `KAMIDEN_UNAVAILABLE`,
   `CHAT_DISABLED`, …) are passed through unmapped; `meta.stale=true`
@@ -838,6 +892,10 @@ writer; no other module opens the keys file or the Keychain.
 | A loop stops at a transaction boundary inside `KAMI_CALL_BUDGET_S` and returns `time_boxed` and `remaining`; a single transaction is never cut by the box | `test_400_surface.py::test_a_loop_stops_inside_its_box_and_says_what_remains`, `::test_a_single_transaction_is_never_cut_by_the_box` |
 | No strategy-service tool, host or credential remains; the scavenge droptable is read from chain; `register_account` names the operator-is-an-owner revert | `test_400_surface.py::test_no_strategy_service_remains`, `::test_the_droptable_is_read_from_chain`, `::test_register_account_names_the_operator_is_owner_revert` |
 | `withdraw_operator` keeps max(eth_estimateGas x 2, 0.0002 ETH) — an empirical floor (X10) — for `"all"` and for an explicit amount | `test_gas_wallet.py::TestWithdrawOperator` |
+| `at_least_block` is on exactly the seven verify reads, absent by default and sent as `--at-least=<block>`; `NOT_APPLIED` is `LensNotAppliedError` carrying `applied_through`; every read opens its own connection, with a socket timeout that outlasts the wait | `test_400_lens.py::test_at_least_block_holds_the_read_for_that_block`, `::test_defaults_send_none_of_the_new_options`, `::test_the_verify_set_carries_at_least_block_and_status_does_not`, `::test_not_applied_is_its_own_error_and_carries_applied_through`, `::test_every_read_opens_its_own_connection`, `::test_the_socket_timeout_outlasts_the_wait` |
+| The lens 1.0.0 options reach the daemon: `equipment`, roster `full`, node targets and occupant account, feed `limit` and account, `receipts` by the roster account's owner address, `pool-history` | `test_400_lens.py::test_the_1_0_0_options_reach_the_daemon`, `::test_lens_receipts_reads_the_roster_accounts_owner_address`, `::test_lens_receipts_falls_back_to_the_operator_address` |
+| `INCOMPLETE`, `incomplete: true` rows, the 1.0.0 `meta` fields and a `status` without its head sample pass through verbatim, nothing filled in | `test_400_lens.py::test_incomplete_passes_through_as_a_query_error`, `::test_incomplete_rows_and_the_new_meta_pass_through_verbatim`, `::test_status_without_the_head_sample_passes_through` |
+| The instructions say once how to verify a write and what an incomplete answer means; `portal_claim`/`portal_cancel` point to `lens_receipts`; `lens_feed` states its default; no lens quote wrapper exists | `test_400_lens.py::test_the_agent_is_told_once_how_to_verify_and_what_incomplete_means`, `::test_portal_claim_and_cancel_point_to_lens_receipts`, `::test_lens_feed_states_its_new_default`, `::test_there_is_no_lens_quote_wrapper`, `test_tool_surface.py::test_standing_text_is_said_once_in_the_instructions` |
 | The offline suite reaches no network: the module's client is a dead loopback port unless a test installs its own fake | `conftest.py::_offline_rpc` (autouse) |
 | A sequence reports one terminal state per step and never conflates two: a success, a revert and a timeout in one call come back as themselves, each with its own receipt evidence | `test_h350_families.py::test_terminal_states_are_never_conflated` |
 | A reverted step does not stop the sequence and is never resent | `test_h350_families.py::test_a_reverted_step_does_not_stop_the_sequence`, `::test_a_reverted_step_is_never_resent` |
@@ -877,8 +935,8 @@ writer; no other module opens the keys file or the Keychain.
 | Every gate type in `catalogs/room-gates.csv` has an evaluator, and every gated edge exists in the routing graph | `test_rooms_graph.py::test_gate_rows_are_well_formed`, `::test_every_gated_edge_exists_in_the_graph` (a fourth gate type fails the suite rather than routing an account into a revert) |
 | A kami at 0 stored HP is refused pre-send by both `harvest_stop` and `harvest_collect`, with one wording, and an unreadable HP refuses nothing | `test_h340_families.py::TestStarvingGate` |
 | `NOT_READY` is its own error class and never reads as a missing entity | `test_h340_families.py::TestLens052Passthroughs::test_not_ready_is_its_own_error_class`, `::test_not_ready_never_reads_as_a_missing_entity` |
-| The registry advertises exactly 98 tools | `test_tool_surface.py::test_tool_surface_count` |
-| Every registered tool is class-tagged, and no tag names an absent tool | `test_tool_surface.py::test_taxonomy_covers_registry_exactly` (also pins ACT 59 / PERCEIVE 32 / META 7 and 35 READ tools) |
+| The registry advertises exactly 100 tools | `test_tool_surface.py::test_tool_surface_count` |
+| Every registered tool is class-tagged, and no tag names an absent tool | `test_tool_surface.py::test_taxonomy_covers_registry_exactly` (also pins ACT 59 / PERCEIVE 34 / META 7 and 37 READ tools) |
 | Tools removed at this version stay absent | `test_tool_surface.py::test_removed_tools_absent` |
 | Every READ tool has an EXPOSURE.md row; no row names a non-READ or absent tool | `test_tool_surface.py::test_exposure_rows` |
 | Named deferred reads and unserved ACT rows stay present in EXPOSURE.md | `test_tool_surface.py::test_exposure_rows` |
@@ -937,7 +995,7 @@ writer; no other module opens the keys file or the Keychain.
 Each is labeled. A future rework must not "clean" any of these without a
 decision — the label is the handle for that decision.
 
-**X1 — `native-reads-kept`.** Six PERCEIVE tools are not lens wrappers,
+**X1 — `native-reads-kept`.** Seven PERCEIVE tools are not lens wrappers,
 and three META reads are not world state at all. Each has its own
 EXPOSURE row carrying serving path and migration note:
 
@@ -946,8 +1004,9 @@ EXPOSURE row carrying serving path and migration note:
 | `get_expected_objective` | local `catalogs/quests/` | documentation, not chain truth; no lens equivalent by design |
 | `check_quest_completable` | chain `staticCall` | act-guard: answers "would quest-complete revert right now" |
 | `quest_state` | chain component reads | act-guard: discriminates the on-chain quest state |
-| `get_scavenge_points` | chain component reads | no lens scavenge query at pin `8b74007` |
-| `get_scavenge_droptable` | chain only (since 4.0.0): the scavenge registry's anchored droptable rewards, their keys and weights | no lens scavenge query at pin `8b74007` |
+| `get_scavenge_points` | chain component reads | no lens scavenge query at lens 1.0.0 |
+| `get_scavenge_droptable` | chain only (since 4.0.0): the scavenge registry's anchored droptable rewards, their keys and weights | no lens scavenge query at lens 1.0.0 |
+| `pool_swap_quote` | chain component reads (live reserves + fee) | the ACT pre-check `pool_swap` runs; the lens 1.0.0 `quote` query is deliberately not wrapped, so one quote tool exists |
 | `get_item_orderbook` | chain event-scan + component reads | per-item book exceeds `lens_trades` at this pin |
 | `get_gas_balance` | Yominet + mainnet RPC | wallet infrastructure |
 | `list_accounts` | local roster / env | local configuration |
@@ -1093,3 +1152,4 @@ each entry is expected to land; it records what it would cost.
 | 11 | 2026-08-28 | Re-pinned to `ede7b80` (SCHEMA_VERSION **3.5.0**). **MINOR**: two tools added (`act_sequence`, `lens_skills`; P1 count 102 -> 104, ACT 55 -> 56, PERCEIVE 31 -> 32, `READ_TOOLS` 39 -> 40), optional result fields on `liquidate_kami`, one description reworded (`lens_node`), nothing removed or renamed; P4 extended. D1 advances `8b74007` (0.5.2) -> `9488894` (0.5.3), built against each other. Source: four feedback entries from the fourth field session (2026-08-28) and three maintainer rulings. Four families. **(A) `act_sequence(steps, account)`** — up to 16 actions from a closed vocabulary (feed, liquidate, harvest_start, harvest_stop) signed on consecutive nonces read ONCE at `pending` and broadcast before any receipt is read. Measured live at gate 1 (two Energy Drink feeds on kami 12649, nonces 1513/1514): both broadcasts accepted, blocks 32678986/32678987 with the same second-timestamp, 0.974 s first send to second receipt — so the description's claim is 'within a block or two', not 'one block'. Static whole-sequence validation (ownership, item balance vs feed count, victims ACTIVE, killer HARVESTING or started earlier in the sequence, gas vs the sum of ceilings); `eth_call` dry-run for step 1 ONLY, because later steps' preconditions are earlier steps' effects. Fixed ceilings per op, never estimateGas. P4 gains the sequence paragraph: K per-step terminal states in `steps[]` (success / reverted / unconfirmed / not_sent, receipt fields where a tx exists), call status `complete` / `partial` which is NOT a terminal state, the three-state rule binds each step, a reverted step consumes its nonce, is final and is never resent, a broadcast-rejected step is re-signed at most once, the call raises only when step 1 fails pre-send. The general `no_wait` mode the feedback asked for was refused by a maintainer ruling: it would put a fourth, in-flight state on every ACT tool the benchmark agents call with defaults. **(B) The decoded kill** on `liquidate_kami` and every liquidate step: `victim_gross` (max non-zero `ComponentValueSet` write to the victim harvest entity — the transaction index's drain rule, verified equal to the index's `harvest_liquidate.amount` on all four kills of the 32677494–32677564 session), `spoils` (LAST write to the killer's harvest entity minus its pre-send bounty — asymmetric on purpose: the killer entity's writes are `[prev, new]` with no zero, so the drain rule misreports them both ways), `attacker_hp_after`, `cooldown_until`, and `recoil` on the single-call form only (a sequence step has no per-step pre-read; the field is omitted, never invented). `salvage` deliberately absent: the victim inventory write is absolute and its prior value is not in the receipt. A decode failure yields `null` + `decode_error` and never fails a landed tx; the pinned RPC is not an archive node and no historical read is assumed. **(C) `lens_skills(kami_index=-1)`**: the registry, or a kami's `unspent` + `invested[]`; EXPOSURE row `lens-skills` deferred -> served (40). **(D) lens 0.5.3 passthrough**: `lens_node.eligible_only` keeps TARGET-side rows (occupant HP under the attacker's threshold) and `attacker.blocked` names the attacker's own gate (null when clear) — before it, a starving attacker's read answered `harvestsEligible: 0` with 20+ targets under threshold, indistinguishable from an empty node (node 35, block 32677631). Not servable below 0.5.3: a 0.5.2 daemon answers the old meaning with `ok: true`, so a deployment upgrades the lens first. **(E)** `feed_kami` gains a measured ceiling 3,500,000 (p50 1,361,543 / p95 2,185,084 / p99 2,203,762 / max 2,639,799 over 329,709 successful `system.kami.use.item` txs since 2026-06-01; aligned with `travel_use_item`, same system, and this table's own 1.5x p99 floor) — it estimated per call before. **Budget 72,000 -> 73,000** by a maintainer ruling (2026-08-28) for the named capability *pipelined action sequences*; the four families cost 2,100 characters, four trims reclaimed 288 first, and P1 mass lands 71,012 -> **72,857** with 143 of headroom — the registry has no slack left below the two standing sentences, and the next capability needs a raise, not a trim. P2 `tools_hash` `e7b0e942...9c09` -> `a4e9aaf5...4c63`. Eleven invariant rows added; 680 tests. |
 | 12 | 2026-08-28 | Re-pinned to `3d128bf` (SCHEMA_VERSION **3.6.0**). **MINOR**: no tool, parameter or schema added, removed or renamed (count 104, classes unchanged), but `act_sequence`'s description moves (`max 16` -> `max 64`; the burst claim reworded to 'a few blocks'), so the fingerprint moves: P2 `tools_hash` `a4e9aaf5...4c63` -> `87dc7481...1c1b`; P1 mass 72,857 -> **72,855**. Source: the fifth/sixth field sessions on 3.5.0 (their report: 20 kills, deploy -> kill in 3 blocks, decoded spoils == banked delta exactly) and its three asks. Three families. **(A) Step cap 16 -> 64 by a maintainer re-ruling (2026-08-28) on a MEASUREMENT, not a guess**: `executor/tests/live/measure_mempool_acceptance.py` drove feed-only sequences of 32 / 48 / 64 consecutive nonces from one sender through the shipped internals — 64/64 accepted, zero rejections at every rung, all mined within 3 s of chain time (blocks 32683438-32683445); the ceiling was NOT reached (drink budget exhausted: 148 Energy Drinks, 159,439,711 gas, ~0.0004 ETH), so the cap sits at the largest measured acceptance and is not raised past its evidence. Chain fact recorded: the node lands **9 of one sender's transactions per block** (blocks of nothing but ours at 9,676,854 of 45,000,000 gas — a per-block admission ceiling, not gas pressure), so an N-step burst spans ~N/9 blocks. Operator note absorbed: future feed-path measurements use the cheapest consumable (Ghost Gum) — Energy Drinks are crafted and scarce. **(B) Batch broadcast**: the pre-signed tail goes out as ONE JSON-RPC batch body over the provider's `make_batch_request` (web3 v7's `batch_requests()` forbids `eth_sendRawTransaction` by a library guard, pinned by a test so a future upgrade fails loudly); batch ids ARE the nonces, so responses map back by nonce and a missing response is `not_sent`, never guessed; the first rejection-marker item still triggers the once-only re-sign of the tail; serial survives only as a transport fallback (rows carry `broadcast: "serial"`). Measured: 32 items 0.500 s (vs ~13 s serial), 64 items 2.354 s (vs ~27 s). Recorded honestly: a batched tail's later items were physically offered to the node — `not_sent` there is a claim about intent, held by the nonce gap. **(C) Receipt-side kill decode**: `attacker_hp_after` and `cooldown_until` now come from the kill receipt's own `ComponentValueSet` writes on the killer entity (`component.stat.health`, a packed Stat of four signed 64-bit fields with `sync` last; `component.Time.Next`) — 3.5.0 read them LIVE at decode time, so every row of a burst carried the last step's state (burst 32682485-96: 3.5.0 said 1787938453 on all four kills; the receipts say ...418 / ...421 / ...422 / ...453, and the last — where the live read was known-correct — matches). No live read inside a decode on either path; `liquidate_kami` uses the receipt too (two fewer round-trips); a missing write is `null` + `decode_error`. Ten invariant rows; 701 tests. Receipt COLLECTION remains serial (~0.25 s/step wall after the chain is done) — a named, deliberate gap for a later release. SETUP.md's lens version corrected 0.5.1 -> 0.5.3 (drift since 3.3.0). |
 | 13 | 2026-08-28 | Re-pinned to `1bcd5fa` (SCHEMA_VERSION **3.7.0**). **MINOR**, not PATCH: no tool, parameter, schema or description changes — count 104, classes unchanged, P1 mass **72,855** and P2 `tools_hash` `87dc7481...1c1b` both byte-identical, so a 3.6.0 deployment and a 3.7.0 one have the same surface fingerprint — but a sequence that reported `sent: 0` and 61 x `not_sent` now reports 61 successes, and result rows gain `reconciled` and `broadcast_error`, which is an agent-visible effect and outside this file's PATCH definition (the 3.2.0 shape). Source: an instant-strike field session on 3.6.0 (2026-08-28 19:24-19:36 UTC, 45 kills / 191 txs / 4.2 tx per kill / 0 deaths; the session's ledger and two feedback entries). Three families. **(A) A mined sequence is never `not_sent`.** At 19:30:40.8Z a 61-step strike returned `partial, sent: 0, landed: 0`, every row `not_sent` with `reason: ""`, while ALL 61 transactions mined (nonces 1873-1910 in blocks 32685027-038, a 20 s gap, then 1911-1933 in 047-051 as the call returned; MUSU +11,735 matched the 14 landed kills). The mechanism was REPRODUCED against the 3.6.0 code path before anything was changed, with a mocked provider, and returns the incident byte for byte: the batch POST carried web3's DEFAULT 30 s timeout (`Web3(Web3.HTTPProvider(RPC_URL))` passes no `request_kwargs`); it fired while the node was still admitting; the retry re-offered the WHOLE body including the 38 nonces already held; the node answered those with an error object whose `message` was empty; `err.get("message")` went on the row as `""`, matched no rejection marker, and the else branch marked step 0 and every later step `not_sent` and then `break`ed, discarding the accepted outcomes for the tail in the SAME response list; `hashes` was empty so no receipt was polled. Fixed three ways, all required. **(a)** Every step's hash is computed at sign time (keccak256 of the signed raw transaction), and no row is reported `not_sent` until the node has been asked: the operator's pending nonce (a nonce below it is held, so it was sent), a settle-and-re-read when a transport failure left part of a body held, then `eth_getTransactionReceipt` for the remaining pre-computed hashes in one batch. A rescued row is `unconfirmed` with its hash, enters the receipt collection, and carries `reconciled` + `broadcast_error`. The same read now guards the RESEND, which re-signs the tail at fresh nonces and would otherwise perform a held step twice. **(b)** The body is offered in sequential chunks of at most 32, each reconciled before the next is offered, each request carrying chunk x measured worst per-item x 2, floor 30 s (= 32 s), on a DEDICATED HTTPProvider per timeout so every other RPC call keeps web3's 30 s. Per-item admission measured, not guessed (`docs/measurements/batch-admission-2026-08-28.md`): feed 0.016 s/item at 32, liquidate >= 0.492 s/item from the incident's own timeout. New live gum ladder: 8 + 32 = 40 Ghost Gum (11301) on kami 12649 from shrike, 40/40 accepted and mined, zero rejections, nonces 1959-1999 with no gap, ~0.000122 ETH, and NO Energy Drinks spent. **(c)** A refused item's payload reaches the row verbatim (message, `[code N]`, `[data ...]`), truncated at 300 chars; a payload with no message yields `node refused nonce N with no error message: {...}`; a missing response yields `no response for nonce N in batch of M`. Regression baseline: the same session's 52-step strike is a test and its report shape is unchanged (52/52, no reconciliation field on any row). **(B) Pre-send validation batched.** 3.6.0 read each subject with its own `eth_call` and did not dedupe the victims at all; the field session measured ~20 s in front of every strike, and a 17-step plan took 21 s just to REFUSE. The reads are all `safeGet(uint256)` on one of three components, so they go out as JSON-RPC batches of `eth_call`, deduped. Measured live read-only on a 61-step plan shaped like the 19:30 strike (23 distinct subjects, three repetitions): **16.3 s and 66 HTTP round-trips become 0.29 s and 1**. The prefetch has no semantics of its own — an unresolved subject falls through to the per-subject read it replaced — and reads the CHAIN, never the lens daemon (3.4.0 family C), pinned by a test. `w3.batch_requests()` does support `eth_call`, verified beside the test that pins its refusal of `eth_sendRawTransaction`. **(C) Cheap items, structural.** `executor/tests/live/measure_mempool_acceptance.py` takes `--item` as a REQUIRED argument with no default, refuses 11409 without `--allow-drinks`, and names Ghost Gum 11301 / Golden Apple 11313 in its docstring; `DRINK_BUDGET` becomes `--budget`. The 3.6.0 doc's cost line was re-checked against the receipts: 4 + 32 + 48 + 64 = **148** successes, gas summing to the recorded 159,439,711, and the day's drink movement closing on it (1,944 -> 1,738 = 206, 58 of them manual play on the same account) — 148 stands, "~146" was the approximation. P4 gains the reconciliation rule, the chunk/timeout facts and the batched pre-send reads; thirteen invariant rows added; 731 tests.  |
+| 14 | 2026-10-03 | Re-pinned to `7e3d50f` (SCHEMA_VERSION **4.0.0**). **MAJOR**: ten tools removed (the nine strategy-service tools and `stop_harvest_batch`), six added (`portal_withdraw`, `portal_claim`, `portal_cancel`, `portal_deposit`, `lens_receipts`, `lens_pool_history`), one parameter removed (`get_scavenge_droptable.account`), new optional parameters, and changed return shapes and terminal states. P1 count 104 -> **100**, classes ACT 56 -> 59 / PERCEIVE 32 -> 34 / META 7, OUTSOURCE 9 -> 0 (the class is gone), `READ_TOOLS` 40 -> 37; P1 mass 72,855 -> **69,265** against the unchanged 73,000 budget; P2 `tools_hash` `87dc7481...1c1b` -> `3cd1c08c...4315`. D1 advances `9488894` (0.5.3) -> kami-lens **1.0.0**, the release commit to be recorded when it lands. **Part 1, the send path** (no surface change of its own): P4 gains the four terminal states (`TxNonceCollisionError` and `TxDroppedError` under `TxNotExecutedError`), the per-signer nonce lane (floor, write-ahead ledger, same-bytes re-offer, zero-value gap fill, drain with notice and re-validation, `LaneBlockedError`), "proven" as two lookups on fresh sessions each answered by one replica, tool bodies on worker threads with cancel at the next transaction (`CallCancelledError`), chain read-backs on every loop, travel on the clamped stamina, scavenge reveals until drained, and an occupied equipment slot never swapped. **Part 2, the surface**: the strategy-service family left (one of its tools posted the operator private key) and D2/X2 retire; `get_scavenge_droptable` reads its rewards from chain; the standing text moves to the MCP `instructions`, joined by the nonce-lane, time-box, verify and incomplete sentences; `stop_harvest_batch` left; the token portal (upstream's signer rule, exact approvals, the payout to the operator as of the claim); measured harvest caps of 10 with the SIZE/ITEM diagnosis and `harvest_start(dry_run)`; the call time box (`KAMI_CALL_BUDGET_S`); the empirical sweep floor (X10); the lens 1.0.0 passthroughs — `at_least_block` on seven verify reads, `NOT_APPLIED` as `LensNotAppliedError`, `INCOMPLETE` and incomplete rows verbatim, `lens_kami.equipment`, `lens_node` target and occupant-account selectors, `lens_roster.full`, `lens_feed` limit and account mapped to the real options; no lens quote wrapper. `act_sequence` per-step keys are designed and deferred ("Not for now"). Provenance wording in the current text is neutral (field sessions, a multi-account deployment, a transaction index, maintainer rulings). Invariant rows added for the lane, the proof rule, the portal, harvest caps, the time box, the sweep floor and the lens passthroughs; 816 tests. |

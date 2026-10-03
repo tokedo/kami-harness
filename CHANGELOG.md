@@ -29,12 +29,14 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
-## [4.0.0] — DRAFT (final hash, mass and SPEC header follow the lens 1.0.0 passthroughs)
+## [4.0.0] — 2026-10-03 — one send path, the token portal, lens 1.0.0
 
-MAJOR. **98 tools** (ACT 59 / PERCEIVE 32 / META 7; the OUTSOURCE class
-is gone), registry mass **66,890** against the unchanged 73,000 budget
-(draft, Python 3.13), `tools_hash` `bdc1bd15...6b28` at this draft.
-`SCHEMA_VERSION` **4.0.0**. Two parts: the send path and concurrency
+MAJOR. **100 tools** (ACT 59 / PERCEIVE 34 / META 7; the OUTSOURCE class
+is gone), registry mass **69,265** against the unchanged 73,000 budget
+(Python 3.13), `tools_hash`
+`3cd1c08c7d9a8a3f26c88049c9cb66a8cdd042fc22fe56e17087838328304315`.
+`SCHEMA_VERSION` **4.0.0**. Built against **kami-lens 1.0.0**: deploy
+the lens first (SPEC D1). Two parts: the send path and concurrency
 (part 1, no surface change of its own), then the surface (part 2).
 
 ### Migration note (consumers of 3.7.0)
@@ -47,16 +49,37 @@ Removed tools, and what replaces them:
 | `stop_harvest_batch(kami_ids, allow_partial)` | `harvest_stop(kami_ids)` — one atomic transaction of up to 10 kamis; a kami that would fail fails the dry-run, which names it (ITEM) |
 
 Changed parameters: `get_scavenge_droptable(node_index)` — `account`
-removed (no third-party read left). New optional: `harvest_start(...,
-dry_run)`. New tools: `portal_withdraw`, `portal_claim`, `portal_cancel`,
-`portal_deposit`.
+removed (no third-party read left).
+
+New optional parameters (absent by default; a call without them sends
+what 3.7.0 sent): `harvest_start(dry_run)`; `at_least_block` on
+`lens_kami`, `lens_party`, `lens_roster`, `lens_account`, `lens_node`,
+`lens_inventory`; `lens_kami(equipment)`; `lens_roster(full)`;
+`lens_node(target_kami_indices, occupant_account_index)`;
+`lens_feed(limit, account_index)`.
+
+New tools: `portal_withdraw`, `portal_claim`, `portal_cancel`,
+`portal_deposit`, `lens_receipts(account, at_least_block)` (pending
+portal receipts), `lens_pool_history(item_a, item_b, from_ts)`. There is
+no lens quote tool: `pool_swap_quote` stays the one quote.
 
 Changed semantics and return shapes:
 
 - **Standing text** is said once in the MCP `instructions` (after the
   `tools_hash=... schema_version=... error_snippets=...` line), not on
-  any description: the untrusted-data rule, the lens serving path, one
-  nonce lane per key, the call time box.
+  any description: the untrusted-data rule, the lens serving path, how
+  to see your own write in a lens read, what an incomplete answer means,
+  one nonce lane per key, the call time box.
+- **Lens 1.0.0**: a read given `at_least_block` raises
+  `LensNotAppliedError` (code `NOT_APPLIED`, `applied_through`) when the
+  mirror has not applied that block in time — retry, the transaction did
+  not fail. `INCOMPLETE` errors and `incomplete: true` rows pass through
+  (re-read; never zero HP). `meta` gains `appliedThrough`,
+  `reconciledThrough`, `incompleteRows`; `meta.asOf.observed*` is gone;
+  `lens_status` may omit `headBlockNumber`/`headSampledAt`/`blockLag`
+  together. `lens_feed` without `since_seq` now answers the NEWEST 50
+  matching events (was the buffered window), and its limit and account
+  filter reach the daemon (they were dropped before).
 - **Terminal states**: a transaction proven not executed raises
   `TxNonceCollisionError` (nonce consumed by another, named hash) or
   `TxDroppedError`; per-leg rows carry `status: "dropped"` (+
@@ -131,6 +154,22 @@ Changed semantics and return shapes:
   the stricter measured number), the SIZE/ITEM diagnosis, and
   `harvest_start(dry_run)`.
 - **The call time box** (`KAMI_CALL_BUDGET_S`, default 90 s).
+- **The lens 1.0.0 passthroughs** (part 2's last family): the client
+  sends `--at-least=<block>` on the read's own connection with a socket
+  timeout that outlasts the wait, and maps `NOT_APPLIED` to its own
+  class; seven verify reads take `at_least_block`; `lens_kami` gains
+  `equipment`, `lens_node` its target and occupant-account selectors
+  (`target_kami_indices`, `occupant_account_index`, named so they do not
+  collide with `attacker_kami_index` or the roster-label `account`),
+  `lens_roster` `full`, `lens_feed` `limit` and `account_index`;
+  `lens_receipts` reads a roster account's pending receipts by its owner
+  address, and `portal_claim`/`portal_cancel` point to it;
+  `lens_pool_history` serves the client's pool chart. No ACT tool reads
+  the lens — every read-back is a chain read — so no write result
+  depends on the daemon, and nothing here derives lag from `status`.
+  Built against `lens-100` (leg A at `802993a`) and the agreed contract
+  for leg B; the live read-only integration check against a 1.0.0
+  daemon is a separate step.
 - **Small**: the sweep reserve floor (the fee actually deducted could
   not be derived read-only — the public RPC has pruned the failed
   sweeps' blocks and its eth_call ignores fees — so 0.0002 ETH is an
@@ -148,7 +187,7 @@ Changed semantics and return shapes:
 
 Registry mass by family (Python 3.13):
 
-| family | 3.7.0 tools | 3.7.0 mass | 4.0.0 draft tools | 4.0.0 draft mass |
+| family | 3.7.0 tools | 3.7.0 mass | 4.0.0 tools | 4.0.0 mass |
 |---|--:|--:|--:|--:|
 | strategy service (OUTSOURCE) | 9 | 5,286 | 0 | 0 |
 | loop/batch tools | 12 | 11,344 | 11 | 10,530 |
@@ -156,14 +195,14 @@ Registry mass by family (Python 3.13):
 | act_sequence | 1 | 1,443 | 1 | 1,608 |
 | scavenge | 5 | 3,240 | 5 | 3,283 |
 | travel | 2 | 1,884 | 2 | 2,010 |
-| lens wrappers | 25 | 13,877 | 25 | 10,498 |
-| token portal | 0 | 0 | 4 | 2,944 |
+| lens wrappers | 25 | 13,877 | 27 | 12,796 |
+| token portal | 0 | 0 | 4 | 3,021 |
 | meta (wallet/bridge) | 7 | 4,346 | 7 | 4,241 |
 | everything else | 40 | 29,532 | 40 | 29,389 |
-| **total** | **104** | **72,855** | **98** | **66,890** |
+| **total** | **104** | **72,855** | **100** | **69,265** |
 
 The two standing sentences were 4,150 of the 3.7.0 total, spread over
-the read families above.
+the read families above. Headroom at 4.0.0: 3,735.
 
 ### Part 1 — one send path, and reads never wait behind writes
 
