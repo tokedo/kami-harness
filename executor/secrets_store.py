@@ -26,8 +26,8 @@ Configuration, all optional, all environment:
                         a trailing ".env" removed, plus ".secrets.names",
                         in the same directory — so ~/.blocklife-keys/.env
                         -> ~/.blocklife-keys/.secrets.names and
-                        ~/.blocklife-keys/hybrid.env ->
-                        ~/.blocklife-keys/hybrid.secrets.names)
+                        ~/.blocklife-keys/second.env ->
+                        ~/.blocklife-keys/second.secrets.names)
   ALLOW_ENV_SECRETS=1   escape hatch: let a protected name resolve from
                         the process env / keys file, with a warning
   KAMI_SECRETS_VERBOSE=1  list Keychain-sourced names in the startup
@@ -39,9 +39,9 @@ names, in the Keychain. Non-secret config from the keys file IS exported
 to os.environ (via setdefault, so the process environment wins), because
 that is how RPC_URL and friends have always reached the server.
 
-Ported from ~/kami-hybrid-play/executor/secrets_store.py (65b96e6). The
-backend default is inverted here: hybrid-play defaults to the Keychain,
-this module defaults to the keys file.
+Ported from a multi-account deployment's secret store (65b96e6). The
+backend default is inverted here: that deployment defaults to the
+Keychain, this module defaults to the keys file.
 """
 
 from __future__ import annotations

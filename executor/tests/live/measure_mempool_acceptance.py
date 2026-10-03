@@ -6,9 +6,9 @@ the suite because it drives the SAME internals the surface does — the
 sign / batch-broadcast / collect path of `act_sequence` — with only the
 step cap bypassed in this process.
 
-Why it exists (HARNESS_360 brief, ask 1): 3.5.0's step cap of 16 is an
-operator ruling, not a chain fact, and Anatoly re-rules it to the
-MEASURED number. The play sessions established that 16 consecutive
+Why it exists (the 3.6.0 build brief, ask 1): 3.5.0's step cap of 16 is
+a maintainer ruling, not a chain fact, and the maintainer re-rules it to
+the MEASURED number. The field sessions established that 16 consecutive
 nonces from one sender are accepted every time (10 bursts, 0
 rejections), that four of one sender's nonces land in a single block,
 and that the block gas limit is 45,000,000. What nobody has measured is
@@ -25,7 +25,7 @@ so.
 
 WHICH ITEM IS AN ARGUMENT, AND IT IS REQUIRED (3.7.0, ITEM 3). The
 measurement items are **Ghost Gum 11301** and **Golden Apple 11313** —
-cheap, plentiful, and not the input any play session is short of.
+cheap, plentiful, and not the input any field session is short of.
 **Energy Drink 11409 is the expensive input of the liquidation play**
 and the 2026-08-28 drink ladder spent 148 of them; the script now
 refuses 11409 unless `--allow-drinks` says the operator meant it. There
@@ -33,7 +33,7 @@ is no default: a measurement that does not say what it burns is a
 measurement nobody agreed to.
 
     KAMI_SECRETS_BACKEND=keychain \\
-    KAMI_KEYS_FILE=~/.blocklife-keys/hybrid.env \\
+    KAMI_KEYS_FILE=~/.blocklife-keys/second.env \\
     python3 measure_mempool_acceptance.py --item 11301 --sizes 8 32
 
 Safety rails, all hard:
@@ -47,7 +47,7 @@ Safety rails, all hard:
     size + BRACKET_STEP, to bracket the limit — budget permitting.
   * `_ACT_SEQUENCE_MAX_STEPS` is raised on the imported MODULE OBJECT
     for this process only. The source constant is not touched: it is an
-    operator ruling and this script is what the operator rules on.
+    maintainer ruling and this script is what the maintainer rules on.
 """
 
 import argparse
@@ -264,7 +264,7 @@ def main():
                   f"{spent + size} > {budget}")
             break
         # Raised on the module object for THIS PROCESS. The source
-        # constant is an operator ruling and is not touched.
+        # constant is a maintainer ruling and is not touched.
         server._ACT_SEQUENCE_MAX_STEPS = max(size, 16)
         print(f"--- rung {size} (spent {spent}) ---", flush=True)
         rec = run_rung(size, acct.operator_addr, item_id, args.kami)

@@ -1,10 +1,9 @@
 """3.7.0 families: the false not_sent (F), batched pre-send reads (G),
 cheap measurement items (H).
 
-All three come out of Anatoly's 2026-08-28 instant-strike session on
-3.6.0 (45 kills in four strikes; ledger
-`kami-hybrid-play/memory/raids/2026-08-28d-instant-strikes.md`, tag
-`zero_cd_play` in `docs/stack-feedback.md`):
+All three come out of a 2026-08-28 instant-strike field session on
+3.6.0 (45 kills in four strikes; the session's ledger and its feedback
+entries):
 
   F — a 61-step strike returned `sent: 0`, every row `not_sent` with
       `reason: ""`, while ALL 61 transactions were mined. The chain was

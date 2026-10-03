@@ -1,9 +1,9 @@
 {
- "source": "Yominet RPC, recorded 2026-08-28 at HARNESS_360",
+ "source": "Yominet RPC, recorded 2026-08-28 during the 3.6.0 build",
  "killer_kami_id": 12649,
  "killer_kami_entity": "72849883568349905703865226064063646706211101035933209960078708063381367787172",
  "killer_harvest_entity": "98229845150935978216825163165892805415263956495973100012428181376391435547846",
- "note": "The four LANDED kills of Anatoly's sixth-session act_sequence burst on 3.5.0 (blocks 32682481-32682496, operator nonces 1601-1616, shrike's kami 12649). This is the burst that exposed the live-read bug: 3.5.0 reported cooldown_until 1787938453 on ALL FOUR kill rows, because it read component.Time.Next live while the rest of the burst was still landing. The receipts say otherwise, and the only row 3.5.0 got right is the LAST \u2014 where the live read had nothing landing after it. Spoils sum to 2329, the banked VIPP delta the session recorded.",
+ "note": "The four LANDED kills of the sixth field session's act_sequence burst on 3.5.0 (blocks 32682481-32682496, operator nonces 1601-1616, shrike's kami 12649). This is the burst that exposed the live-read bug: 3.5.0 reported cooldown_until 1787938453 on ALL FOUR kill rows, because it read component.Time.Next live while the rest of the burst was still landing. The receipts say otherwise, and the only row 3.5.0 got right is the LAST \u2014 where the live read had nothing landing after it. Spoils sum to 2329, the banked VIPP delta the session recorded.",
  "live_read_reported_by_350": 1787938453,
  "victim_harvest_entities": {
   "32682485": "81852052733026375756618275207016679368305376193106038090500086886323963620845",

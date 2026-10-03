@@ -250,7 +250,7 @@ _GAS_PRICE = {"maxFeePerGas": 2_500_000, "maxPriorityFeePerGas": 0}
 # the lane rejects, so every "at most N" this module states has to be
 # derived from the lane cap instead.
 #
-# Corroboration (kami-oracle, 2026-08-27): across 1,805,172 transactions
+# Corroboration (a transaction index, 2026-08-27): across 1,805,172 transactions
 # since 2026-06-01 the maximum observed gas_used is 20,087,787 and ZERO
 # transactions exceed 31,500,000.
 MAX_TX_GAS = 31_500_000
@@ -269,7 +269,7 @@ _GAS_CEILINGS = {
     # -- system.kami.use.item (the FEED path): p50 1,361,543 / p95
     # 2,185,084 / p99 2,203,762 / max 2,639,799 over 329,709 successful
     # (receipt status=1) transactions since 2026-06-01, measured from
-    # kami-oracle on 2026-08-28. Restricting the same window to the 44
+    # a transaction index on 2026-08-28. Restricting the same window to the 44
     # Food item indices in catalogs/items.csv moves p95 only to
     # 2,191,206, so feeding is not a cheaper use of this system than
     # the others and one ceiling serves it honestly. Set to 3,500,000:
@@ -376,9 +376,9 @@ _GAS_CEILINGS = {
     # call, which is the most common call in the table by two orders of
     # magnitude.
     #
-    # Measured from kami-oracle on 2026-08-27 over SUCCESSFUL
-    # (receipt status=1) transactions since 2026-06-01, joining raw_tx to
-    # kami_action on tx_hash and counting DISTINCT kami_id per tx to
+    # Measured from a transaction index on 2026-08-27 over SUCCESSFUL
+    # (receipt status=1) transactions since 2026-06-01, joining each
+    # transaction to its decoded kami actions by hash and counting DISTINCT kami_id per tx to
     # recover the batch size. p95 is per batch size; the pair below holds
     # ~1.3x p95 across the whole measured range of n.
     #
@@ -10843,8 +10843,8 @@ _GACHA_COMMIT_MARKER = b"GACHA_COMMIT"
 
 # ---------------------------------------------------------------------------
 # Decoded kill (3.5.0) — what a liquidation actually moved, from its own
-# receipt. Ported from ~/kami-oracle/ingester/musu.py, which is the
-# derivation of record; the rule below is DELIBERATELY ASYMMETRIC and
+# receipt. Ported from the drain rule of a transaction index of the game's
+# receipts, which is the derivation of record; the rule below is DELIBERATELY ASYMMETRIC and
 # that asymmetry is the whole content of this section.
 # ---------------------------------------------------------------------------
 
@@ -11001,13 +11001,13 @@ def _decode_kill(
       victim  — the system writes the accrued bounty to the victim's
                 harvest entity and then drains it, so the writes are
                 [N, 0] and the gross is the MAX non-zero write. This is
-                musu.py's drain rule exactly, and its result equals the
-                oracle's kami_action.amount (verified below).
+                the index's drain rule exactly, and its result equals the
+                indexed liquidation amount (verified below).
       killer  — the spoils are ADDED to the killer's own harvest bounty,
                 which is not drained, so the value that matters is the
                 LAST write, not the max and not a "drain".
 
-    Do NOT run musu.py's decode_musu_drains over the killer side. It
+    Do NOT run a drain decoder over the killer side. It
     requires both a non-zero and a zero write, and against real receipts
     it is wrong in BOTH directions: on the FIRST liquidation of a
     harvest session the killer entity's writes are [0, N] and it reports
@@ -11020,15 +11020,15 @@ def _decode_kill(
     stopped 32677564), recorded as fixtures in
     executor/tests/fixtures/liquidation_32677500/:
 
-        block     victim_gross  oracle amount  killer write  pre    spoils
+        block     victim_gross  index amount   killer write  pre    spoils
         32677500  1798          1798           1191          0      1191
         32677531  1130          1130           1904          1191    713
         32677543  1037          1037           2566          1904    662
         32677552  1007          1007           3217          2566    651
 
-    victim_gross matched the oracle on all four, and the chain closes:
+    victim_gross matched the index on all four, and the chain closes:
     the harvest_stop at 32677564 drained exactly 3,217, which is both
-    the last liquidation's post-value and the oracle's stop amount. That
+    the last liquidation's post-value and the index's stop amount. That
     series is also the evidence for the sequence rule — the previous
     step's post-value IS the next step's pre-value.
 
@@ -11214,10 +11214,10 @@ def liquidate_kami(
 
 # ---------------------------------------------------------------------------
 # act_sequence (3.5.0) — pipelined submission. One tool, a closed op
-# vocabulary, no general no-wait mode (operator ruling R-1, 2026-08-28).
+# vocabulary, no general no-wait mode (a maintainer ruling, 2026-08-28).
 # ---------------------------------------------------------------------------
 
-# Operator ruling R-3, RE-RULED 2026-08-28 to the MEASURED per-sender
+# A maintainer ruling, RE-RULED 2026-08-28 to the MEASURED per-sender
 # mempool acceptance: 16 -> 64. The reason the cap exists is unchanged —
 # one tool call is a bounded, reportable unit, and auto-splitting would
 # break the plan/act accounting an agent keeps — but 16 was never a
@@ -11378,7 +11378,7 @@ def _seq_plan(step: dict) -> tuple:
 # deduped at all — one per liquidate step for the victim's harvest state.
 # On the 2026-08-28 strikes that was ~20 s of the wall time before a
 # single transaction was offered (a 17-step plan took 21 s just to
-# REFUSE). Anatoly's report, tag `zero_cd_play`.
+# REFUSE), as the field session's report recorded.
 #
 # The reads are all the same shape — `safeGet(uint256)` on one of three
 # components — so they go out as JSON-RPC batches of eth_call: the round
@@ -13139,12 +13139,12 @@ _finalize_descriptions()
 # room to spread into. Raising it is a deliberate act tied to named
 # capability — never a way to avoid editing.
 #
-# 70,000 -> 71,000 on 2026-08-25, by operator ruling, for the named
+# 70,000 -> 71,000 on 2026-08-25, by a maintainer ruling, for the named
 # capability lens_roster: the compact per-kami roster read the agents
 # were already trying to call. The wording trims made in the same change
 # were kept because they read better, not to fund the raise.
 #
-# 71,000 -> 72,000 on 2026-08-27, by operator ruling, for the named
+# 71,000 -> 72,000 on 2026-08-27, by a maintainer ruling, for the named
 # capability the lens 0.5.1 full/stats passthroughs: thirteen optional
 # parameters whose schemas alone cost 665 characters, plus the honest
 # caps four wrapper descriptions had stopped stating once the deployed
@@ -13152,7 +13152,7 @@ _finalize_descriptions()
 # same change (-711) and that reclaim was spent on the capability
 # before the raise was asked for, not banked against it.
 #
-# 72,000 -> 73,000 on 2026-08-28, by operator ruling R-2, for the named
+# 72,000 -> 73,000 on 2026-08-28, by a maintainer ruling, for the named
 # capability *pipelined action sequences* (act_sequence). The trim pass
 # ran first and was measured before the raise was asked for: it
 # reclaimed 288 characters from a cross-reference that restated another

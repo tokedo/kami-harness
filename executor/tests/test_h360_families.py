@@ -1,6 +1,6 @@
 """3.6.0 families: batch broadcast (D) and the receipt-side kill (E).
 
-Both families exist because of what Anatoly's fifth and sixth play
+Both families exist because of what the fifth and sixth field
 sessions on 3.5.0 measured, and both are checked against the chain
 rather than against a hand-built log:
 
@@ -349,7 +349,7 @@ def test_the_stat_word_is_four_signed_64_bit_fields_and_sync_is_last():
 
 
 def test_component_ids_are_the_keccak_of_the_registered_name():
-    """Same derivation musu.py uses for component.value, so a rename
+    """Same derivation the transaction index uses for component.value, so a rename
     upstream fails loudly here rather than silently reading nothing."""
     assert server._HEALTH_COMPONENT_ID == int.from_bytes(
         Web3.keccak(text="component.stat.health"), "big"

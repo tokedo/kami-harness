@@ -55,7 +55,7 @@ class TestManifestPath:
 
     @pytest.mark.parametrize("keys_name,expected", [
         (".env", ".secrets.names"),
-        ("hybrid.env", "hybrid.secrets.names"),
+        ("second.env", "second.secrets.names"),
         ("keys.txt", "keys.txt.secrets.names"),
     ])
     def test_derived_from_keys_file(self, store, keys_name, expected):

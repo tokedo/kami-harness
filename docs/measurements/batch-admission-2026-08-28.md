@@ -10,7 +10,7 @@ The number `_SEQ_BATCH_ITEM_S` is set from, and the reason
 timeout to what the body was asking the node to do. On 2026-08-28 at
 19:30:40Z a 61-step liquidate-heavy body outlived it and the sequence
 was reported as 61 × `not_sent` while all 61 transactions mined
-(the incident: `docs/stack-feedback.md`, tag `zero_cd_play`; the
+(the incident: a field session's feedback; the
 reproduction: `executor/tests/test_h370_families.py`).
 
 So the timeout is now **measured per item and per op**, and a request
@@ -62,7 +62,7 @@ dedicated 32-s provider returned in 0.284 s, indistinguishable from
 ## Method — the gum ladder
 
     KAMI_SECRETS_BACKEND=keychain \
-    KAMI_KEYS_FILE=~/.blocklife-keys/hybrid.env \
+    KAMI_KEYS_FILE=~/.blocklife-keys/second.env \
     python3 executor/tests/live/measure_mempool_acceptance.py \
         --item 11301 --sizes 8 32 --budget 40
 
@@ -114,4 +114,4 @@ built or signed:
 66 round-trips for 22 logical reads: web3 issues three POSTs per
 contract call through the pinned endpoint. The prefetch replaces all of
 them with a single JSON-RPC batch of 23 `eth_call`s. That is the ~20 s
-Anatoly measured in front of every strike, gone. Target was < 3 s.
+the field session measured in front of every strike, gone. Target was < 3 s.

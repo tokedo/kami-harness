@@ -2,11 +2,11 @@
 
 What the node accepts from ONE sender in one broadcast, measured rather
 than assumed. This is the number the step cap (`_ACT_SEQUENCE_MAX_STEPS`,
-operator ruling R-3, 16 at the time of measuring) is re-ruled against;
+a maintainer ruling, 16 at the time of measuring) is re-ruled against;
 the cap is NOT changed by this document and nothing here recommends a
 number.
 
-> **Outcome.** Anatoly re-ruled R-3 to **64** on 2026-08-28, on this
+> **Outcome.** The maintainer re-ruled the cap to **64** on 2026-08-28, on this
 > table: the largest rung measured, accepted whole with no rejections,
 > and not the ceiling — which was not reached. Shipped in 3.6.0.
 
@@ -59,11 +59,11 @@ ran out.
 Those blocks held **nothing but our transactions**, at 21% of the block
 gas limit, so 9 is not gas pressure and not competition for space — it
 is a per-block ceiling on one sender's transactions (or on transactions
-per block) somewhere in the node. The earlier play-session observation
+per block) somewhere in the node. The earlier field-session observation
 of "4 in one block" was a floor, not the limit.
 
 **A feed costs 1,075,206 gas here** (34,406,592 / 32, identical across
-all three rungs) — lower than the 1.98M the play session measured,
+all three rungs) — lower than the 1.98M the field session measured,
 because those feeds were on a HARVESTING kami and these were not.
 
 **Batch broadcast cost.** One HTTP body, one round-trip, measured around
@@ -89,7 +89,7 @@ call took 2.35 s, so the node's per-item admission work does start to
 show at that width.
 
 Against 3.5.0's serial broadcast at ~0.42 s per step, measured in the
-play session: 32 steps would have taken ~13 s serially and took 0.50 s;
+field session: 32 steps would have taken ~13 s serially and took 0.50 s;
 64 steps would have taken ~27 s and took 2.35 s.
 
 **Wall time is not chain time.** Rung 3's 64 steps were all mined within
@@ -112,13 +112,13 @@ is committed and re-runnable.
 four runs at `maxFeePerGas` 2,500,000 wei ≈ 0.000399 ETH. No kill, no
 victim, no other account touched.
 
-**148 re-checked 2026-08-28 (3.7.0, ITEM 3).** Anatoly's sweep-#6 ledger
+**148 re-checked 2026-08-28 (3.7.0, ITEM 3).** The sixth sweep's ledger
 put the stack agent's share at "~146", so the count was verified against
 the receipts rather than left as two numbers: the rungs' own receipt
 statuses are 4 + 32 + 48 + 64 = **148 successes**, each consuming one
 drink; their gas sums to exactly the 159,439,711 above; and the day's
 whole drink movement on shrike closes on it — 1,944 → 1,738 = 206
-consumed, of which 58 were Anatoly's own play, leaving 148. The cost
+consumed, of which 58 were manual play on the same account, leaving 148. The cost
 line stands as written; "~146" was the approximation.
 
 Drinks are the expensive input of the liquidation play, and this ladder

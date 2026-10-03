@@ -256,10 +256,9 @@ reserved here for changes with no agent-visible effect at all. Same
 shape as 3.2.0, which was MINOR with an identical hash for the same
 reason.
 
-Source: Anatoly's instant-strike session on 3.6.0 (2026-08-28, 19:24–
+Source: an instant-strike field session on 3.6.0 (2026-08-28, 19:24–
 19:36 UTC — 45 kills in four strikes, 191 transactions, 4.2 tx/kill, 0
-deaths; ledger `2026-08-28d-instant-strikes.md`, two new entries at the
-bottom of `docs/stack-feedback.md` tagged `zero_cd_play`). The cap of
+deaths; the session's own ledger and two feedback entries from it). The cap of
 64, the batch broadcast and the per-row kill decode all did what 3.6.0
 said they would. Three defects did not.
 
@@ -359,8 +358,8 @@ visible anywhere is that the transport POSTed [32, 20] instead of [52].
 ### Pre-send validation: 16.3 s → 0.29 s, 66 round-trips → 1
 
 3.6.0 walked the plan and read each subject with its own `eth_call`, and
-did not dedupe the victims at all — one read per liquidate step. Anatoly
-measured ~20 s in front of every strike (a 17-step plan took 21 s just
+did not dedupe the victims at all — one read per liquidate step. The field
+session measured ~20 s in front of every strike (a 17-step plan took 21 s just
 to REFUSE). The reads are all `safeGet(uint256)` on one of three
 components, so they now go out as JSON-RPC batches of `eth_call`,
 deduped: ownership per distinct kami, balance per distinct item, harvest
@@ -400,8 +399,8 @@ The 3.6.0 measurement doc's cost line was re-checked against the
 receipts rather than left as two numbers: the rungs' own receipt
 statuses are 4 + 32 + 48 + 64 = **148 successes**, their gas sums to the
 159,439,711 already recorded, and the day's whole drink movement on
-shrike closes on it (1,944 → 1,738 = 206, of which 58 were Anatoly's own
-play). **148 stands**; the ledger's "~146" was the approximation.
+shrike closes on it (1,944 → 1,738 = 206, of which 58 were manual play
+on the same account). **148 stands**; the ledger's "~146" was the approximation.
 
 ### Tests
 
@@ -429,15 +428,15 @@ the only description edit swapped one two-digit number for another —
 No tool added, removed or renamed; one tool's contract widens and two
 result fields stop being wrong.
 
-Source: Anatoly's fifth and sixth play sessions on 3.5.0 (2026-08-28, 20
+Source: the fifth and sixth field sessions on 3.5.0 (2026-08-28, 20
 kills, deploy → kill in 3 blocks) and the report they produced, which
 asked three questions this release answers with measurements rather than
 judgement.
 
 ### The step cap is 64, because 64 is what the chain accepted
 
-`act_sequence` takes up to **64** steps, up from 16. The cap is operator
-ruling R-3 and 16 was never a chain fact — it was a bounded-reportable-
+`act_sequence` takes up to **64** steps, up from 16. The cap is a
+maintainer ruling and 16 was never a chain fact — it was a bounded-reportable-
 unit argument with no number attached to it. 64 is the number a ladder
 returned.
 
@@ -460,7 +459,7 @@ NOT found — acceptance stops somewhere above 64, and the drink budget
 is set to the largest number there is evidence for, not past it.
 
 Two facts fell out of the same runs. **Nine of one sender's transactions
-land in one block**, not the four the play session had seen: every rung
+land in one block**, not the four the field session had seen: every rung
 filled three transactions into the block its broadcast arrived in, then
 nine per block, in blocks holding nothing but those transactions at
 9,676,854 gas of a 45,000,000 limit — 21% full, so nine is a per-block
@@ -477,7 +476,7 @@ hand, not this one.*
 ### One round-trip, not one per step
 
 `act_sequence` broadcast its pre-signed tail one `eth_sendRawTransaction`
-HTTP call at a time. The play session measured what that costs: ~0.42 s
+HTTP call at a time. The field session measured what that costs: ~0.42 s
 per step against a 0.27 s bare round-trip, so a 90-step strike would have
 taken 38 seconds — longer than the 30–60 s a node watcher takes to react.
 Raising the cap alone would not have delivered a burst; the sender, not
@@ -567,10 +566,10 @@ registry mass **72,857** against a budget raised to **73,000**,
 **3.5.0**. Two new tools and optional result fields; nothing removed or
 renamed, so existing callers keep working — but the surface fingerprint
 moved. Consumers in priority order: autonomous benchmark agents first
-(defaults and the tool result only), hybrid-play second.
+(defaults and the tool result only), a multi-account deployment second.
 
-Every item came from the four `zero_cd_play` entries of the operator's
-fourth play session on this stack.
+Every item came from four feedback entries from the fourth field session
+on this stack.
 
 ### `act_sequence` — one tool, a closed vocabulary, no general no-wait mode
 
@@ -579,7 +578,7 @@ fourth play session on this stack.
 consecutive nonces read ONCE at `pending` and broadcast back-to-back
 before any receipt is read. The shape was ruled rather than designed
 around: one closed-vocabulary tool, **not** a general no-wait mode
-(operator ruling R-1), because a no-wait flag on every ACT tool would
+(a maintainer ruling), because a no-wait flag on every ACT tool would
 have made every tool's contract conditional.
 
 **It was measured before it was built.** U-1, 2026-08-28, account
@@ -605,7 +604,7 @@ block, and the tool description says the measured thing.
   harvesting now **or started by an earlier step in the same sequence**
   — and the description says the later steps are the caller's plan.
 - **A reverted step consumes its nonce, is final, and does not stop the
-  sequence** (operator ruling R-3). Later steps still execute. A revert
+  sequence** (a maintainer ruling). Later steps still execute. A revert
   is never resent; a broadcast REJECTION (nothing landed, nonce not
   consumed) resends the tail exactly once and then reports `not_sent`.
   A rejection and a revert are never merged.
@@ -621,12 +620,12 @@ block, and the tool description says the measured thing.
 
 `liquidate_kami` and every liquidate step now return `victim_gross`,
 `spoils`, `attacker_hp_after` and `cooldown_until`, ported from
-kami-oracle's `ingester/musu.py`. **The two sides of a kill reduce
+the decode rule of a transaction index of the game's receipts. **The two sides of a kill reduce
 differently, and using one rule for both is wrong in both directions.**
 The victim's harvest entity is written then drained (`[N, 0]`), so the
-gross is the MAX non-zero write — musu.py's drain rule. The killer's
+gross is the MAX non-zero write — the index's drain rule. The killer's
 harvest entity is ADDED to and not drained, so its value is the LAST
-write, and `decode_musu_drains` must not be used for it: against real
+write, and a drain decoder must not be used for it: against real
 receipts it reports a drain of N that never happened on the first
 liquidation of a session (writes `[0, N]`) and omits the entity
 entirely on every later one (no zero write).
@@ -635,16 +634,16 @@ Verified against four consecutive liquidations from the 2026-08-28
 shrike sweep, recorded as fixtures under
 `executor/tests/fixtures/liquidation_32677500/`:
 
-| block | victim_gross | oracle `amount` | killer write | pre | spoils |
+| block | victim_gross | index `amount` | killer write | pre | spoils |
 |---|---|---|---|---|---|
 | 32677500 | 1798 | 1798 | 1191 | 0 | 1191 |
 | 32677531 | 1130 | 1130 | 1904 | 1191 | 713 |
 | 32677543 | 1037 | 1037 | 2566 | 1904 | 662 |
 | 32677552 | 1007 | 1007 | 3217 | 2566 | 651 |
 
-`victim_gross` matched the oracle on all four and the chain closes: the
+`victim_gross` matched the index on all four and the chain closes: the
 `harvest_stop` at block 32677564 drained exactly **3,217**, which is
-both the last liquidation's post-value and the oracle's stop amount.
+both the last liquidation's post-value and the index's stop amount.
 That series is also the evidence for the sequence rule — the previous
 step's post-value IS the next step's pre-value.
 
@@ -687,7 +686,7 @@ both. No schema change harness-side.
 
 - **`_GAS_CEILINGS["feed_kami"] = 3,500,000`, and `feed_kami` now
   passes it — it estimated gas per call before.** Measured from
-  kami-oracle on 2026-08-28 over 329,709 successful
+  a transaction index on 2026-08-28 over 329,709 successful
   `system.kami.use.item` transactions since 2026-06-01: p50 1,361,543 /
   p95 2,185,084 / p99 2,203,762 / max 2,639,799; restricting to the 44
   Food item indices moves p95 only to 2,191,206. The value is aligned
@@ -697,7 +696,7 @@ both. No schema change harness-side.
   observed max is thin by the standard the rest of this table is held
   to, and it would have left ONE system id carrying two ceilings
   500,000 apart for no measured reason.
-- **Registry-mass budget 72,000 -> 73,000 by operator ruling R-2**, for
+- **Registry-mass budget 72,000 -> 73,000 by a maintainer ruling**, for
   the named capability *pipelined action sequences*. The trim pass ran
   first and reclaimed 288 characters — a `liquidate_kami`
   cross-reference restating `lens_node`'s description, two `Args:`
@@ -722,7 +721,7 @@ MINOR. **102 tools**, registry mass **71,012**, `tools_hash`
 *optional* parameters and no new tool, so existing callers keep working
 — but descriptions moved, so the fingerprint moved.
 
-Every item below came from one operator's play session on this stack.
+Every item below came from one field session on this stack.
 Each was a real cost paid on-chain, not a code review finding.
 
 ### `travel_to_room` cannot strand the account
@@ -788,9 +787,9 @@ Measured live on 3.3.0: `harvest_start` really costs ~0.74M gas/kami
 The ceilings were ~4x actual, so a 13-kami start and a 13-kami stop each
 needed two transactions while three docstrings promised one.
 
-Re-measured from kami-oracle on 2026-08-27 over receipt-status=1
-transactions since 2026-06-01, joining `raw_tx` to `kami_action` on
-`tx_hash` and counting distinct kamis per transaction to recover the
+Re-measured from a transaction index on 2026-08-27 over receipt-status=1
+transactions since 2026-06-01, joining each transaction to its decoded
+kami actions by hash and counting distinct kamis per transaction to recover the
 batch size. The result changed the SHAPE, not just the numbers:
 
 **Harvest gas is base + slope x n with a large fixed term.** A flat
@@ -823,7 +822,7 @@ what the lane rejects. That is why the split instruction was wrong in
 the field: a 13-kami stop was refused here with "Split into calls of at
 most 10", and the 10-kami retry was then refused by the chain with `tx
 gas limit 40000000 exceeds max lane gas limit 31500000`. Corroborated
-from the oracle: across 1,805,172 transactions since 2026-06-01 the
+from the transaction index: across 1,805,172 transactions since 2026-06-01 the
 maximum observed `gas_used` is 20,087,787 and none exceeds 31,500,000.
 Every "at most N" the surface states is now derived from the lane cap.
 
@@ -1041,7 +1040,7 @@ reasoning.
 The public RPC is load-balanced across nodes. Right after a confirmed
 transaction, a node that has not caught up serves a stale sequence at
 `latest`, which is what sequential sends inside one batch tool were
-reading; the hybrid-play fleet hit this on 2026-07-28, with sends
+reading; a multi-account deployment hit this on 2026-07-28, with sends
 colliding against their own predecessor. `pending` counts the sender's
 in-flight transactions and closes the race at the source.
 
@@ -1120,8 +1119,8 @@ saying `.env`.
 ### A pluggable secret store
 
 `executor/secrets_store.py` is now the only reader and the only writer
-of a secret. Ported from kami-hybrid-play (`65b96e6`), which had been
-running it since 2026-08-12, with the backend default inverted.
+of a secret. Ported from a multi-account deployment's secret store (`65b96e6`),
+which had been running it since 2026-08-12, with the backend default inverted.
 
 - **Nothing changes unless you configure it.** `KAMI_SECRETS_BACKEND`
   defaults to `envfile`: the keys file plus the process environment,
@@ -1192,7 +1191,7 @@ The build brief called this 2.3.0. It is MAJOR by this file's own rule:
 pre-send gates move failures that used to be on-chain reverts into
 `PreTxValidationError`. Both are exactly what MAJOR is for.
 
-Everything here comes from what agents actually did in run 006. Each
+Everything here comes from what agents actually did in a benchmark run. Each
 item names the behaviour it was paying for.
 
 ### Multi-transaction hash integrity
@@ -1987,9 +1986,9 @@ entity IDs (> 2^128); they exceed IEEE-754 float precision, so no
 JSON-boundary caller could ever have round-tripped the integer form
 correctly — the integer contract was unusable for its purpose, and no
 working caller existed to break. Origin: the scavenge-path fix in
-kami-hybrid-play commit `74b1af6` (2026-07-15), merged here into the
+a multi-account deployment's commit `74b1af6` (2026-07-15), merged here into the
 v1.4.0 validated tool bodies; the sacrifice-path string typing closes
-the inconsistency that fix left open (flagged in hybrid-play's own
+the inconsistency that fix left open (flagged in that deployment's own
 delta ledger). Egress surface unchanged: no new hosts.
 
 ### Changed — commit IDs cross the MCP boundary as strings
@@ -2014,7 +2013,7 @@ scavenge claims out of gas. `droptable_reveal` and the reveal step of
 estimate doubles as a preflight under the v1.4.0 validation
 convention: a doomed reveal raises the stable
 `validation failed; no transaction sent:` marker (it does not adopt
-hybrid-play's `status=reverted_preflight` result dict), so the
+that deployment's `status=reverted_preflight` result dict), so the
 validation/revert split in invalid-attempt analyses stays mechanical.
 All v1.4.0 pre-tx validation on the touched tools is preserved
 verbatim in effect: empty-commit_ids guard, registered-operator check,

@@ -71,9 +71,9 @@ def entity_ids(monkeypatch):
 
 
 @pytest.mark.parametrize("block", BLOCKS)
-def test_victim_gross_equals_the_oracle_amount(block, entity_ids):
-    """musu.py's drain rule over the victim entity reproduces the
-    oracle's kami_action.amount for every liquidation in the sweep."""
+def test_victim_gross_equals_the_indexed_amount(block, entity_ids):
+    """The index's drain rule over the victim entity reproduces the
+    indexed liquidation amount for every liquidation in the sweep."""
     expected = INDEX["expected"][str(block)]
     out = server._decode_kill(_load(block), block, KILLER, expected["pre"])
     assert out["victim_gross"] == expected["victim_gross"]
@@ -99,7 +99,7 @@ def test_the_sequence_rule_chains_across_the_whole_sweep(entity_ids):
     assert pre == INDEX["harvest_stop"]["drained"] == 3217
 
 
-def test_killer_side_is_not_a_drain_and_musu_drain_rule_would_be_wrong(
+def test_killer_side_is_not_a_drain_and_the_drain_rule_would_be_wrong(
     entity_ids,
 ):
     """The asymmetry is real, in BOTH directions.

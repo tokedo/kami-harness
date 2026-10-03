@@ -56,8 +56,9 @@ OBSERVED = {
     # constants — see HARVEST below and TestHarvestCeilings.
 }
 
-# kami-oracle, measured 2026-08-27 over receipt-status=1 transactions
-# since 2026-06-01, joining raw_tx to kami_action on tx_hash and counting
+# a transaction index, measured 2026-08-27 over receipt-status=1 transactions
+# since 2026-06-01, joining each transaction to its decoded kami actions
+# by hash and counting
 # DISTINCT kami_id per tx to recover the batch size.
 # key -> {batch size: (p95, tx count)}
 HARVEST = {
@@ -193,7 +194,7 @@ class TestBlockLimitGuard:
 
 
 class TestHarvestCeilings:
-    """base + per_item, pinned against the oracle measurement.
+    """base + per_item, pinned against the indexed measurement.
 
     A FLAT per-kami constant cannot serve this cost curve. Harvest gas is
     base + slope x n with a large fixed term, so a constant big enough
