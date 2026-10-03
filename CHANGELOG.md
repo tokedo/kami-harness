@@ -32,8 +32,8 @@ at all.
 ## [4.0.0] — DRAFT (final hash, mass and SPEC header follow the lens 1.0.0 passthroughs)
 
 MAJOR. **98 tools** (ACT 59 / PERCEIVE 32 / META 7; the OUTSOURCE class
-is gone), registry mass **66,770** against the unchanged 73,000 budget
-(draft, Python 3.13), `tools_hash` `c586ba83...e28f` at this draft.
+is gone), registry mass **66,890** against the unchanged 73,000 budget
+(draft, Python 3.13), `tools_hash` `bdc1bd15...6b28` at this draft.
 `SCHEMA_VERSION` **4.0.0**. Two parts: the send path and concurrency
 (part 1, no surface change of its own), then the surface (part 2).
 
@@ -113,8 +113,15 @@ Changed semantics and return shapes:
   `claimable_at`; the receipt id decoded from the transaction's own
   `PORTAL_TOKEN_WITHDRAW` event), `portal_claim` (payee and amount from
   the token Transfer log), `portal_cancel` (items back, export tax not),
-  `portal_deposit` (approves the portal's token spender when the
-  allowance is short). Chain state verified read-only on 2026-10-03:
+  `portal_deposit` (approves exactly its own token amount to the
+  portal's token spender, and only when the allowance is short — never
+  an unlimited allowance). Claim and cancel follow upstream's signer
+  rule before signing: an owner receipt is settled by the owner only,
+  an operator-lane receipt by the owner or the account's CURRENT
+  operator; a paused receipt, a claim before its end time, or no key for
+  an allowed signer is refused with a plain reason. An operator-lane
+  claim pays the operator as of the claim, and says so in `notice` when
+  that is not this server's operator wallet. Chain state verified read-only on 2026-10-03:
   portal enabled; Onyx Shard 100 (scale 2, not on the operator lane) and
   Ether Shard 103 (scale 5, on it); import and export tax 1 item + 50
   bps; delay 43,200 s. Item 103 added to `catalogs/items.csv`. The pool
@@ -127,9 +134,17 @@ Changed semantics and return shapes:
 - **Small**: the sweep reserve floor (the fee actually deducted could
   not be derived read-only — the public RPC has pruned the failed
   sweeps' blocks and its eth_call ignores fees — so 0.0002 ETH is an
-  empirical floor); `register_account` names `Account: Operator is an
+  empirical floor, and the description says so; a measured fee model
+  is owed to a live write test); `register_account` names `Account: Operator is an
   account owner`; `systems/state-reading.md` and the getter comment now
   agree with upstream (the getter adds regeneration without the cap).
+- **Deferred, not built**: `act_sequence` per-step keys (`"optional"`,
+  `{"op": "move"}`) — designed at zero schema cost and recorded in
+  SPEC "Not for now".
+- **Provenance wording**: the current text of SPEC, CHANGELOG, the
+  measurement docs, code comments and test docstrings names its sources
+  neutrally (field sessions, a multi-account deployment, a transaction
+  index, maintainer rulings); every technical fact and date is kept.
 
 Registry mass by family (Python 3.13):
 
@@ -142,10 +157,10 @@ Registry mass by family (Python 3.13):
 | scavenge | 5 | 3,240 | 5 | 3,283 |
 | travel | 2 | 1,884 | 2 | 2,010 |
 | lens wrappers | 25 | 13,877 | 25 | 10,498 |
-| token portal | 0 | 0 | 4 | 2,844 |
-| meta (wallet/bridge) | 7 | 4,346 | 7 | 4,221 |
+| token portal | 0 | 0 | 4 | 2,944 |
+| meta (wallet/bridge) | 7 | 4,346 | 7 | 4,241 |
 | everything else | 40 | 29,532 | 40 | 29,389 |
-| **total** | **104** | **72,855** | **98** | **66,770** |
+| **total** | **104** | **72,855** | **98** | **66,890** |
 
 The two standing sentences were 4,150 of the 3.7.0 total, spread over
 the read families above.

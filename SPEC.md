@@ -57,11 +57,11 @@ this registry says *what holds*, not *how it is built*.
   descriptions, 4,150 characters of registry mass.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **66,770 characters** at the 4.0.0 draft (72,855 at 3.7.0), against a
+  **66,890 characters** at the 4.0.0 draft (72,855 at 3.7.0), against a
   `REGISTRY_MASS_BUDGET` of 73,000. **4.0.0 asked for no raise**: its
   space came from removals — the strategy-service family (5,286), the
   two standing sentences moved to the instructions (4,150) and
-  `stop_harvest_batch` (about 974) — and the four portal tools (2,844)
+  `stop_harvest_batch` (about 974) — and the four portal tools (2,944)
   and the corrected descriptions were paid out of them. The budget is capacity that has to be earned: every
   character is spent out of the agent's context before it acts, so the
   ceiling rises only for named capability, never to make room for
@@ -491,7 +491,16 @@ lane ledger until resolved.
   enabled, item registered, the operator lane for the item
   (`to="operator"`), item or token balance, tax below the amount, and
   for a receipt: pending, this account's, not paused, the delay ended
-  (claim) and a payee set. `portal_withdraw(dry_run=True)` follows the
+  (claim), a signer key the receipt accepts held here, and a payee set.
+  The signer rule is upstream's: an owner receipt is settled by the
+  owner only; an operator-lane receipt by the owner or the account's
+  CURRENT operator, and it pays the operator as it stands at claim time
+  — a claim whose payee is not this server's operator wallet says so in
+  `notice`. A deposit approves exactly its own token amount (items x
+  10^(18 - scale)) to the on-chain token spender, and only when the
+  allowance is short; it never grants an unlimited allowance, and its
+  `txs` lists an approve step only when one was sent.
+  `portal_withdraw(dry_run=True)` follows the
   dry-run rule above (no `status`, no hash) and states the tax (flat +
   basis points, in items), the net token amount and `claimable_at`.
   Results are receipts: the receipt id is decoded from the
@@ -822,6 +831,13 @@ writer; no other module opens the keys file or the Keychain.
 | travel plans and reports on the clamped 0-100 stamina, uses an item and retries a hop refused for stamina when allowed, and raises an unplannable route | `test_h400_lane.py::test_travel_plans_on_the_clamped_stamina`, `::test_an_out_of_stamina_hop_uses_an_item_and_is_retried`, `::test_an_unplannable_route_is_an_error_not_a_result`, `test_v300_families.py::TestTravelReadsChainState::test_a_read_failure_names_its_cause` |
 | An occupied equipment slot is never swapped: the batch skips it naming the item, equip_item refuses | `test_h400_lane.py::test_an_occupied_slot_is_skipped_and_its_item_named`, `::test_equip_item_refuses_an_occupied_slot` |
 | "Proven" is two lookups on fresh sessions, spaced, each answered by one replica: a waiting session that cannot see a held or mined hash never releases it, the pre-send path acts on what the fresh lookup found, and a null from a replica behind the seen head is not evidence | `test_h400_proof.py` (6 tests) |
+| The token portal refuses before signing: portal disabled, item unregistered, item off the operator lane (`to="operator"`), short balance, tax not below the amount; a claim before its end time; a paused receipt; no key for the owner or (operator lane) the CURRENT operator; an operator lane with no operator on chain | `test_400_surface.py::test_portal_withdraw_refuses_before_signing`, `::test_portal_claim_waits_for_the_delay_then_pays_the_current_operator`, `::test_a_paused_receipt_is_refused_before_signing`, `::test_a_signer_that_is_neither_owner_nor_current_operator_is_refused`, `::test_an_owner_receipt_needs_the_owner_key`, `::test_an_operator_lane_receipt_with_no_operator_on_chain_is_refused`, `::test_portal_claim_refuses_a_receipt_that_is_not_pending`, `::test_portal_deposit_refuses_a_short_token_balance` |
+| Portal results are receipts: the receipt id from the withdraw's own event, payee and amount from the claim's token Transfer log; an operator-lane claim pays the operator as of the claim and names it when that is not this server's operator wallet; a cancel returns the items, not the tax | `test_400_surface.py::test_portal_withdraw_to_operator_is_operator_signed_and_decodes_the_receipt`, `::test_portal_withdraw_to_owner_is_owner_signed`, `::test_portal_withdraw_dry_run_states_tax_net_and_claimable_at`, `::test_after_an_operator_rotation_the_claim_pays_and_names_the_new_operator`, `::test_portal_cancel_returns_the_items_but_not_the_tax` |
+| A deposit approves exactly its token amount to the on-chain token spender, only when the allowance is short, never an unlimited allowance, and lists the approve step only when one was sent | `test_400_surface.py::test_portal_deposit_approves_exactly_its_token_amount_and_only_when_short`, `::test_portal_deposit_approves_the_spender_when_short_then_deposits` |
+| Harvest calls and `act_sequence` harvest steps take at most 10 kamis, refused before signing; a refused multi-kami dry-run says SIZE or names the ITEM; `harvest_start(dry_run)` sends nothing | `test_400_surface.py::test_more_than_ten_kamis_are_refused_before_signing`, `::test_a_sequence_harvest_step_takes_at_most_ten_kamis`, `::test_a_batch_refused_while_every_kami_passes_alone_is_a_size_failure`, `::test_a_batch_refused_for_one_kami_names_the_kami`, `::test_harvest_start_dry_run_sends_nothing` |
+| A loop stops at a transaction boundary inside `KAMI_CALL_BUDGET_S` and returns `time_boxed` and `remaining`; a single transaction is never cut by the box | `test_400_surface.py::test_a_loop_stops_inside_its_box_and_says_what_remains`, `::test_a_single_transaction_is_never_cut_by_the_box` |
+| No strategy-service tool, host or credential remains; the scavenge droptable is read from chain; `register_account` names the operator-is-an-owner revert | `test_400_surface.py::test_no_strategy_service_remains`, `::test_the_droptable_is_read_from_chain`, `::test_register_account_names_the_operator_is_owner_revert` |
+| `withdraw_operator` keeps max(eth_estimateGas x 2, 0.0002 ETH) — an empirical floor (X10) — for `"all"` and for an explicit amount | `test_gas_wallet.py::TestWithdrawOperator` |
 | The offline suite reaches no network: the module's client is a dead loopback port unless a test installs its own fake | `conftest.py::_offline_rpc` (autouse) |
 | A sequence reports one terminal state per step and never conflates two: a success, a revert and a timeout in one call come back as themselves, each with its own receipt evidence | `test_h350_families.py::test_terminal_states_are_never_conflated` |
 | A reverted step does not stop the sequence and is never resent | `test_h350_families.py::test_a_reverted_step_does_not_stop_the_sequence`, `::test_a_reverted_step_is_never_resent` |
@@ -1001,6 +1017,16 @@ unchanged, and the rows deliberately omit tools whose state requirement
 this module does not gate — a row is narrower than "what would work", and
 the wording ("tools whose harness state gate accepts X") says so.
 
+**X10 — `empirical-sweep-reserve`.** `withdraw_operator` keeps
+max(eth_estimateGas x 2 at the flat price, 0.0002 ETH). The derived
+reserve (about 0.0000009 ETH) landed and reverted "insufficient balance
+for transfer" on every account tried (11 of 11, 2026-09-16), while
+0.0002 ETH landed every time. The fee the chain actually deducts could
+not be derived read-only: the public RPC has pruned those blocks and its
+`eth_call` ignores fees. So 0.0002 ETH is an empirical floor, not a fee
+model, and the description says so; a measured fee model is owed to a
+live write test.
+
 ---
 
 ## Non-goals
@@ -1029,6 +1055,24 @@ the wording ("tools whose harness state gate accepts X") says so.
 - **No hosted CI.** No pipeline runs on push; "CI" is the local pytest
   suite. Nothing in this repository enforces that the suite was run
   before a commit or a tag.
+
+## Not for now
+
+Designed and deliberately not built at this version. Unlike a non-goal,
+each entry is expected to land; it records what it would cost.
+
+- **`act_sequence` per-step keys** (deferred from 4.0.0 by a maintainer
+  ruling). Two keys inside the existing free-form step dicts:
+  `"optional": true` — a step that fails pre-send validation is dropped
+  and named in `notice` instead of refusing the whole sequence; it is
+  dropped before signing, so the remaining steps still sign on
+  consecutive nonces — and `{"op": "move", ...}`, one travel hop as a
+  step, its destination in the same dict. **Zero schema cost**: no
+  parameter is added and the `steps` schema is unchanged; `tools_hash`
+  and mass move only by the description sentence that names the keys.
+  Until it is built, `"op": "move"` is refused as an unknown op, and an
+  extra `"optional"` key is ignored — a failing step still refuses the
+  whole sequence, never drops silently.
 
 ---
 

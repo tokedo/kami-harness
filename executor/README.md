@@ -265,9 +265,17 @@ which bridges an ERC-20 into an in-game item and back: Onyx Shard, item
   without signing.
 - Export and import tax is 1 item + 50 basis points, in items.
   `portal_cancel` returns a pending receipt's items, not its tax.
+- `portal_claim` and `portal_cancel` follow the game's signer rule: an
+  owner receipt is settled by the owner only; an operator-lane receipt
+  by the owner or the account's CURRENT operator (this server signs as
+  that operator when it holds the key, else as the owner). A paused
+  receipt, a claim before its end time, or no key for an allowed signer
+  is refused before signing. After an operator rotation the claim pays
+  the new operator, and the result's `notice` names it.
 - `portal_deposit` is owner-signed; when the owner's allowance to the
-  portal's token spender is short, it approves first (a second
-  transaction).
+  portal's token spender is short, it first approves exactly the
+  deposit's token amount (a second transaction, listed in `txs`) —
+  never an unlimited allowance.
 - `lens_portal` reads an account's portal history and open withdrawals.
 
 ### PERCEIVE — 32 tools
