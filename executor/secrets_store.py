@@ -6,7 +6,7 @@ through this module. Two backends:
   ``envfile`` (DEFAULT)  reads and writes the keys file, today's
                          ``~/.blocklife-keys/.env``. This is the
                          behaviour every earlier version had, and it is
-                         what a lab machine or a run VM gets unless it is
+                         what a desktop machine or a server VM gets unless it is
                          configured otherwise.
   ``keychain``           protected names live encrypted at rest in the
                          macOS login Keychain as generic-password items

@@ -369,7 +369,7 @@ def test_nonce_read_once_and_all_signed_before_first_broadcast(seq_env):
 
 
 def test_a_reverted_step_does_not_stop_the_sequence(seq_env):
-    """R-3: later steps still execute after a revert."""
+    """A maintainer ruling: later steps still execute after a revert."""
     outcomes = ["revert", "ok", "ok"]
     chain = FakeChain(outcomes)
     _install(seq_env, chain, outcomes)
@@ -429,7 +429,7 @@ def test_a_second_rejection_reports_the_tail_not_sent(seq_env):
 def test_cap_is_the_measured_number_and_refuses_rather_than_splitting(
     seq_env,
 ):
-    """R-3, re-ruled 2026-08-28 from 16 to the measured acceptance, 64.
+    """The step cap, re-ruled 2026-08-28 from 16 to the measured acceptance, 64.
 
     The refusal is still a refusal — the cap moved, the no-auto-split
     rule did not.

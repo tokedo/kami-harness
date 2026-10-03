@@ -290,7 +290,7 @@ class TestStartupReport:
 
     def test_nothing_to_report_says_nothing(self, store, capsys):
         """A deployment with no keys is as quiet as it was before this
-        module existed — the keyless lab machine prints one line, and
+        module existed — a keyless machine prints one line, and
         that line is the account warning, not a secrets report."""
         secrets_store.load()
         captured = capsys.readouterr()

@@ -651,7 +651,7 @@ softened, and the pre-snippet text is unchanged.
   error class (EXPOSURE's error-class table).
 - **The 0.5.2 -> 0.5.3 advance at 3.5.0 makes `--eligible-only`
   attacker-blind, and Family D is NOT SERVABLE BELOW IT — the same
-  lesson as 3.4.0's Family D, so the lab redeploys the lens FIRST.**
+  lesson as 3.4.0's Family D, so a deployment upgrades the lens FIRST.**
   Until 0.5.3 the filter read `liquidation.eligible`, the full pairing
   verdict, which folds in `isStarving(attacker)` and
   `onCooldown(attacker)`. In a zero-cooldown kill loop the attacker

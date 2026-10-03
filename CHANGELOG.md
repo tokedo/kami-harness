@@ -684,7 +684,7 @@ deferred row becomes a served row (served 39 -> 40).
 
 The lens pin advances `8b74007` (0.5.2) -> `9488894` (0.5.3), and
 **Family D is not servable below it — a 0.5.2 daemon answers the old
-meaning with `ok: true`, so the lab redeploys the lens FIRST**, the
+meaning with `ok: true`, so a deployment upgrades the lens FIRST**, the
 same lesson as 3.4.0's Family D. `--eligible-only` becomes
 attacker-blind: until 0.5.3 it filtered on the full pairing verdict,
 which folds in the attacker's own starving/cooldown gates, so in a
