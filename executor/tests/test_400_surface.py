@@ -509,3 +509,11 @@ def test_register_account_names_the_operator_is_owner_revert(
         server.register_account("someone", account="testa")
     assert "Operator is an account owner" in str(ei.value)
     assert "an owner cannot be another account's operator" in str(ei.value)
+
+
+def test_a_sequence_harvest_step_takes_at_most_ten_kamis(chain_env):
+    node, game, clock, op = chain_env
+    with pytest.raises(server.PreTxValidationError, match="at most 10 per call"):
+        server.act_sequence([{"op": "harvest_stop", "kami_ids": list(range(1, 12))}],
+                            account="testa")
+    assert not node.sends
