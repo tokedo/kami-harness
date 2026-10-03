@@ -29,6 +29,97 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [Unreleased — 4.0.0, part 1] — one send path, and reads never wait behind writes
+
+Internal to the tool surface: **no tool, parameter, schema or
+description changes** — 104 tools, registry mass **72,855**, `tools_hash`
+`87dc7481...1c1b` (Python 3.13), unchanged and asserted at import. The
+semantics and result shapes below change; `SCHEMA_VERSION` moves with
+the surface release this is part of.
+
+### The per-signer nonce lane
+
+Every send rides its signer's lane: a lock around the send itself, a
+floor no nonce is ever handed out below, and a ledger of every hash the
+server signed until it is mined or proven gone — persisted per (chain,
+wallet address) under `KAMI_LANE_DIR` (default `~/.kami-harness/lanes`),
+with the signed bytes purged on resolution and released entries kept as
+tombstones (SPEC P4). Reproduced against 3.7.0 first
+(`executor/tests/test_h400_send_path.py`, a real web3 over a simulated
+node that queues nonces behind a gap):
+
+- **One hash on two steps, one level counted twice.** A replica one
+  transaction behind answered `pending` for step 2 with step 1's nonce;
+  a level-up's calldata and gas are identical, so the bytes and hash
+  were too, and step 2 "confirmed" with step 1's receipt. The floor
+  makes that nonce unavailable; results now read the level back.
+- **A refused sequence step armed the tail.** The node queues nonces
+  behind a gap: one refused broadcast left every later signed step
+  admitted but unmineable, invisible to `pending`, executed by the next
+  unrelated send; the call then waited 120 + 10·N s for steps that could
+  not mine. A refused step's same bytes are now re-offered (3 × 1 s); a
+  gap below an accepted step is filled with a zero-value self-transfer,
+  so the tail executes now; the first key of the result says so.
+- **UNCONFIRMED was a bare timeout.** A nonce consumed by another hash
+  now raises `TxNonceCollisionError` naming that hash and whether this
+  server signed it, after 5 s instead of 120; a transaction the node no
+  longer holds raises `TxDroppedError`.
+- **The replica readiness answer ended loops.** It carries JSON-RPC code
+  5, so the `-32000` retry routing never saw it. Every read retries it
+  on a fresh session (0.5 / 1 / 2 s); a refused broadcast is re-offered.
+- A later call that finds an earlier call's transactions armed behind a
+  gap drains them with a fill, names each first, re-runs its own
+  validation, and refuses with `LaneBlockedError` if the gap cannot be
+  filled.
+- Budgets fit a 90-second call: 60 s per single send (resolving every
+  5 s), 30 s + 0.5 s per step for a sequence, receipts polled in one
+  batch per second.
+
+### Reads never wait behind writes
+
+Every tool body runs on a worker thread; four `async def` tools that
+never awaited also blocked, and now do not. A client cancel stops a loop
+at its next step; progress is reported per landed transaction and the
+partial outcome is logged (MCP drops a cancelled call's response). Writes
+on different wallets run concurrently. Batch request-id swaps, key-file
+and roster writes are serialised.
+
+### Loops report what the chain shows
+
+`allocate_skills`, `level_to`, `level_and_allocate_batch`,
+`feed_level_allocate_batch` and `use_item_batch` read back level, XP,
+unspent skill points and the item's inventory after the loop.
+`reached_level` / `leveled.to` are the read-back (`leveled.landed` is the
+count). Error text is never empty.
+
+### Smaller
+
+- `scavenge_claim_and_reveal` reveals until every commit is drained (a
+  reveal processes at most 5,000 rolls per transaction upstream); an
+  already-revealed commit is not revealed again and is flagged.
+  `droptable_reveal` reports `rolls_remaining`.
+- `travel_to_room` plans and reports on stamina clamped to the 0-100
+  value the move system checks, re-reads it per hop, retries a hop
+  refused for stamina after using an item when `use_items` is on, and
+  raises a failed read or unplannable route.
+- An infrastructure failure in the dry-run is no longer reported as a
+  revert; a dry-run revert re-resolves a moved system address once.
+- `equip_all_batch` skips, and `equip_item` refuses, an occupied slot —
+  the chain swaps it instead of reverting.
+
+### Tests
+
+**775 pass**, 4 skipped, exit 0 (Python 3.13.12). 731 of 3.7.0 plus 44
+new; every new regression test was shown to fail on 3.7.0 or under a
+mutation that disables its fix (one guard test pins a refusal that must
+NOT change). Eleven existing tests had assertions updated, none
+weakened: three whose nonce-read / rejection counts and two whose
+missing-response rows pinned the removed re-sign resend, five level
+results that pinned the arithmetic `to`, one travel read failure now
+raised; one fixture models the new slot read. The offline suite is now offline by
+construction (an unfaked World resolve used to reach the public
+endpoint).
+
 ## [3.7.0] — a mined sequence is never "not_sent"
 
 MINOR. **104 tools** (ACT 56 / PERCEIVE 32 / OUTSOURCE 9 / META 7),

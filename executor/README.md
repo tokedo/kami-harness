@@ -134,14 +134,21 @@ begins with the exact prefix `validation failed; no transaction sent: `
 — nothing was signed or broadcast and no gas was spent. It states the
 failed precondition factually with observed vs required values.
 
-After broadcast there are exactly **three terminal states**, and none is
+After broadcast there are exactly **four terminal states**, and none is
 ever reported as another:
 
 | terminal state | how it is reported |
 |---|---|
 | confirmed-success | the tool returns; result carries `status="success"` with `tx_hash`, `block`, `gas_used` |
 | confirmed-revert | **raises** `OnChainRevertError(tx_hash, block, gas_used, reason)` — never returned alongside or as success |
-| unconfirmed | **raises** `TxUnconfirmedError(tx_hash, timeout)` — outcome unknown, the tx may still land |
+| not executed (proven) | **raises** `TxNonceCollisionError` (the nonce went to another hash, named) or `TxDroppedError` (the node no longer holds it; nonce unconsumed) — no gas spent by that hash |
+| unconfirmed | **raises** `TxUnconfirmedError(tx_hash, timeout)` — the node still holds it (or nothing could be proven); it may still land |
+
+Every send rides its signer's nonce lane (SPEC P4): nonce =
+max(pending, a floor above everything this server saw used), a ledger
+of every signed hash until it is mined or proven gone, the same signed
+bytes re-offered on an ambiguous refusal, and a new nonce only once the
+old one is proven consumed by another hash.
 
 A returned result never carries `status="reverted"`. `OnChainRevertError.reason`
 is a best-effort `eth_call` replay of the exact calldata at the block the
@@ -219,9 +226,10 @@ owner wallet (noted per tool).
 **Batch / composite tools.** The `*_batch` tools, `level_to`,
 `allocate_skills`, `use_item_batch`, and `travel_to_room` touch multiple
 kamis (or repeat an action) in one MCP round-trip, returning one compact
-result with per-item failure isolation and built-in nonce-retry. They
-serialize their on-chain writes internally, so a single call never
-issues concurrent write-txs on the same wallet. Thirteen tools expose
+result with per-item failure isolation, and every send rides the
+signer's nonce lane. Loops read back what the chain shows afterwards
+(level, XP, unspent skill points, inventory) beside what they attempted,
+and stop at the next step when the client cancels. Thirteen tools expose
 `allow_partial` (default `false`): with it set, a mixed batch returns
 its per-item result instead of raising.
 

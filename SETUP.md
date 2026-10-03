@@ -82,6 +82,28 @@ chmod 600 ~/.blocklife-keys/.env
 # Add more accounts as needed: FARM1_OPERATOR_KEY=, FARM1_OWNER_KEY=
 ```
 
+### Where the nonce ledger lives
+
+Every send records what it signed in a small per-wallet ledger so that a
+restarted server never reuses a nonce under a transaction it already
+broadcast. It lives in its own state directory, independent of where
+keys come from (keys file, Keychain or plain environment) and never
+holding key material:
+
+- `KAMI_LANE_DIR` if set, else `$XDG_STATE_HOME/kami-harness/lanes` if
+  `XDG_STATE_HOME` is set, else `~/.kami-harness/lanes`;
+- directory mode 0700, one JSON file per (chain, wallet address), mode
+  0600, written atomically.
+
+On a filesystem that does not survive a restart (a container without a
+volume) the ledger starts empty after every restart: nonces fall back to
+the node's own `pending` count, and transactions the previous process
+left in flight are invisible to the new one — a nonce one of them later
+consumes is reported as taken by a transaction "not signed by this
+harness", and a tail it left armed behind a gap is not drained until a
+later send reaches it. Mount the directory on a volume to keep those
+guarantees.
+
 ## 5. Configure the public roster (in the repo)
 
 ```bash

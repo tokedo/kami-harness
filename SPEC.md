@@ -141,14 +141,98 @@ validation raises `PreTxValidationError`, whose message always begins
 with the exact prefix `validation failed; no transaction sent: `, and
 spends no gas.
 
-After broadcast there are exactly **three terminal states**, and none is
+After broadcast there are exactly **four terminal states**, and none is
 ever reported as another:
 
 | terminal state | how it is reported |
 |---|---|
 | confirmed-success | the tool returns; result carries `status="success"` with `tx_hash`, `block`, `gas_used` |
 | confirmed-revert | **raises** `OnChainRevertError(tx_hash, block, gas_used, reason)` — never returned alongside or as success |
-| unconfirmed | **raises** `TxUnconfirmedError(tx_hash, timeout)` — outcome unknown, the tx may still land |
+| not executed (proven) | **raises** `TxNotExecutedError`: `TxNonceCollisionError(tx_hash, nonce, consumed_by, signed_by_harness)` when the nonce was consumed by another hash (named, and whether this harness signed it), `TxDroppedError(tx_hash, nonce)` when the node no longer holds it and its nonce is unconsumed. No gas was spent by that hash. A per-leg row carries `status: "dropped"` (+ `consumed_by`) |
+| unconfirmed | **raises** `TxUnconfirmedError(tx_hash, timeout)` — only while the node still holds the hash, or nothing can be proven either way; the tx may still land, and the signer's ledger keeps it until the next send resolves it |
+
+**The per-signer lane (4.0.0).** Every send — `_send_tx`,
+`_send_batch_tx`, `_send_tx_owner`, `_send_eth` and `act_sequence` —
+rides its signer's lane (`executor/lanes.py`), one per (chain id, signer
+ADDRESS): operator and owner are separate lanes because they are
+separate addresses, and an account whose owner and operator are one
+address has one lane, because a chain account has one nonce sequence.
+
+- **Lock scope.** The lane lock (in-process, plus an advisory file lock
+  shared by every server process on the machine) covers the send
+  critical section only: resolve the ledger, choose the nonce, sign,
+  write the ledger entry AHEAD of the broadcast, broadcast, re-offer,
+  fill. Receipt waits are outside it. Two writes on one signer
+  interleave at step boundaries without a nonce conflict; writes on
+  different signers run concurrently; reads take no lock.
+  `act_sequence` holds it across its whole sign + broadcast + fill.
+- **Nonce choice** = max(`pending`, the lane FLOOR). The floor is above
+  every nonce this harness saw accepted or mined, so a replica serving
+  a stale `pending` cannot make two sends share a nonce. It comes down
+  only when the ledger PROVES the entries above it gone.
+- **The ledger** holds every hash this harness signed until it is mined
+  or proven not held. It is persisted per lane under `KAMI_LANE_DIR`
+  (default `$XDG_STATE_HOME/kami-harness/lanes`, else
+  `~/.kami-harness/lanes`; directory 0700, files 0600, atomic writes),
+  independent of the secret backend, and never holds key material. An
+  entry carries the signed raw bytes only while unresolved; they are
+  purged the moment it is resolved or released. A released entry stays
+  as a TOMBSTONE (nonce, hash, call, tool, step, signing time — no raw
+  bytes) until its nonce is below `latest`, so a late mining of it is
+  attributed. On a filesystem that does not survive a restart the
+  ledger starts empty: the floor falls back to `pending`, and the lane
+  cannot attribute or drain what a previous process left behind.
+- **Proof.** "Gone" needs two null lookups (receipt AND transaction),
+  each on a fresh HTTP session, one second apart — never one, because
+  this endpoint answers null for mined transactions on some requests.
+  `pending` alone is never proof.
+- **Re-offer and re-sign.** The SAME signed bytes are re-offered (up to
+  3 times, 1 s apart) on an ambiguous answer — the replica readiness
+  class, a transport failure, no response — and only within the call
+  that signed them; a later call never re-offers an earlier call's
+  bytes. A re-sign happens at the ORIGINAL nonce (a gap fill), so
+  exactly one of the two can mine. A NEW nonce for the same action is
+  taken only once the original nonce is proven consumed by a different
+  hash.
+- **An earlier call's armed tail.** If a send finds transactions this
+  harness signed earlier held by the node behind a gap (a crash, an
+  unfillable gap, a replica that lost a nonce), it fills the gap nonce
+  with a zero-value self-transfer — never with its own action — lets
+  the released transactions mine (30 s budget), names every one of them
+  (tool, step, signing time, hash, outcome) in the FIRST key of its
+  result (`notice`), and re-runs its own validation and dry-run before
+  sending. If the fill cannot be sent it raises `LaneBlockedError`
+  ("lane blocked behind nonce N", listing the armed hashes) and sends
+  nothing of its own.
+- **Budgets.** A single send waits 60 s for its receipt, resolving the
+  hash every 5 s and ending early on a proven collision or drop. A
+  sequence waits 30 s + 0.5 s per step (62 s at 64), polling all open
+  receipts in ONE JSON-RPC batch per second.
+- **The replica readiness class** (`jsonrpc readiness error ...
+  historical version not ready ...`, JSON-RPC code 5) is a replica
+  behind the head. Every READ is retried on it three times (0.5 s, 1 s,
+  2 s), each on a fresh HTTP session; `eth_sendRawTransaction` is not —
+  the lane re-offers the same bytes itself.
+- **A dry-run that fails twice on infrastructure** raises
+  `PreTxValidationError` saying the dry-run was NOT performed; it is
+  never reported as a revert. A dry-run that reverts for any other
+  reason re-resolves the system address from the World registry, and
+  if the system moved it is retried once against the new address (the
+  component cache is dropped too). An unchanged address keeps the
+  original refusal.
+
+**Concurrency and cancellation (4.0.0).** Every tool body runs on a
+worker thread (an `async def` body on a private event loop inside it);
+the registered name, description and schema are unchanged, so the
+surface fingerprint is unchanged (asserted at import). A read never
+waits behind a write. An MCP `notifications/cancelled` sets the call's
+flag, which the send path checks at every step boundary: the loop
+stops there, and nothing further is sent. MCP answers a cancelled
+request with its own error and drops the tool's response, so what
+landed reaches the client as one progress notification per landed
+transaction (when the client supplied a progress token) and one log
+notification carrying the partial outcome; the hashes also stay in the
+lane ledger until resolved.
 
 - **A dry run has no terminal state.** `pool_swap(dry_run=True)` runs
   every pre-send gate the live call runs — distinct items, a MUSU side,
@@ -205,32 +289,36 @@ ever reported as another:
     the sequence** (operator ruling R-3): later steps still execute, and
     a revert is NEVER resent — the existing rule that nonce/retry logic
     never resubmits a confirmed revert applies per step.
-  - **A broadcast-rejected step is resent at most once, and only after
-    the node has been asked.** A rejection is supposed to mean the node
-    refused the raw transaction, so the nonce was not consumed and
-    nothing landed for that step or any after it — but that is the
-    broadcast's claim, not the chain's, and on 2026-08-28 it was false
-    for 38 steps at once. The operator's pending nonce is therefore
-    re-read BEFORE the resend decision: a resend re-signs the tail at
-    fresh nonces, so resending a step the node is already holding would
-    perform that step TWICE. Only steps the node does not hold are
-    resent, and only if they are a clean suffix of the sequence: the
-    steps that did land are awaited, the nonce is re-read, and the tail
-    is re-signed and broadcast once more. A second rejection reports
-    the tail `not_sent` — after the same reconciliation. A rejection is
-    not a revert and the two are never merged.
-  - **`not_sent` is a claim about the NODE, and it is checked against
-    the node before it is reported.** No step whose nonce is below the
-    operator's pending transaction count, and no step whose hash has a
-    receipt, is ever reported `not_sent`. Every step's hash is known
-    before it is offered — keccak256 of the signed raw transaction,
-    computed at sign time — so a step the broadcast could not report on
-    is still findable on chain. A row rescued this way is reported
-    `unconfirmed` with that hash, enters the receipt collection like any
-    other step, and carries `reconciled` (the evidence) and, where the
-    node said something, `broadcast_error` (what it said). `not_sent` is
-    left for a nonce at or above the pending count with no receipt —
-    and that is the only thing it now means.
+  - **A refused step is re-offered, never re-signed (4.0.0).** This
+    node QUEUES a nonce above the sender's next expected one: one
+    refused broadcast used to leave every later signed step admitted
+    but unmineable, invisible to `pending`, executing whenever a later
+    unrelated call filled the gap nonce. A refused step's SAME signed
+    bytes are now re-offered as one batch per round (ids = nonces,
+    chunked), up to 3 rounds 1 s apart; nonces never change, so nothing
+    is re-signed. A refused step BELOW an accepted one is a gap: its
+    nonce is FILLED with a zero-value self-transfer, so the armed tail
+    executes now — as it would have had the refused step reverted on
+    chain, which never stopped the tail either. Refused steps above
+    every accepted one are a clean suffix: `not_sent`, nonces released,
+    nothing armed. The result's first key, `notice`, says which step
+    was dropped and why, which nonce was filled by which hash, and which
+    steps ran after it; `filled` lists each fill with its own outcome. A
+    gap that cannot be filled is stated the same way, naming the armed
+    steps. A rejection is not a revert and the two are never merged.
+  - **`not_sent` means the row did not and will not execute, and it is
+    checked against the node before it is reported.** No step whose
+    hash the node holds or mined is ever reported `not_sent`. Every
+    step's hash is known before it is offered — keccak256 of the signed
+    raw transaction, computed at sign time — so a step the broadcast
+    could not report on is still findable on chain. A row rescued this
+    way is reported `unconfirmed` with that hash, enters the receipt
+    collection like any other step, and carries `reconciled` (the
+    evidence) and, where the node said something, `broadcast_error`
+    (what it said). A `not_sent` row carries `reason`, and
+    `nonce_filled_by` (its nonce was filled), or `consumed_by` +
+    `signed_by_harness` (another hash took its nonce), or neither (a
+    clean suffix whose nonce was released).
   - **Cap 64 steps**, refused rather than auto-split — one tool call is
     one reportable unit, the same reason the batch caps are not split.
     (Chunking the TRANSPORT is not splitting the call: 64 steps are one
@@ -256,9 +344,10 @@ ever reported as another:
     ARE the nonces**, so every response is attributed to its step by
     nonce and never by position: a node that reorders, drops or
     duplicates a response cannot shift a result onto the wrong step, and
-    a nonce with no response in the reply is `not_sent`, never inferred
-    — and the row says so in the form `no response for nonce N in batch
-    of M`. Serial sending survives ONLY as a transport fallback — if the
+    a nonce with no response in the reply is never inferred: its same
+    bytes are re-offered, the row reports the node's answer to that,
+    and the first silence stays on the row as `broadcast_error`, in the
+    form `no response for nonce N in batch of M`. Serial sending survives ONLY as a transport fallback — if the
     batch CALL fails (a transport failure, not a refused transaction)
     the chunk is reconciled and only what the node does not hold is
     re-offered; after a second transport failure that remainder goes out
@@ -701,17 +790,29 @@ writer; no other module opens the keys file or the Keychain.
 | claim | enforcement |
 |---|---|
 | Registry description mass ≤ 73,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget`, `test_h350_families.py::test_registry_mass_within_the_raised_budget` (72,855 at this ref, on Python 3.13 — 145 characters of headroom; unchanged by 3.7.0, which moves no description) |
+| Two consecutive sends never share a nonce or a hash, and a level is counted once — reported from a chain read-back, never arithmetic | `test_h400_send_path.py::test_two_steps_never_share_a_nonce_and_a_level_is_counted_once`, `::test_a_nonce_reused_by_a_stale_read_never_reports_unconfirmed`, `test_h400_lane.py::test_a_level_result_is_read_back_not_counted` |
+| A refused sequence step leaves nothing armed: re-offered, else its nonce filled, else stated; a later call executes no step of it; the receipt budget is spent only on steps that can mine | `test_h400_send_path.py::test_a_refused_step_leaves_nothing_armed_behind_its_nonce`, `::test_a_sequence_never_waits_the_long_budget_on_steps_that_cannot_mine`, `test_h400_lane.py::test_a_filled_gap_is_the_first_line_of_the_sequence_result` |
+| A nonce consumed by another hash is a collision naming that hash and whether this harness signed it, ending the wait early — never "may still be included" | `test_h400_send_path.py::test_a_nonce_consumed_by_another_hash_is_a_collision_not_unconfirmed`, `::test_a_nonce_taken_by_another_signer_is_named_and_ends_the_wait_early` |
+| The replica readiness class never aborts a loop: reads retry on a fresh session, a refused broadcast is re-offered as the same bytes | `test_h400_send_path.py::test_the_readiness_answer_does_not_abort_a_loop` (4 send-path reads), `test_h400_lane.py::test_a_readiness_refused_broadcast_is_re_offered_as_the_same_bytes`, `::test_a_readiness_answer_on_a_pre_send_read_is_retried` |
+| An infrastructure failure in the dry-run is never reported as a revert; a moved system is re-resolved once | `test_h400_send_path.py::test_a_second_infrastructure_failure_in_the_dry_run_is_not_a_revert`, `test_h400_lane.py::test_a_dry_run_revert_re_resolves_a_moved_system_once`, `::test_an_unchanged_system_address_keeps_the_original_refusal` |
+| A read returns while a write loop is in flight; writes on different signers run concurrently; one signer interleaves at step boundaries; a cancel stops the loop at the next boundary, progress is reported per transaction and the partial outcome is logged | `test_h400_send_path.py::test_a_read_returns_while_a_write_loop_is_in_flight`, `::test_a_cancel_stops_the_loop_at_the_next_step_boundary`, `test_h400_lane.py::test_writes_on_different_signers_run_concurrently`, `::test_one_signer_interleaves_at_step_boundaries`, `::test_progress_is_reported_per_landed_transaction`, `::test_a_cancel_logs_the_partial_outcome` |
+| The lane's state lives in its own 0700 directory independent of the secret store, holds no key and no raw bytes once resolved, keeps released entries as tombstones and attributes their late mining; owner and operator are separate lanes, one address one lane | `test_h400_lane.py::test_the_lane_directory_is_independent_of_the_secret_store`, `::test_the_ledger_holds_no_key_and_no_raw_bytes_once_resolved`, `::test_a_released_transaction_that_mines_late_is_attributed`, `::test_owner_and_operator_are_separate_lanes_and_one_address_is_one`, `::test_a_repeated_hash_is_refused_by_the_ledger` |
+| A later call drains an earlier call's armed tail with a zero-value fill, names every released transaction first, re-runs its validation, then sends; an unfillable gap refuses with lane-blocked and sends nothing | `test_h400_lane.py::test_a_later_call_drains_an_earlier_calls_armed_tail_and_says_so`, `::test_a_tail_that_cannot_be_filled_blocks_the_lane` |
+| A scavenge commit is revealed until every commit is drained; a commit already drained is not revealed again and is flagged, as is a reveal that reveals nothing; droptable_reveal reports the rolls left | `test_h400_send_path.py::test_a_commit_above_the_per_reveal_cap_is_drained_to_zero`, `::test_an_already_revealed_commit_is_flagged_not_an_empty_success`, `test_h400_lane.py::test_a_commit_drained_before_the_reveal_is_not_revealed_again`, `::test_a_reveal_that_reveals_nothing_is_flagged`, `::test_droptable_reveal_reports_the_rolls_left` |
+| travel plans and reports on the clamped 0-100 stamina, uses an item and retries a hop refused for stamina when allowed, and raises an unplannable route | `test_h400_lane.py::test_travel_plans_on_the_clamped_stamina`, `::test_an_out_of_stamina_hop_uses_an_item_and_is_retried`, `::test_an_unplannable_route_is_an_error_not_a_result`, `test_v300_families.py::TestTravelReadsChainState::test_a_read_failure_names_its_cause` |
+| An occupied equipment slot is never swapped: the batch skips it naming the item, equip_item refuses | `test_h400_lane.py::test_an_occupied_slot_is_skipped_and_its_item_named`, `::test_equip_item_refuses_an_occupied_slot` |
+| The offline suite reaches no network: the module's client is a dead loopback port unless a test installs its own fake | `conftest.py::_offline_rpc` (autouse) |
 | A sequence reports one terminal state per step and never conflates two: a success, a revert and a timeout in one call come back as themselves, each with its own receipt evidence | `test_h350_families.py::test_terminal_states_are_never_conflated` |
 | A reverted step does not stop the sequence and is never resent | `test_h350_families.py::test_a_reverted_step_does_not_stop_the_sequence`, `::test_a_reverted_step_is_never_resent` |
-| A broadcast-rejected tail is resent exactly once; a second rejection reports `not_sent` | `test_h350_families.py::test_a_broadcast_rejection_resends_the_tail_exactly_once`, `::test_a_second_rejection_reports_the_tail_not_sent` |
+| A broadcast-rejected tail is re-offered as the SAME bytes (3 rounds); a tail the node keeps refusing reports `not_sent` | `test_h350_families.py::test_a_broadcast_rejection_resends_the_tail_exactly_once`, `::test_a_second_rejection_reports_the_tail_not_sent` |
 | A sequence reads its nonce ONCE at `pending` and signs every step before the first broadcast | `test_h350_families.py::test_nonce_read_once_and_all_signed_before_first_broadcast` (the fake chain asserts the `pending` block identifier) |
 | `act_sequence` refuses more than 64 steps rather than splitting them, and 64 goes out as two sequential chunks of 32 | `test_h350_families.py::test_cap_is_the_measured_number_and_refuses_rather_than_splitting` (asserts the constant is 64, that 65 is refused with "at most 64", and that the 64-step call POSTed [32, 32] and broadcast every step) |
 | The whole pre-signed tail is broadcast in ONE round-trip | `test_h360_families.py::test_the_whole_tail_goes_out_in_one_round_trip` (16 steps, one POST) |
-| Broadcast results are mapped back to steps BY NONCE, never by position: the batch's JSON-RPC ids are the nonces, a reordered reply still lands on the right steps, and a nonce with no response is `not_sent` | `test_h360_families.py::test_the_batch_ids_are_the_nonces`, `::test_responses_returned_out_of_order_still_land_on_their_own_steps`, `::test_a_nonce_missing_from_the_response_is_not_sent_not_guessed` |
-| No step whose nonce is below the operator's pending transaction count is ever reported `not_sent` | `test_h370_families.py::test_no_step_below_the_pending_nonce_is_ever_reported_not_sent`, `::test_the_3_6_0_mechanism_reproduced_then_fixed` (the 2026-08-28 19:31 incident: 61 steps, transport death mid-admission, 38 nonces already held — all 61 reported as what they are), `::test_a_refusal_on_a_nonce_the_node_holds_is_reconciled_not_reported` |
+| Broadcast results are mapped back to steps BY NONCE, never by position: the batch's JSON-RPC ids are the nonces, a reordered reply still lands on the right steps, and a nonce with no response is `not_sent` | `test_h360_families.py::test_the_batch_ids_are_the_nonces`, `::test_responses_returned_out_of_order_still_land_on_their_own_steps`, `::test_a_nonce_missing_from_the_response_is_re_offered_not_guessed` |
+| No step whose hash the node holds or mined is ever reported `not_sent` (4.0.0 restatement; the pending-count form below still holds where the node offers no lookup) | `test_h370_families.py::test_no_step_below_the_pending_nonce_is_ever_reported_not_sent`, `::test_the_3_6_0_mechanism_reproduced_then_fixed` (the 2026-08-28 19:31 incident: 61 steps, transport death mid-admission, 38 nonces already held — all 61 reported as what they are), `::test_a_refusal_on_a_nonce_the_node_holds_is_reconciled_not_reported` |
 | No step whose hash has a receipt is ever reported `not_sent`; the hash is computed at sign time as keccak256 of the signed raw transaction | `test_h370_families.py::test_no_step_whose_hash_has_a_receipt_is_ever_reported_not_sent` |
 | `not_sent` still means not sent: a node that holds nothing and refuses everything yields `not_sent` rows with the refusal on them | `test_h370_families.py::test_a_step_that_really_was_not_sent_still_says_so` |
-| A step is never re-signed and re-broadcast while the node holds its predecessor: the pending nonce is re-read before the resend decision | `test_h350_families.py::test_a_broadcast_rejection_resends_the_tail_exactly_once`, `::test_a_second_rejection_reports_the_tail_not_sent` (nonce-read counts pin the reconciliation reads) |
+| A sequence step is never re-signed: a refused step's same bytes are re-offered at the same nonce, after the node is asked what it holds | `test_h350_families.py::test_a_broadcast_rejection_resends_the_tail_exactly_once`, `::test_a_second_rejection_reports_the_tail_not_sent` (nonce-read counts pin the reconciliation reads) |
 | No broadcast request carries more than 32 items, and the chunks are offered sequentially | `test_h370_families.py::test_a_61_step_body_is_offered_in_chunks_of_at_most_32`, `::test_a_partial_chunk_is_reconciled_before_the_next_is_offered` |
 | The batch request's timeout is chunk size × measured per-item admission × 2, floor 30 s, and lives on a dedicated provider so no other RPC call's timeout changes | `test_h370_families.py::test_the_batch_timeout_is_measured_and_scoped_to_the_batch_call` (table in `docs/measurements/batch-admission-2026-08-28.md`) |
 | A refused step's reason is never empty: the node's payload reaches the row verbatim, truncated at 300 characters, and a payload with no message yields the nonce plus the raw object | `test_h370_families.py::test_an_empty_error_payload_never_becomes_an_empty_reason` (6 payload shapes incl. the incident's own), `::test_a_real_error_payload_reaches_the_row_verbatim`, `::test_a_long_error_payload_is_truncated_at_300_chars` |
@@ -769,7 +870,7 @@ writer; no other module opens the keys file or the Keychain.
 | Every READ description carries the untrusted-data sentence; every lens description names its serving path; non-read tools carry neither | `test_tool_surface.py::test_read_descriptions_carry_standing_sentence` |
 | Served schemas are portable (no `anyOf`/`oneOf`/`allOf`/`$ref`) and carry no `title` noise | `test_tool_surface.py::test_all_schemas_portable`, `::test_schema_titles_stripped` |
 | `allow_partial` appears on exactly the 13 batch tools, boolean, default `False` | `test_tool_surface.py::test_allow_partial_surface` |
-| A submitted transaction's three terminal states are never conflated; a confirmed revert and an unconfirmed tx each raise their own type | `test_reporting_fidelity.py::TestSenderTerminalStates` |
+| A submitted transaction's terminal states are never conflated; a confirmed revert, a proven non-execution and an unconfirmed tx each raise their own type | `test_reporting_fidelity.py::TestSenderTerminalStates` |
 | A revert reason is replayed at the landed block, and stated as unavailable rather than invented when the replay does not revert | `test_reporting_fidelity.py::TestSenderTerminalStates::test_revert_reason_replayed_at_landed_block`, `::test_revert_reason_unavailable_stated` |
 | Retry never resubmits a confirmed revert or an unconfirmed transaction | `test_reporting_fidelity.py::TestNoBlindRetry` |
 | No tool returns normally when a submitted, non-`allow_partial` transaction reverted | `test_reporting_fidelity.py::TestRevertInvariant` (drives every batch tool with a reverting sender) |

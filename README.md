@@ -62,11 +62,13 @@ harvesting, movement, leveling, equipment, crafting, trading, quests,
 scavenging, gacha, and PvP liquidation. Every game-system write
 validates its mechanically-determinable preconditions against chain
 state before signing, so a failed precondition costs no gas. After
-broadcast there are exactly three terminal states and none is ever
+broadcast there are exactly four terminal states and none is ever
 reported as another: confirmed-success returns, a confirmed revert
 *raises* (`OnChainRevertError`, carrying tx hash, block, gas, and a
-best-effort replay reason), and an unconfirmed transaction raises with
-its hash rather than guessing. A returned result never carries
+best-effort replay reason), a transaction proven not executed raises
+(`TxNotExecutedError`: its nonce went to another, named hash, or the
+node dropped it), and an unconfirmed transaction raises with its hash
+rather than guessing. A returned result never carries
 `status="reverted"`. Examples: `harvest_start`, `travel_to_room`,
 `craft_item`, `create_trade`, `complete_quest`, `liquidate_kami`,
 `level_and_allocate_batch`. `act_sequence` runs up to 64 of them as
@@ -114,10 +116,17 @@ expressible in the tool parameters. Examples: `list_accounts`,
 `create_operator_wallet`, `get_gas_balance`, `fund_operator`,
 `bridge_eth_from_mainnet`, `bridge_status`.
 
-> **Concurrency:** batch wrappers serialize their on-chain writes
-> internally. Two separate write-tx calls issued in parallel against the
-> same operator wallet contend for the nonce; the batch wrappers exist so a
-> single call never does that.
+> **Concurrency:** every tool body runs on a worker thread, so a read
+> never waits behind a write and a client cancel stops a loop at its next
+> step. Every send rides its signer's nonce LANE: a lock around the send
+> itself (not the receipt wait), a floor no nonce is reused below, and a
+> persistent ledger of every hash the server signed until it is mined or
+> proven gone (`KAMI_LANE_DIR`, default `~/.kami-harness/lanes`). Writes
+> on different wallets run concurrently; writes on one wallet interleave
+> at step boundaries. An account has ONE nonce lane per key: another
+> sender on the same key (a second server process on another machine, a
+> game client) must be sequential with this one — the lane can name the
+> hash that took a nonce from it, but cannot prevent it.
 
 ## World-knowledge docs
 
