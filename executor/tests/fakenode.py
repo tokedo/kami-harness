@@ -78,6 +78,26 @@ def selector(signature: str) -> str:
     return "0x" + keccak(text=signature)[:4].hex()
 
 
+def _upstream_selectors() -> dict[str, set[str]]:
+    """{fake address: selectors upstream exposes} for every game system
+    and component, from the vendored upstream ABI (fixtures/upstream_abi).
+    The fake answers a call to a function upstream does not have the way
+    the chain does — a bare revert — so a wrong encoding cannot pass here
+    just because a test modelled it."""
+    from pathlib import Path
+    doc = json.loads((Path(__file__).parent / "fixtures" / "upstream_abi"
+                      / "upstream_abi.json").read_text())
+    out: dict[str, set[str]] = {}
+    for kind in ("systems", "components"):
+        for cid, c in doc[kind].items():
+            out[addr_for(cid).lower()] = {
+                v[0] for v in doc["abis"][c["abi"]].values()}
+    return out
+
+
+UPSTREAM_SELECTORS = _upstream_selectors()
+
+
 SAFEGET = selector("safeGet(uint256)")
 
 
@@ -155,6 +175,9 @@ class Result:
     logs: list = field(default_factory=list)
     revert: str | None = None
     output: bytes = EMPTY_BYTES_OUTPUT
+    # A revert with no data at all — what the chain answers for a call to
+    # a function the contract does not have: {-32000, "Reverted"}.
+    bare: bool = False
 
 
 class FakeNode:
@@ -191,8 +214,18 @@ class FakeNode:
     # -- configuration ------------------------------------------------------
 
     def handle(self, to: str, signature: str, fn) -> None:
-        """Install fn(node, tx_like, args_bytes, commit) -> Result."""
-        self.handlers[(to.lower(), selector(signature))] = fn
+        """Install fn(node, tx_like, args_bytes, commit) -> Result.
+
+        A game system or component address only accepts a function its
+        upstream contract has: modelling one it does not have is a test
+        bug that would hide an encoding bug, so it is refused here."""
+        sel = selector(signature)
+        known = UPSTREAM_SELECTORS.get(to.lower())
+        if known is not None and sel not in known:
+            raise AssertionError(
+                f"{signature} is not a function of the upstream contract at "
+                f"{to} (fixtures/upstream_abi)")
+        self.handlers[(to.lower(), sel)] = fn
 
     def fail(self, method: str, times: int = 1, error: dict | None = None,
              when=None) -> None:
@@ -311,13 +344,15 @@ class FakeNode:
     def _eth_call(self, call, block="latest"):
         res = self._run(call, commit=False)
         if res.status != 1:
-            raise _RpcError(_revert_payload(res.revert))
+            raise _RpcError(BARE_REVERT if res.bare
+                            else _revert_payload(res.revert))
         return "0x" + res.output.hex()
 
     def _eth_estimateGas(self, call, block=None):
         res = self._run(call, commit=False)
         if res.status != 1:
-            raise _RpcError(_revert_payload(res.revert))
+            raise _RpcError(BARE_REVERT if res.bare
+                            else _revert_payload(res.revert))
         return hex(res.gas_used)
 
     def _eth_sendRawTransaction(self, raw_hex):
@@ -447,6 +482,11 @@ class FakeNode:
         if not data:
             return Result(gas_used=113_251)  # a plain value transfer
         sel = "0x" + data[:4].hex()
+        known = UPSTREAM_SELECTORS.get(to)
+        if known is not None and sel not in known:
+            # No such function on the upstream contract: the chain answers
+            # a bare revert (no reason, no data), and so does the fake.
+            return Result(status=0, bare=True)
         fn = self.handlers.get((to, sel))
         if fn is None:
             if sel == SAFEGET:
@@ -463,6 +503,9 @@ class _RpcError(Exception):
     def __init__(self, payload: dict):
         super().__init__(payload.get("message"))
         self.payload = payload
+
+
+BARE_REVERT = {"code": -32000, "message": "Reverted"}
 
 
 def _revert_payload(reason: str | None) -> dict:

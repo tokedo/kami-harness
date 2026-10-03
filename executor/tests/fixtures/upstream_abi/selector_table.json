@@ -1,0 +1,1357 @@
+{
+ "provenance": {
+  "upstream": {
+   "repository": "https://github.com/Asphodel-OS/kamigotchi",
+   "commit": "ffda396330af1bc33238b6c37188772152b45439",
+   "inputs": "packages/contracts/src/{systems,components}/**/*.sol (ids) + packages/client/abi/<Contract>.json (ABIs)",
+   "generator": "executor/tests/tools/vendor_upstream_abi.py"
+  },
+  "derived_from": "executor/server.py, statically (tests/tools/encoding_table.py)"
+ },
+ "writes": [
+  {
+   "tool": "(any sending tool)",
+   "target": "own address",
+   "signature": "(zero-value self-transfer)",
+   "selector": null,
+   "note": "nonce-gap fill",
+   "signer": "the lane's signer"
+  },
+  {
+   "tool": "accept_quest",
+   "target": "system.quest.accept",
+   "signature": "executeTyped(uint32)",
+   "selector": "0x09c90324",
+   "signer": "operator"
+  },
+  {
+   "tool": "act_sequence",
+   "target": "system.harvest.liquidate",
+   "signature": "executeTyped(uint256,uint256)",
+   "selector": "0x915657fb",
+   "signer": "operator"
+  },
+  {
+   "tool": "act_sequence",
+   "target": "system.harvest.start",
+   "signature": "executeBatched(uint256[],uint32,uint256,uint256)",
+   "selector": "0x68f37c94",
+   "signer": "operator"
+  },
+  {
+   "tool": "act_sequence",
+   "target": "system.harvest.start",
+   "signature": "executeTyped(uint256,uint32,uint256,uint256)",
+   "selector": "0xc8372a87",
+   "signer": "operator"
+  },
+  {
+   "tool": "act_sequence",
+   "target": "system.harvest.stop",
+   "signature": "executeBatched(uint256[])",
+   "selector": "0x01929a9f",
+   "signer": "operator"
+  },
+  {
+   "tool": "act_sequence",
+   "target": "system.harvest.stop",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "act_sequence",
+   "target": "system.kami.use.item",
+   "signature": "executeTyped(uint256,uint32)",
+   "selector": "0xe60f3a76",
+   "signer": "operator"
+  },
+  {
+   "tool": "allocate_skills",
+   "target": "system.skill.upgrade",
+   "signature": "executeTyped(uint256,uint32)",
+   "selector": "0xe60f3a76",
+   "signer": "operator"
+  },
+  {
+   "tool": "auction_buy",
+   "target": "system.auction.buy",
+   "signature": "executeTyped(uint32,uint32)",
+   "selector": "0x276aaa75",
+   "signer": "owner"
+  },
+  {
+   "tool": "bridge_eth_from_mainnet",
+   "target": "Initia router (Ethereum mainnet)",
+   "signature": "(calldata from router-api.initia.xyz)",
+   "selector": null,
+   "note": "UNVERIFIED here: the calldata is built by the router API, not by this module",
+   "signer": "owner"
+  },
+  {
+   "tool": "burn_items",
+   "target": "system.item.burn",
+   "signature": "executeTyped(uint32[],uint256[])",
+   "selector": "0x8330e879",
+   "signer": "operator"
+  },
+  {
+   "tool": "buy_kami",
+   "target": "system.kamimarket.buy",
+   "signature": "executeTyped(uint256[])",
+   "selector": "0x72de78c2",
+   "signer": "owner"
+  },
+  {
+   "tool": "cancel_kami_listing",
+   "target": "system.kamimarket.cancel",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "cancel_trade",
+   "target": "system.trade.cancel",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "owner"
+  },
+  {
+   "tool": "cast_item",
+   "target": "system.kami.cast.item",
+   "signature": "executeTyped(uint256,uint32)",
+   "selector": "0xe60f3a76",
+   "signer": "operator"
+  },
+  {
+   "tool": "chat_send",
+   "target": "system.chat",
+   "signature": "executeTyped(string)",
+   "selector": "0x765a4b0b",
+   "signer": "operator"
+  },
+  {
+   "tool": "complete_all_trades",
+   "target": "system.trade.complete",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "owner"
+  },
+  {
+   "tool": "complete_quest",
+   "target": "system.quest.complete",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "complete_trade",
+   "target": "system.trade.complete",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "owner"
+  },
+  {
+   "tool": "craft_item",
+   "target": "system.craft",
+   "signature": "executeTyped(uint32,uint256)",
+   "selector": "0x5c817c70",
+   "signer": "operator"
+  },
+  {
+   "tool": "create_trade",
+   "target": "system.trade.create",
+   "signature": "executeTyped(uint32[],uint256[],uint32[],uint256[],uint256)",
+   "selector": "0x34d8e3a1",
+   "signer": "owner"
+  },
+  {
+   "tool": "drop_quest",
+   "target": "system.quest.drop",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "droptable_reveal",
+   "target": "system.droptable.item.reveal",
+   "signature": "executeTyped(uint256[])",
+   "selector": "0x72de78c2",
+   "signer": "operator"
+  },
+  {
+   "tool": "equip_all_batch",
+   "target": "system.kami.equip",
+   "signature": "executeTyped(uint256,uint32)",
+   "selector": "0xe60f3a76",
+   "signer": "operator"
+  },
+  {
+   "tool": "equip_all_batch",
+   "target": "system.kami.unequip",
+   "signature": "executeTyped(uint256,string)",
+   "selector": "0x68c47df2",
+   "signer": "dry-run (eth_call) only"
+  },
+  {
+   "tool": "equip_item",
+   "target": "system.kami.equip",
+   "signature": "executeTyped(uint256,uint32)",
+   "selector": "0xe60f3a76",
+   "signer": "operator"
+  },
+  {
+   "tool": "equip_item",
+   "target": "system.kami.unequip",
+   "signature": "executeTyped(uint256,string)",
+   "selector": "0x68c47df2",
+   "signer": "dry-run (eth_call) only"
+  },
+  {
+   "tool": "feed_kami",
+   "target": "system.kami.use.item",
+   "signature": "executeTyped(uint256,uint32)",
+   "selector": "0xe60f3a76",
+   "signer": "operator"
+  },
+  {
+   "tool": "feed_level_allocate_batch",
+   "target": "system.kami.level",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "feed_level_allocate_batch",
+   "target": "system.kami.use.item",
+   "signature": "executeTyped(uint256,uint32)",
+   "selector": "0xe60f3a76",
+   "signer": "operator"
+  },
+  {
+   "tool": "feed_level_allocate_batch",
+   "target": "system.skill.upgrade",
+   "signature": "executeTyped(uint256,uint32)",
+   "selector": "0xe60f3a76",
+   "signer": "operator"
+  },
+  {
+   "tool": "fund_operator",
+   "target": "the account's operator wallet",
+   "signature": "(plain ETH transfer)",
+   "selector": null,
+   "note": "empty calldata",
+   "signer": "owner"
+  },
+  {
+   "tool": "gacha_reroll",
+   "target": "system.kami.gacha.reroll",
+   "signature": "reroll(uint256[])",
+   "selector": "0xc32ffe1b",
+   "signer": "owner"
+  },
+  {
+   "tool": "gacha_reroll",
+   "target": "system.kami.gacha.reveal",
+   "signature": "reveal(uint256[])",
+   "selector": "0xb93f208a",
+   "signer": "owner"
+  },
+  {
+   "tool": "gacha_reveal",
+   "target": "system.kami.gacha.reveal",
+   "signature": "reveal(uint256[])",
+   "selector": "0xb93f208a",
+   "signer": "owner"
+  },
+  {
+   "tool": "gacha_use",
+   "target": "system.kami.gacha.mint",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "owner"
+  },
+  {
+   "tool": "gacha_use",
+   "target": "system.kami.gacha.reveal",
+   "signature": "reveal(uint256[])",
+   "selector": "0xb93f208a",
+   "signer": "owner"
+  },
+  {
+   "tool": "harvest_collect",
+   "target": "system.harvest.collect",
+   "signature": "executeBatched(uint256[])",
+   "selector": "0x01929a9f",
+   "signer": "operator"
+  },
+  {
+   "tool": "harvest_collect",
+   "target": "system.harvest.collect",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "harvest_start",
+   "target": "system.harvest.start",
+   "signature": "executeBatched(uint256[],uint32,uint256,uint256)",
+   "selector": "0x68f37c94",
+   "signer": "operator"
+  },
+  {
+   "tool": "harvest_start",
+   "target": "system.harvest.start",
+   "signature": "executeTyped(uint256,uint32,uint256,uint256)",
+   "selector": "0xc8372a87",
+   "signer": "operator"
+  },
+  {
+   "tool": "harvest_stop",
+   "target": "system.harvest.stop",
+   "signature": "executeBatched(uint256[])",
+   "selector": "0x01929a9f",
+   "signer": "operator"
+  },
+  {
+   "tool": "harvest_stop",
+   "target": "system.harvest.stop",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "level_and_allocate_batch",
+   "target": "system.kami.level",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "level_and_allocate_batch",
+   "target": "system.skill.upgrade",
+   "signature": "executeTyped(uint256,uint32)",
+   "selector": "0xe60f3a76",
+   "signer": "operator"
+  },
+  {
+   "tool": "level_to",
+   "target": "system.kami.level",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "level_up_kami",
+   "target": "system.kami.level",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "liquidate_kami",
+   "target": "system.harvest.liquidate",
+   "signature": "executeTyped(uint256,uint256)",
+   "selector": "0x915657fb",
+   "signer": "operator"
+  },
+  {
+   "tool": "list_kami",
+   "target": "system.kamimarket.list",
+   "signature": "executeTyped(uint32,uint256,uint256)",
+   "selector": "0x21580eda",
+   "signer": "operator"
+  },
+  {
+   "tool": "listing_buy",
+   "target": "system.listing.buy",
+   "signature": "executeTyped(uint32,uint32[],uint32[])",
+   "selector": "0x7c3f45fb",
+   "signer": "operator"
+  },
+  {
+   "tool": "move_to_room",
+   "target": "system.account.move",
+   "signature": "executeTyped(uint32)",
+   "selector": "0x09c90324",
+   "signer": "operator"
+  },
+  {
+   "tool": "name_kami",
+   "target": "system.kami.name",
+   "signature": "executeTyped(uint256,string)",
+   "selector": "0x68c47df2",
+   "signer": "operator"
+  },
+  {
+   "tool": "newbie_vendor_buy",
+   "target": "system.newbievendor.buy",
+   "signature": "executeTyped(uint32)",
+   "selector": "0x09c90324",
+   "signer": "owner"
+  },
+  {
+   "tool": "pool_swap",
+   "target": "system.pool",
+   "signature": "swap(uint32,uint32,uint256,uint256)",
+   "selector": "0x4a4f0718",
+   "signer": "operator"
+  },
+  {
+   "tool": "portal_cancel",
+   "target": "system.erc20.portal",
+   "signature": "cancel(uint256)",
+   "selector": "0x40e58ee5",
+   "note": "",
+   "signer": "owner or current operator"
+  },
+  {
+   "tool": "portal_claim",
+   "target": "system.erc20.portal",
+   "signature": "claim(uint256)",
+   "selector": "0x379607f5",
+   "note": "",
+   "signer": "owner or current operator"
+  },
+  {
+   "tool": "portal_deposit",
+   "target": "ERC-20 token (item's portal token)",
+   "signature": "approve(address,uint256)",
+   "selector": "0x095ea7b3",
+   "note": "only when the allowance is short; spender = component.token.allowance",
+   "signer": "owner"
+  },
+  {
+   "tool": "portal_deposit",
+   "target": "system.erc20.portal",
+   "signature": "deposit(uint32,uint256)",
+   "selector": "0xaaf10398",
+   "note": "",
+   "signer": "owner"
+  },
+  {
+   "tool": "portal_withdraw",
+   "target": "system.erc20.portal",
+   "signature": "withdraw(uint32,uint256)",
+   "selector": "0x0e19dc3a",
+   "note": "to='owner'",
+   "signer": "owner"
+  },
+  {
+   "tool": "portal_withdraw",
+   "target": "system.erc20.portal",
+   "signature": "withdrawToOperator(uint32,uint256)",
+   "selector": "0x8b39e1a0",
+   "note": "to='operator'",
+   "signer": "operator"
+  },
+  {
+   "tool": "register_account",
+   "target": "system.account.register",
+   "signature": "executeTyped(address,string)",
+   "selector": "0x65ca12ec",
+   "signer": "owner"
+  },
+  {
+   "tool": "revive_kami",
+   "target": "system.kami.onyx.revive",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "revive_kami",
+   "target": "system.kami.use.item",
+   "signature": "executeTyped(uint256,uint32)",
+   "selector": "0xe60f3a76",
+   "signer": "operator"
+  },
+  {
+   "tool": "sacrifice_kami",
+   "target": "system.kami.sacrifice.commit",
+   "signature": "executeTyped(uint32)",
+   "selector": "0x09c90324",
+   "signer": "operator"
+  },
+  {
+   "tool": "sacrifice_kami_batch",
+   "target": "system.kami.sacrifice.commit",
+   "signature": "executeTyped(uint32)",
+   "selector": "0x09c90324",
+   "signer": "operator"
+  },
+  {
+   "tool": "sacrifice_reveal",
+   "target": "system.kami.sacrifice.reveal",
+   "signature": "executeTypedBatch(uint256[])",
+   "selector": "0x4b9338a7",
+   "signer": "operator"
+  },
+  {
+   "tool": "scavenge_claim",
+   "target": "system.scavenge.claim",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "scavenge_claim_and_reveal",
+   "target": "system.droptable.item.reveal",
+   "signature": "executeTyped(uint256[])",
+   "selector": "0x72de78c2",
+   "signer": "operator"
+  },
+  {
+   "tool": "scavenge_claim_and_reveal",
+   "target": "system.scavenge.claim",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "skill_respec",
+   "target": "system.skill.respec",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "operator"
+  },
+  {
+   "tool": "speed_craft_batch",
+   "target": "system.account.use.item",
+   "signature": "executeTyped(uint32,uint256)",
+   "selector": "0x5c817c70",
+   "signer": "operator"
+  },
+  {
+   "tool": "speed_craft_batch",
+   "target": "system.craft",
+   "signature": "executeTyped(uint32,uint256)",
+   "selector": "0x5c817c70",
+   "signer": "operator"
+  },
+  {
+   "tool": "take_trade",
+   "target": "system.trade.execute",
+   "signature": "executeTyped(uint256)",
+   "selector": "0x3e991df3",
+   "signer": "owner"
+  },
+  {
+   "tool": "transfer_items",
+   "target": "system.item.transfer",
+   "signature": "executeTyped(uint32[],uint256[],uint256)",
+   "selector": "0x9032746d",
+   "signer": "owner"
+  },
+  {
+   "tool": "transfer_kami",
+   "target": "system.kami.send",
+   "signature": "executeTyped(uint32[],address)",
+   "selector": "0xcebb631d",
+   "signer": "operator"
+  },
+  {
+   "tool": "travel_to_room",
+   "target": "system.account.move",
+   "signature": "executeTyped(uint32)",
+   "selector": "0x09c90324",
+   "signer": "operator"
+  },
+  {
+   "tool": "travel_to_room",
+   "target": "system.account.use.item",
+   "signature": "executeTyped(uint32,uint256)",
+   "selector": "0x5c817c70",
+   "signer": "operator"
+  },
+  {
+   "tool": "unequip_all_batch",
+   "target": "system.kami.unequip",
+   "signature": "executeTyped(uint256,string)",
+   "selector": "0x68c47df2",
+   "signer": "operator"
+  },
+  {
+   "tool": "unequip_item",
+   "target": "system.kami.unequip",
+   "signature": "executeTyped(uint256,string)",
+   "selector": "0x68c47df2",
+   "signer": "operator"
+  },
+  {
+   "tool": "upgrade_skill",
+   "target": "system.skill.upgrade",
+   "signature": "executeTyped(uint256,uint32)",
+   "selector": "0xe60f3a76",
+   "signer": "operator"
+  },
+  {
+   "tool": "use_account_item",
+   "target": "system.account.use.item",
+   "signature": "executeTyped(uint32,uint256)",
+   "selector": "0x5c817c70",
+   "signer": "operator"
+  },
+  {
+   "tool": "use_item_batch",
+   "target": "system.kami.use.item",
+   "signature": "executeTyped(uint256,uint32)",
+   "selector": "0xe60f3a76",
+   "signer": "operator"
+  },
+  {
+   "tool": "withdraw_operator",
+   "target": "the account's owner wallet",
+   "signature": "(plain ETH transfer)",
+   "selector": null,
+   "note": "empty calldata",
+   "signer": "operator"
+  }
+ ],
+ "reads": [
+  {
+   "target": "component.Time.End",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint256"
+   ],
+   "tools": [
+    "portal_cancel",
+    "portal_claim",
+    "portal_withdraw"
+   ]
+  },
+  {
+   "target": "component.address.operator",
+   "signature": "getEntitiesWithValue(address)",
+   "selector": "0x3e1b5e0d",
+   "returns": [
+    "uint256[]"
+   ],
+   "tools": [
+    "accept_quest",
+    "act_sequence",
+    "allocate_skills",
+    "burn_items",
+    "cancel_kami_listing",
+    "cast_item",
+    "chat_send",
+    "complete_quest",
+    "craft_item",
+    "drop_quest",
+    "droptable_reveal",
+    "equip_all_batch",
+    "equip_item",
+    "feed_kami",
+    "feed_level_allocate_batch",
+    "gacha_reroll",
+    "gacha_reveal",
+    "gacha_use",
+    "harvest_collect",
+    "harvest_start",
+    "harvest_stop",
+    "level_and_allocate_batch",
+    "level_to",
+    "level_up_kami",
+    "liquidate_kami",
+    "list_kami",
+    "listing_buy",
+    "move_to_room",
+    "name_kami",
+    "pool_swap",
+    "portal_cancel",
+    "portal_claim",
+    "portal_withdraw",
+    "revive_kami",
+    "sacrifice_kami",
+    "sacrifice_kami_batch",
+    "sacrifice_reveal",
+    "scavenge_claim",
+    "scavenge_claim_and_reveal",
+    "skill_respec",
+    "speed_craft_batch",
+    "transfer_kami",
+    "travel_to_room",
+    "unequip_all_batch",
+    "unequip_item",
+    "upgrade_skill",
+    "use_account_item",
+    "use_item_batch"
+   ]
+  },
+  {
+   "target": "component.address.operator",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "address"
+   ],
+   "tools": [
+    "portal_cancel",
+    "portal_claim"
+   ]
+  },
+  {
+   "target": "component.experience",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint256"
+   ],
+   "tools": [
+    "(_kami_progress)",
+    "allocate_skills",
+    "feed_level_allocate_batch",
+    "level_and_allocate_batch",
+    "level_to",
+    "use_item_batch"
+   ]
+  },
+  {
+   "target": "component.has.flag",
+   "signature": "has(uint256)",
+   "selector": "0xcccf7a8e",
+   "returns": [
+    "bool"
+   ],
+   "tools": [
+    "portal_cancel",
+    "portal_claim",
+    "portal_withdraw"
+   ]
+  },
+  {
+   "target": "component.id.anchor",
+   "signature": "getEntitiesWithValue(uint256)",
+   "selector": "0xfbdfa1ea",
+   "returns": [
+    "uint256[]"
+   ],
+   "tools": [
+    "get_scavenge_droptable"
+   ]
+  },
+  {
+   "target": "component.id.kami.owns",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint256"
+   ],
+   "tools": [
+    "act_sequence",
+    "allocate_skills",
+    "equip_item",
+    "feed_kami",
+    "gacha_reroll",
+    "harvest_collect",
+    "harvest_start",
+    "harvest_stop",
+    "level_to",
+    "level_up_kami",
+    "liquidate_kami",
+    "name_kami",
+    "revive_kami",
+    "skill_respec",
+    "transfer_kami",
+    "unequip_item",
+    "upgrade_skill",
+    "use_item_batch"
+   ]
+  },
+  {
+   "target": "component.id.quest.owns",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint256"
+   ],
+   "tools": [
+    "accept_quest",
+    "complete_quest",
+    "drop_quest"
+   ]
+  },
+  {
+   "target": "component.id.target",
+   "signature": "safeGet(uint256[])",
+   "selector": "0x7396a865",
+   "returns": [
+    "uint256[]"
+   ],
+   "tools": [
+    "get_item_orderbook"
+   ]
+  },
+  {
+   "target": "component.id.token.withdraw.owns",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint256"
+   ],
+   "tools": [
+    "portal_cancel",
+    "portal_claim",
+    "portal_withdraw"
+   ]
+  },
+  {
+   "target": "component.id.trade.owns",
+   "signature": "getEntitiesWithValue(uint256)",
+   "selector": "0xfbdfa1ea",
+   "returns": [
+    "uint256[]"
+   ],
+   "tools": [
+    "complete_all_trades"
+   ]
+  },
+  {
+   "target": "component.id.trade.owns",
+   "signature": "getRaw(uint256[])",
+   "selector": "0xa1c58425",
+   "returns": [
+    "bytes[]"
+   ],
+   "tools": [
+    "get_item_orderbook"
+   ]
+  },
+  {
+   "target": "component.index.currency",
+   "signature": "has(uint256)",
+   "selector": "0xcccf7a8e",
+   "returns": [
+    "bool"
+   ],
+   "tools": [
+    "auction_buy"
+   ]
+  },
+  {
+   "target": "component.index.currency",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint32"
+   ],
+   "tools": [
+    "auction_buy"
+   ]
+  },
+  {
+   "target": "component.index.item",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint32"
+   ],
+   "tools": [
+    "equip_all_batch",
+    "equip_item",
+    "portal_cancel",
+    "portal_claim",
+    "portal_withdraw"
+   ]
+  },
+  {
+   "target": "component.is.complete",
+   "signature": "has(uint256)",
+   "selector": "0xcccf7a8e",
+   "returns": [
+    "bool"
+   ],
+   "tools": [
+    "accept_quest",
+    "complete_quest",
+    "drop_quest",
+    "travel_to_room"
+   ]
+  },
+  {
+   "target": "component.is.disabled",
+   "signature": "has(uint256)",
+   "selector": "0xcccf7a8e",
+   "returns": [
+    "bool"
+   ],
+   "tools": [
+    "pool_swap",
+    "pool_swap_quote",
+    "portal_cancel",
+    "portal_claim",
+    "portal_withdraw"
+   ]
+  },
+  {
+   "target": "component.keys",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint32[]"
+   ],
+   "tools": [
+    "get_scavenge_droptable"
+   ]
+  },
+  {
+   "target": "component.keys",
+   "signature": "safeGet(uint256[])",
+   "selector": "0x7396a865",
+   "returns": [
+    "uint32[][]"
+   ],
+   "tools": [
+    "(_trade_terms)",
+    "complete_all_trades",
+    "get_item_orderbook"
+   ]
+  },
+  {
+   "target": "component.level",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint256"
+   ],
+   "tools": [
+    "allocate_skills",
+    "feed_level_allocate_batch",
+    "level_and_allocate_batch",
+    "level_to",
+    "use_item_batch"
+   ]
+  },
+  {
+   "target": "component.name",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "string"
+   ],
+   "tools": [
+    "auction_buy",
+    "buy_kami",
+    "cancel_trade",
+    "complete_all_trades",
+    "complete_trade",
+    "create_trade",
+    "gacha_reroll",
+    "gacha_reveal",
+    "gacha_use",
+    "harvest_collect",
+    "harvest_start",
+    "harvest_stop",
+    "newbie_vendor_buy",
+    "portal_deposit",
+    "portal_withdraw",
+    "register_account",
+    "sacrifice_reveal",
+    "take_trade",
+    "transfer_items"
+   ]
+  },
+  {
+   "target": "component.rate",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint256"
+   ],
+   "tools": [
+    "pool_swap",
+    "pool_swap_quote"
+   ]
+  },
+  {
+   "target": "component.skill.point",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint256"
+   ],
+   "tools": [
+    "allocate_skills",
+    "feed_level_allocate_batch",
+    "level_and_allocate_batch",
+    "level_to",
+    "use_item_batch"
+   ]
+  },
+  {
+   "target": "component.stat.health",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "int32",
+    "int32",
+    "int32",
+    "int32"
+   ],
+   "tools": [
+    "feed_kami",
+    "feed_level_allocate_batch",
+    "harvest_collect",
+    "harvest_stop",
+    "liquidate_kami",
+    "use_item_batch"
+   ]
+  },
+  {
+   "target": "component.state",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "string"
+   ],
+   "tools": [
+    "(_trade_terms)",
+    "act_sequence",
+    "allocate_skills",
+    "equip_item",
+    "feed_kami",
+    "gacha_reroll",
+    "harvest_collect",
+    "harvest_start",
+    "harvest_stop",
+    "level_to",
+    "level_up_kami",
+    "liquidate_kami",
+    "name_kami",
+    "revive_kami",
+    "sacrifice_kami",
+    "skill_respec",
+    "transfer_kami",
+    "unequip_item",
+    "upgrade_skill",
+    "use_item_batch"
+   ]
+  },
+  {
+   "target": "component.state",
+   "signature": "safeGet(uint256[])",
+   "selector": "0x7396a865",
+   "returns": [
+    "string[]"
+   ],
+   "tools": [
+    "complete_all_trades",
+    "get_item_orderbook"
+   ]
+  },
+  {
+   "target": "component.tax",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint256"
+   ],
+   "tools": [
+    "portal_cancel",
+    "portal_claim",
+    "portal_withdraw"
+   ]
+  },
+  {
+   "target": "component.type",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "string"
+   ],
+   "tools": [
+    "get_scavenge_droptable"
+   ]
+  },
+  {
+   "target": "component.value",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint256"
+   ],
+   "tools": [
+    "act_sequence",
+    "burn_items",
+    "cast_item",
+    "droptable_reveal",
+    "equip_item",
+    "feed_kami",
+    "feed_level_allocate_batch",
+    "gacha_reroll",
+    "gacha_use",
+    "get_scavenge_droptable",
+    "liquidate_kami",
+    "name_kami",
+    "pool_swap",
+    "pool_swap_quote",
+    "portal_cancel",
+    "portal_claim",
+    "portal_deposit",
+    "portal_withdraw",
+    "revive_kami",
+    "scavenge_claim_and_reveal",
+    "skill_respec",
+    "travel_to_room",
+    "use_account_item",
+    "use_item_batch"
+   ]
+  },
+  {
+   "target": "component.values",
+   "signature": "safeGet(uint256[])",
+   "selector": "0x7396a865",
+   "returns": [
+    "uint256[][]"
+   ],
+   "tools": [
+    "(_trade_terms)",
+    "complete_all_trades",
+    "get_item_orderbook"
+   ]
+  },
+  {
+   "target": "component.weights",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint256[]"
+   ],
+   "tools": [
+    "get_scavenge_droptable"
+   ]
+  },
+  {
+   "target": "system.erc20.portal",
+   "signature": "isEnabled()",
+   "selector": "0x6aa633b6",
+   "returns": [
+    "bool"
+   ],
+   "tools": [
+    "portal_cancel",
+    "portal_claim",
+    "portal_deposit",
+    "portal_withdraw"
+   ]
+  },
+  {
+   "target": "system.erc20.portal",
+   "signature": "itemAddrs(uint32)",
+   "selector": "0xc122aef3",
+   "returns": [
+    "address"
+   ],
+   "tools": [
+    "portal_cancel",
+    "portal_claim",
+    "portal_deposit",
+    "portal_withdraw"
+   ]
+  },
+  {
+   "target": "system.erc20.portal",
+   "signature": "itemScales(uint32)",
+   "selector": "0x7d7b397a",
+   "returns": [
+    "int32"
+   ],
+   "tools": [
+    "portal_cancel",
+    "portal_claim",
+    "portal_deposit",
+    "portal_withdraw"
+   ]
+  },
+  {
+   "target": "system.erc20.portal",
+   "signature": "laneItems(uint32)",
+   "selector": "0xe7c862f4",
+   "returns": [
+    "bool"
+   ],
+   "tools": [
+    "portal_cancel",
+    "portal_claim",
+    "portal_deposit",
+    "portal_withdraw"
+   ]
+  },
+  {
+   "target": "system.getter",
+   "signature": "getAccount(uint256)",
+   "selector": "0xce88b145",
+   "returns": [
+    "(uint32,string,int32,uint32)"
+   ],
+   "tools": [
+    "cast_item",
+    "move_to_room",
+    "travel_to_room"
+   ]
+  },
+  {
+   "target": "system.newbievendor.buy",
+   "signature": "calcPrice()",
+   "selector": "0xd98c4408",
+   "returns": [
+    "uint256"
+   ],
+   "tools": [
+    "newbie_vendor_buy"
+   ]
+  },
+  {
+   "target": "world",
+   "signature": "components()",
+   "selector": "0xba62fbe4",
+   "returns": [
+    "address"
+   ],
+   "tools": [
+    "accept_quest",
+    "act_sequence",
+    "allocate_skills",
+    "auction_buy",
+    "burn_items",
+    "buy_kami",
+    "cancel_kami_listing",
+    "cancel_trade",
+    "cast_item",
+    "chat_send",
+    "check_quest_completable",
+    "complete_all_trades",
+    "complete_quest",
+    "complete_trade",
+    "craft_item",
+    "create_trade",
+    "drop_quest",
+    "droptable_reveal",
+    "equip_all_batch",
+    "equip_item",
+    "feed_kami",
+    "feed_level_allocate_batch",
+    "gacha_reroll",
+    "gacha_reveal",
+    "gacha_use",
+    "get_item_orderbook",
+    "get_scavenge_droptable",
+    "get_scavenge_points",
+    "harvest_collect",
+    "harvest_start",
+    "harvest_stop",
+    "level_and_allocate_batch",
+    "level_to",
+    "level_up_kami",
+    "liquidate_kami",
+    "list_kami",
+    "listing_buy",
+    "move_to_room",
+    "name_kami",
+    "newbie_vendor_buy",
+    "pool_swap",
+    "pool_swap_quote",
+    "portal_cancel",
+    "portal_claim",
+    "portal_deposit",
+    "portal_withdraw",
+    "quest_state",
+    "register_account",
+    "revive_kami",
+    "sacrifice_kami",
+    "sacrifice_kami_batch",
+    "sacrifice_reveal",
+    "scavenge_claim",
+    "scavenge_claim_and_reveal",
+    "skill_respec",
+    "speed_craft_batch",
+    "take_trade",
+    "transfer_items",
+    "transfer_kami",
+    "travel_to_room",
+    "unequip_all_batch",
+    "unequip_item",
+    "upgrade_skill",
+    "use_account_item",
+    "use_item_batch"
+   ]
+  },
+  {
+   "target": "world",
+   "signature": "systems()",
+   "selector": "0x0d59332e",
+   "returns": [
+    "address"
+   ],
+   "tools": [
+    "accept_quest",
+    "act_sequence",
+    "allocate_skills",
+    "auction_buy",
+    "burn_items",
+    "buy_kami",
+    "cancel_kami_listing",
+    "cancel_trade",
+    "cast_item",
+    "chat_send",
+    "check_quest_completable",
+    "complete_all_trades",
+    "complete_quest",
+    "complete_trade",
+    "craft_item",
+    "create_trade",
+    "drop_quest",
+    "droptable_reveal",
+    "equip_all_batch",
+    "equip_item",
+    "feed_kami",
+    "feed_level_allocate_batch",
+    "gacha_reroll",
+    "gacha_reveal",
+    "gacha_use",
+    "get_item_orderbook",
+    "get_scavenge_droptable",
+    "get_scavenge_points",
+    "harvest_collect",
+    "harvest_start",
+    "harvest_stop",
+    "level_and_allocate_batch",
+    "level_to",
+    "level_up_kami",
+    "liquidate_kami",
+    "list_kami",
+    "listing_buy",
+    "move_to_room",
+    "name_kami",
+    "newbie_vendor_buy",
+    "pool_swap",
+    "pool_swap_quote",
+    "portal_cancel",
+    "portal_claim",
+    "portal_deposit",
+    "portal_withdraw",
+    "quest_state",
+    "register_account",
+    "revive_kami",
+    "sacrifice_kami",
+    "sacrifice_kami_batch",
+    "sacrifice_reveal",
+    "scavenge_claim",
+    "scavenge_claim_and_reveal",
+    "skill_respec",
+    "speed_craft_batch",
+    "take_trade",
+    "transfer_items",
+    "transfer_kami",
+    "travel_to_room",
+    "unequip_all_batch",
+    "unequip_item",
+    "upgrade_skill",
+    "use_account_item",
+    "use_item_batch"
+   ]
+  }
+ ]
+}

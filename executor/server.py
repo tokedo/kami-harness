@@ -436,7 +436,8 @@ def _harvest_cap(key: str, kami_ids: list) -> None:
     if len(kami_ids) > cap:
         raise PreTxValidationError(
             f"{len(kami_ids)} kamis; {key} takes at most {cap} per call "
-            f"(the measured admission of this node, below the lane cap). "
+            f"(what the RPC node's dry-run was measured to admit, below "
+            f"the chain's per-transaction gas cap). "
             f"Split into calls of at most {cap}."
         )
 
@@ -1824,7 +1825,6 @@ def _mechanics_snippet(
     ceiling_key: str | None = None,
     unread_facts: bool = False,
     read_facts: tuple[str, ...] = (),
-    pool_disabled: tuple | None = None,
     neighbors: tuple | None = None,
     node_room: tuple | None = None,
     holdings: tuple | None = None,
@@ -1858,13 +1858,6 @@ def _mechanics_snippet(
         tail: list[str] = []
         if attempted and requires:
             tail.append(f"{attempted} requires {requires}.")
-        if pool_disabled is not None:
-            pool_id, item_in, item_out = pool_disabled
-            sentences.append(
-                f"Pool {hex(pool_id)} (items {item_in}/{item_out}): "
-                f"disabled. Swaps and liquidity adds revert while it is; "
-                f"liquidity removal is not gated on it."
-            )
         if holdings is not None:
             item_index, item_name, balance = holdings
             sentences.append(
@@ -2031,11 +2024,12 @@ def _require_gas_balance(
 
 def _dry_run(
     fn, from_addr: str, value_wei: int = 0, account: str | None = None
-) -> None:
+):
     """eth_call dry-run of the exact calldata from the signing address.
 
-    A revert here raises PreTxValidationError carrying the chain's
-    revert string; nothing has been signed or broadcast.
+    Returns the call's decoded output. A revert here raises
+    PreTxValidationError carrying the chain's revert string; nothing has
+    been signed or broadcast.
 
     Note what this check does NOT cover: it runs without a gas ceiling,
     so it validates the logic of the call and nothing about whether the
@@ -2048,7 +2042,7 @@ def _dry_run(
     if value_wei:
         params["value"] = value_wei
     try:
-        fn.call(params)
+        return fn.call(params)
     except Exception as first:
         # A refused eth_call is not a reverted one. Reporting infra
         # failure as "dry-run reverted" invents a revert that never
@@ -2061,8 +2055,7 @@ def _dry_run(
         ):
             time.sleep(1)
             try:
-                fn.call(params)
-                return
+                return fn.call(params)
             except Exception as second:
                 first = second
         e = first
@@ -2978,8 +2971,14 @@ def _send_tx(
     gas_limit: int | None = None,
     return_receipt: bool = False,
     ceiling_key: str | None = None,
+    fn_name: str = "executeTyped",
 ) -> dict:
     """Build, sign, send a transaction with the account's operator key.
+
+    `fn_name` is the system function called: most game systems expose
+    `executeTyped`, but not all (system.pool's is `swap`), and every
+    (system, function, argument types) this module encodes is checked
+    against the upstream ABI by tests/test_upstream_encoding.py.
 
     Validates before signing (PreTxValidationError, no gas spent):
     operator bound to a registered account, operator gas balance, and
@@ -2994,7 +2993,7 @@ def _send_tx(
     acct = _get_account(account)
     _require_registered_operator(account)
     _require_gas_balance(acct.operator_addr, gas_limit, 0, "operator")
-    fn = _validated_fn(system_id, abi, "executeTyped", args,
+    fn = _validated_fn(system_id, abi, fn_name, args,
                        acct.operator_addr, account=account)
     receipt = _signed_send(
         fn, acct.operator_addr, acct.operator_key, "operator", account,
@@ -3245,12 +3244,6 @@ _ID_COMPONENT_ABI = json.loads(
     '"outputs":[{"type":"bool"}],"stateMutability":"view"}]'
 )
 
-_STATE_COMPONENT_ABI = json.loads(
-    '[{"type":"function","name":"getValue",'
-    '"inputs":[{"name":"entity","type":"uint256"}],'
-    '"outputs":[{"type":"string"}],"stateMutability":"view"}]'
-)
-
 _BOOL_COMPONENT_ABI = json.loads(
     '[{"type":"function","name":"has",'
     '"inputs":[{"name":"entity","type":"uint256"}],'
@@ -3263,16 +3256,23 @@ _BOOL_COMPONENT_ABI = json.loads(
 # ---------------------------------------------------------------------------
 
 _ITEM_NAMES: dict[int, str] = {}
+_ITEM_EFFECTS: dict[int, str] = {}
+
+
+def _load_item_catalog() -> None:
+    if _ITEM_NAMES and _ITEM_EFFECTS:
+        return
+    csv_path = _REPO / "catalogs" / "items.csv"
+    if csv_path.exists():
+        with open(csv_path) as f:
+            for row in csv.DictReader(f):
+                _ITEM_NAMES[int(row["Index"])] = row["Name"]
+                _ITEM_EFFECTS[int(row["Index"])] = row.get("Effects") or ""
 
 
 def _get_item_name(index: int) -> str:
     """Return human-readable item name for an item index."""
-    if not _ITEM_NAMES:
-        csv_path = _REPO / "catalogs" / "items.csv"
-        if csv_path.exists():
-            with open(csv_path) as f:
-                for row in csv.DictReader(f):
-                    _ITEM_NAMES[int(row["Index"])] = row["Name"]
+    _load_item_catalog()
     return _ITEM_NAMES.get(index, f"Unknown({index})")
 
 
@@ -5373,7 +5373,7 @@ def _diagnose_batch(system_id, abi, kami_ids, single_args, account, first):
         ) from None
     raise PreTxValidationError(
         f"the {len(kami_ids)}-kami dry-run failed while every kami passes "
-        f"alone: the BATCH SIZE exceeds what this node's dry-run admits "
+        f"alone: the BATCH SIZE exceeds what the RPC node's dry-run admits "
         f"({first.detail[:160]}). Split into smaller calls."
     ) from None
 
@@ -6325,7 +6325,9 @@ def feed_kami(kami_id: int, food_item_id: int, account: str = "main") -> dict:
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "feed_kami")
     _require_item_balance(account, aid, food_item_id, 1, "feed_kami")
-    return _send_tx(
+    acts_on_hp = _item_acts_on_hp(food_item_id)
+    hp_before = _kami_last_synced_hp(kami_id) if acts_on_hp else None
+    result = _send_tx(
         account,
         "system.kami.use.item",
         _ABI_FEED,
@@ -6333,6 +6335,9 @@ def feed_kami(kami_id: int, food_item_id: int, account: str = "main") -> dict:
         gas_limit=_GAS_CEILINGS["feed_kami"],
         ceiling_key="feed_kami",
     )
+    if acts_on_hp:
+        result.update(_hp_readback(kami_id, hp_before))
+    return result
 
 
 # Revive paths the game supports. "onyx" is its own system
@@ -6534,6 +6539,25 @@ def _balance_readback(holder_id: int, item_index: int) -> int | None:
         return int(_inventory_balance(holder_id, item_index))
     except Exception:
         return None
+
+
+_HP_EFFECT = re.compile(r"(^|,)\s*(HP[+-]|HEALTH[+-]|TEMP\d+HEALTH)")
+
+
+def _item_acts_on_hp(item_index: int) -> bool:
+    """True when the item catalog lists an effect on a kami's health
+    (HP+N, HEALTH+N, TEMP<N>HEALTH) — food, revives, health potions."""
+    _load_item_catalog()
+    return bool(_HP_EFFECT.search(_ITEM_EFFECTS.get(item_index, "")))
+
+
+def _hp_readback(kami_id: int, before: int | None) -> dict:
+    """{"hp": {...}} for an item that acts on HP: the kami's stored HP
+    before (as of its LAST sync — it may have regenerated or drained
+    since) and after (synced by the last use). Facts only; an
+    unreadable value is None."""
+    return {"hp": {"last_synced_before": before,
+                   "after": _kami_last_synced_hp(kami_id)}}
 
 
 @mcp.tool()
@@ -6884,6 +6908,8 @@ async def feed_level_allocate_batch(
             if feed_item and feed_count:
                 fed = 0
                 held_before = _balance_readback(aid, feed_item)
+                hp_acts = _item_acts_on_hp(feed_item)
+                hp_before = _kami_last_synced_hp(kid) if hp_acts else None
                 try:
                     for _ in range(feed_count):
                         r = _send_tx_retry(
@@ -6905,6 +6931,8 @@ async def feed_level_allocate_batch(
                 row["fed"]["inventory_after"] = held_after
                 if held_before is not None and held_after is not None:
                     row["fed"]["consumed"] = held_before - held_after
+                if hp_acts:
+                    row["fed"].update(_hp_readback(kid, hp_before))
                 if "error" in row:
                     row["chain"] = _kami_readback(kid)
                     row["txs"] = row_txs
@@ -7026,6 +7054,8 @@ def use_item_batch(
     done = 0
     txs: list[dict] = []
     held_before = _balance_readback(aid, item_id)
+    acts_on_hp = _item_acts_on_hp(item_id)
+    hp_before = _kami_last_synced_hp(kami_id) if acts_on_hp else None
 
     def _inventory() -> dict:
         after = _balance_readback(aid, item_id)
@@ -7033,6 +7063,9 @@ def use_item_batch(
         if held_before is not None and after is not None:
             out["consumed"] = held_before - after
         return out
+
+    def _hp() -> dict:
+        return _hp_readback(kami_id, hp_before) if acts_on_hp else {}
 
     for _ in range(count):
         try:
@@ -7046,6 +7079,7 @@ def use_item_batch(
                 "planned": count, "time_boxed": True,
                 "remaining": {"uses": count - done}, "txs": txs,
                 "inventory": _inventory(), "chain": _kami_readback(kami_id),
+                **_hp(),
             }
         except Exception as e:
             _record_failed_leg(txs, e)
@@ -7059,6 +7093,7 @@ def use_item_batch(
                 **_failed_tx_fields(e),
                 "inventory": _inventory(),
                 "chain": _kami_readback(kami_id),
+                **_hp(),
             }
             if allow_partial:
                 return outcome
@@ -7077,10 +7112,11 @@ def use_item_batch(
         "planned": count,
         "success": True,
         "txs": txs,
-        # Read back after the loop: the chain's inventory delta and the
-        # kami's level / XP, beside the count attempted.
+        # Read back after the loop: the chain's inventory delta, the
+        # kami's level / XP, and its HP when the item acts on HP.
         "inventory": _inventory(),
         "chain": _kami_readback(kami_id),
+        **_hp(),
     }
 
 
@@ -8375,14 +8411,38 @@ def get_item_orderbook(
 # item indices, ordered low-then-high so that the pair has ONE id
 # regardless of which side a caller asks about.
 
+# PoolSystem exposes NAMED functions, not executeTyped: swap(uint32,
+# uint32, uint256, uint256) returns (uint256 amountOut), selector
+# 0x4a4f0718 (upstream PoolSystem.sol / client abi/PoolSystem.json at
+# ffda3963). Until 4.0.0 this ABI named `executeTyped` (0x7827e2de), a
+# function the pool system does not have: every swap reverted in its
+# dry-run and none ever landed. tests/test_upstream_encoding.py now pins
+# every (system, function, argument types) this module encodes against
+# the vendored upstream ABI.
 _ABI_POOL_SWAP = json.loads(
-    '[{"type":"function","name":"executeTyped",'
+    '[{"type":"function","name":"swap",'
     '"inputs":[{"name":"indexIn","type":"uint32"},'
     '{"name":"indexOut","type":"uint32"},'
     '{"name":"amountIn","type":"uint256"},'
     '{"name":"minAmountOut","type":"uint256"}],'
-    '"outputs":[{"type":"bytes"}],"stateMutability":"nonpayable"}]'
+    '"outputs":[{"name":"amountOut","type":"uint256"}],'
+    '"stateMutability":"nonpayable"}]'
 )
+
+# The pool system's own revert reasons (PoolSystem.swap, LibPool.swap,
+# LibDisabled, LibInventory at ffda3963) -> what they mean for a caller.
+_POOL_REVERTS = {
+    "Pool does not exist": "no pool exists for this item pair",
+    "entity not enabled": "the pool is disabled by the world admin; swaps "
+                          "revert while it is",
+    "Transfer includes untradeable item": "one side of the swap is an item "
+                                          "flagged NOT_TRADABLE",
+    "Pool: zero input": "amount_in is 0",
+    "Pool: insufficient output": "the input is too small to buy a whole "
+                                 "unit of item_out at this pool's depth",
+    "Pool: slippage exceeded": "the pool would return less than "
+                               "min_amount_out",
+}
 
 # Pools charge 30 basis points on the input amount. Read live per pool
 # rather than assumed — this default only names the observed value.
@@ -8402,10 +8462,16 @@ def _pool_entity_id(index_a: int, index_b: int) -> int:
 
 
 def _pool_fee_bps(pool_id: int) -> int:
-    """Live fee in basis points for a pool, defaulting when unset."""
+    """Live fee in basis points for a pool, defaulting when unset.
+
+    The fee is the pool entity's component.rate (upstream
+    LibPoolRegistry.getFeeBps). Until 4.0.0 this read a
+    `component.value.fee` that does not exist, so every quote fell back
+    to the 30 bps default — right only because every live pool charges
+    30 bps (verified read-only, 2026-10-03)."""
     try:
         comp = w3.eth.contract(
-            address=_resolve_component("component.value.fee"),
+            address=_resolve_component("component.rate"),
             abi=_UINT_VALUE_ABI,
         )
         fee = comp.functions.safeGet(pool_id).call()
@@ -8544,6 +8610,67 @@ def pool_swap_quote(
     return _pool_quote(item_in, item_out, amount_in, slippage_bps)
 
 
+@contextlib.contextmanager
+def _pool_refusal_named(quote: dict, account: str, aid: int, args: list):
+    """A swap refused by the chain's dry-run says why, in words.
+
+    The pool system's own reasons map to plain ones (_POOL_REVERTS). A
+    refusal with no reason — a bare `Reverted` or an arithmetic panic,
+    which is how an underfunded inventory transfer fails — is checked
+    against what this module can read (balance, disabled flag, a fresh
+    quote) and the one that fails is named; if none does, the message
+    says so rather than passing a bare `Reverted` on."""
+    try:
+        yield
+    except PreTxValidationError as e:
+        if getattr(e, "infrastructure", False):
+            raise
+        item_in, item_out, amount_in, min_out = args
+        text = e.detail if hasattr(e, "detail") else str(e)
+        for reason, meaning in _POOL_REVERTS.items():
+            if reason in text:
+                raise PreTxValidationError(
+                    f"pool_swap refused by the pool system ({reason}): "
+                    f"{meaning}. No transaction was sent."
+                ) from None
+        facts = []
+        held = _balance_readback(aid, item_in)
+        if held is not None and held < amount_in:
+            raise PreTxValidationError(
+                f"pool_swap refused: the account holds {held} "
+                f"{quote['item_in']}, below amount_in {amount_in}. No "
+                f"transaction was sent."
+            ) from None
+        if held is not None:
+            facts.append(f"balance {held} {quote['item_in']}")
+        disabled = _pool_disabled(_pool_entity_id(item_in, item_out))
+        if disabled:
+            raise PreTxValidationError(
+                f"pool_swap refused: {_POOL_REVERTS['entity not enabled']}. "
+                f"No transaction was sent."
+            ) from None
+        if disabled is False:
+            facts.append("pool enabled")
+        try:
+            fresh = _pool_quote(item_in, item_out, amount_in, 0)["amount_out"]
+            if fresh < min_out:
+                raise PreTxValidationError(
+                    f"pool_swap refused: the pool now returns {fresh} "
+                    f"{quote['item_out']}, below min_amount_out {min_out}. "
+                    f"No transaction was sent."
+                ) from None
+            facts.append(f"live quote {fresh} >= min {min_out}")
+        except PreTxValidationError as q:
+            if "pool_swap refused" in str(q):
+                raise
+        raise PreTxValidationError(
+            f"pool_swap refused by the chain's dry-run without a reason "
+            f"({text}); every check this tool can read passed "
+            f"({', '.join(facts) or 'none readable'}). No transaction was "
+            f"sent."
+        ) from None
+
+
 @mcp.tool()
 def pool_swap(
     item_in: int,
@@ -8567,9 +8694,10 @@ def pool_swap(
     through portal_withdraw.
 
     Validates before signing (no gas spent on failure): distinct items,
-    a MUSU side, a pool with liquidity, sufficient balance, and that the
-    live quote still clears min_amount_out. dry_run runs exactly that
-    and returns the same shape with dry_run true and no tx fields.
+    a MUSU side, a pool with liquidity that is not disabled, sufficient
+    balance, the live quote clearing min_amount_out, then the chain's
+    own eth_call of the swap. dry_run runs all of it, eth_call included,
+    and returns the chain's amount_out with no tx fields.
 
     Args:
         item_in: Item index being sold (1 for MUSU).
@@ -8602,13 +8730,24 @@ def pool_swap(
             f"{quote['price_impact_pct']}% price impact. No transaction "
             f"was sent."
         )
+    if quote["disabled"]:
+        raise PreTxValidationError(
+            f"the {quote['item_in']}/{quote['item_out']} pool is disabled "
+            f"by the world admin; swaps revert while it is (liquidity "
+            f"removal still works). No transaction was sent."
+        )
 
+    args = [item_in, item_out, amount_in, min_amount_out]
     if dry_run:
-        # Every gate above has run; nothing below this line is reached.
-        # No eth_call, no gas read, nothing signed — so this answer has
-        # no terminal state and carries none of the tx fields (SPEC P4).
-        # `disabled` comes from the quote because the send path's
-        # disabled-pool detection is the one check a dry run cannot make.
+        operator = _get_account(account).operator_addr
+        # The chain's own eth_call of the exact swap, from the operator:
+        # a dry run that passes here is a swap the chain would accept at
+        # this block. Nothing is signed, so this answer has no terminal
+        # state and carries none of the tx fields (SPEC P4).
+        with _pool_refusal_named(quote, account, aid, args):
+            fn = _validated_fn("system.pool", _ABI_POOL_SWAP, "swap", args,
+                               operator, account=account)
+            amount_out = int(_dry_run(fn, operator, account=account))
         return {
             "dry_run": True,
             "account": account,
@@ -8617,6 +8756,7 @@ def pool_swap(
             "item_out": quote["item_out"],
             "item_out_index": item_out,
             "amount_in": amount_in,
+            "amount_out": amount_out,
             "expected_out": quote["amount_out"],
             "min_amount_out": min_amount_out,
             "fee_bps": quote["fee_bps"],
@@ -8624,32 +8764,16 @@ def pool_swap(
             "disabled": quote["disabled"],
         }
 
-    try:
+    out_before = _balance_readback(aid, item_out)
+    with _pool_refusal_named(quote, account, aid, args):
         result = _send_tx(
-            account,
-            "system.pool",
-            _ABI_POOL_SWAP,
-            [item_in, item_out, amount_in, min_amount_out],
-            gas_limit=_GAS_CEILINGS["pool_swap"],
+            account, "system.pool", _ABI_POOL_SWAP, args,
+            gas_limit=_GAS_CEILINGS["pool_swap"], fn_name="swap",
         )
-    except PreTxValidationError as e:
-        # A swap against a disabled pool reverts bare: the chain names no
-        # reason, so the dry-run message says only that it reverted. The
-        # pool's own IsDisabled component is a fact this module can read,
-        # so it reads it and reports it. `detail` is untouched, so the
-        # message is byte-identical with KAMI_ERROR_SNIPPETS off.
-        pool_id = _pool_entity_id(item_in, item_out)
-        if _pool_disabled(pool_id):
-            raise PreTxValidationError(
-                e.detail,
-                mechanics={
-                    "call_args": [item_in, item_out, amount_in, min_amount_out],
-                    "account": account,
-                    "pool_disabled": (pool_id, item_in, item_out),
-                    "unread_facts": True,
-                },
-            ) from None
-        raise
+    out_after = _balance_readback(aid, item_out)
+    if out_before is not None and out_after is not None:
+        result["received"] = out_after - out_before
+    result["inventory_out"] = {"before": out_before, "after": out_after}
     result.update({
         "item_in": quote["item_in"],
         "item_in_index": item_in,
@@ -8926,7 +9050,8 @@ def portal_withdraw(
 
     Validates before signing: portal enabled, item registered, operator
     lane for the item (to="operator"), item balance, tax below amount.
-    Returns receipt_id, decoded from this transaction.
+    Returns receipt_id (0x-hex, as lens_receipts), decoded from this
+    transaction.
     """
     acct = _get_account(account)
     if amount < 1:
@@ -8977,7 +9102,7 @@ def portal_withdraw(
                  "uint256", "address", "uint256"], value)
         except Exception:
             continue
-        out["receipt_id"] = str(rid)
+        out["receipt_id"] = hex(rid)
         out["token"]["amount_wei"] = str(twei)
         out["token"]["amount"] = _fmt_token(twei)
         try:
@@ -9028,7 +9153,7 @@ def portal_claim(receipt_id: str, account: str = "main") -> dict:
     receipt = _portal_send(p["portal"].functions.claim(rid), addr, key, role,
                            account)
     out = {**({"notice": notice} if notice else {}),
-           **_tx_fields(receipt), "receipt_id": str(rid),
+           **_tx_fields(receipt), "receipt_id": hex(rid),
            "route": "operator" if rec["operator_lane"] else "owner",
            "item": rec["item"], "token": p["token"], "payee": None,
            "amount_wei": None}
@@ -9066,7 +9191,7 @@ def portal_cancel(receipt_id: str, account: str = "main") -> dict:
     receipt = _portal_send(p["portal"].functions.cancel(rid), addr, key, role,
                            account)
     return {
-        **_tx_fields(receipt), "receipt_id": str(rid), "item": rec["item"],
+        **_tx_fields(receipt), "receipt_id": hex(rid), "item": rec["item"],
         "items_refunded": rec["token_wei"] // 10 ** (18 - p["scale"]),
         "tax_not_refunded": rec["tax_items"],
     }
@@ -9577,18 +9702,6 @@ def cancel_trade(trade_id: str, account: str = "main") -> dict:
     return _send_tx_owner(
         account, "system.trade.cancel", _ABI_TRADE_CANCEL, [trade_int]
     )
-
-
-# ---- On-chain: batch harvest stop ----
-
-_ABI_HARVEST_STOP_SINGLE = json.loads(
-    '[{"type":"function","name":"executeTyped",'
-    '"inputs":[{"name":"id","type":"uint256"}],'
-    '"outputs":[{"type":"bytes"}],"stateMutability":"nonpayable"}]'
-)
-
-
-
 
 
 # ---- On-chain: quest management ----

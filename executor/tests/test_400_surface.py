@@ -280,7 +280,8 @@ def test_portal_withdraw_to_operator_is_operator_signed_and_decodes_the_receipt(
     out = server.portal_withdraw(103, 100_000, to="operator", account="split")
     assert out["status"] == "success"
     assert portal.last_sender == split.operator_addr.lower()
-    rid = int(out["receipt_id"])
+    rid = int(out["receipt_id"], 16)
+    assert out["receipt_id"] == hex(rid)        # the lens's 0x-hex form
     assert rid in portal.receipts and portal.receipts[rid]["lane"] is True
     assert out["claimable_at"] == portal.receipts[rid]["end"]
     assert game.inv[103] == 100_000
@@ -290,7 +291,7 @@ def test_portal_withdraw_to_owner_is_owner_signed(portal_env):
     node, game, clock, portal, split = portal_env
     out = server.portal_withdraw(100, 1_000, account="split")
     assert portal.last_sender == split.owner_addr.lower()
-    assert portal.receipts[int(out["receipt_id"])]["lane"] is False
+    assert portal.receipts[int(out["receipt_id"], 16)]["lane"] is False
 
 
 @pytest.mark.parametrize("case, call, needle", [
@@ -351,7 +352,7 @@ def _operator_lane_receipt(portal_env):
 def test_a_paused_receipt_is_refused_before_signing(portal_env, tool):
     node, game, clock, portal, split = portal_env
     rid = _operator_lane_receipt(portal_env)
-    portal.receipts[int(rid)]["paused"] = True
+    portal.receipts[int(rid, 16)]["paused"] = True
     sent = len(node.sends)
     with pytest.raises(server.PreTxValidationError,
                        match="paused by an admin"):
@@ -440,7 +441,9 @@ def test_portal_claim_refuses_a_receipt_that_is_not_pending(portal_env):
 def test_portal_cancel_returns_the_items_but_not_the_tax(portal_env):
     node, game, clock, portal, split = portal_env
     rid = server.portal_withdraw(103, 100_000, account="split")["receipt_id"]
-    out = server.portal_cancel(rid, account="split")
+    # decimal is accepted too; the result answers in the lens's 0x-hex form
+    out = server.portal_cancel(str(int(rid, 16)), account="split")
+    assert out["receipt_id"] == rid
     assert out["items_refunded"] == 99_499 and out["tax_not_refunded"] == 501
     assert game.inv[103] == 200_000 - 501
 
@@ -657,3 +660,73 @@ def test_a_sequence_harvest_step_takes_at_most_ten_kamis(chain_env):
         server.act_sequence([{"op": "harvest_stop", "kami_ids": list(range(1, 12))}],
                             account="testa")
     assert not node.sends
+
+
+# ---------------------------------------------------------------------------
+# Caller findings from the live acceptance run
+# ---------------------------------------------------------------------------
+
+def test_the_size_refusal_names_the_rpc_node_not_a_harvest_node(harvest_env):
+    node, bad, limit = harvest_env
+    with pytest.raises(server.PreTxValidationError) as ei:
+        server.harvest_start(list(range(1, 12)), 5, account="testa")
+    assert "RPC node" in str(ei.value)
+    assert "this node" not in str(ei.value)
+
+
+@pytest.fixture()
+def hp_reads(monkeypatch):
+    """Stored HP per kami as the chain would answer: the value before the
+    run, then the value the last use synced."""
+    seen = {"n": 0}
+
+    def hp(kami):
+        seen["n"] += 1
+        return 40 if seen["n"] == 1 else 90
+    monkeypatch.setattr(server, "_kami_last_synced_hp", hp)
+    return seen
+
+
+def test_use_item_batch_reads_hp_back_for_an_item_that_acts_on_hp(
+    chain_env, hp_reads,
+):
+    node, game, clock, op = chain_env
+    game.inv[11301] = 10                                  # Ghost Gum, HP+25
+    out = server.use_item_batch(21, 11301, 2, account="testa")
+    assert out["hp"] == {"last_synced_before": 40, "after": 90}
+    assert out["inventory"]["consumed"] == 2
+
+
+def test_an_item_that_does_not_act_on_hp_reads_no_hp(chain_env, hp_reads):
+    node, game, clock, op = chain_env
+    game.inv[11411] = 10                                  # XP potion
+    out = server.use_item_batch(21, 11411, 1, account="testa")
+    assert "hp" not in out and hp_reads["n"] == 0
+
+
+def test_feed_kami_reads_hp_back(chain_env, hp_reads):
+    node, game, clock, op = chain_env
+    game.inv[11301] = 1
+    out = server.feed_kami(21, 11301, account="testa")
+    assert out["status"] == "success"
+    assert out["hp"] == {"last_synced_before": 40, "after": 90}
+
+
+def test_feed_level_allocate_batch_reads_hp_back_on_the_feed(chain_env, hp_reads):
+    node, game, clock, op = chain_env
+    game.inv[11301] = 3
+    out = server.run_tool("feed_level_allocate_batch", targets=[
+        {"kami_id": 21, "feed_item_id": 11301, "feed_count": 2}],
+        account="testa")
+    fed = out["results"][0]["fed"]
+    assert fed["done"] == 2 and fed["hp"] == {"last_synced_before": 40,
+                                              "after": 90}
+
+
+def test_the_hp_effect_rule_reads_the_catalog():
+    assert server._item_acts_on_hp(11301)                 # HP+25
+    assert server._item_acts_on_hp(11001)                 # revive, HP+10
+    assert server._item_acts_on_hp(11110)                 # HEALTH+10
+    assert server._item_acts_on_hp(11502)                 # TEMP30HEALTH
+    assert not server._item_acts_on_hp(11411)             # XP+50000
+    assert not server._item_acts_on_hp(30016)             # E_HEALTH: equipment

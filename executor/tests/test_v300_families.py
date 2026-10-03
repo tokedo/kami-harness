@@ -172,44 +172,32 @@ class TestPoolDisabled:
         assert q["disabled"] is True
         assert q["amount_out"] > 0  # a disabled pool still prices
 
-    def test_swap_snippet_names_the_disabled_pool(
+    def test_a_disabled_pool_is_refused_before_signing(
         self, snippets_on, world, monkeypatch
     ):
+        """4.0.0: the pool's own IsDisabled is read BEFORE the dry-run and
+        refused in words — never left to a bare `Reverted`."""
         monkeypatch.setattr(server, "_get_item_name", lambda i: f"i{i}")
         monkeypatch.setattr(
             server, "_require_pool", lambda a, b: (0xABC, 1000, 500, 30)
         )
         monkeypatch.setattr(server, "_pool_disabled", lambda pid: True)
-        monkeypatch.setattr(server, "_pool_entity_id", lambda a, b: 0xABC)
         monkeypatch.setattr(server, "_require_item_balance", lambda *a: 999)
-        monkeypatch.setattr(server, "_send_tx", _revert("Reverted"))
-        with pytest.raises(server.PreTxValidationError) as ei:
-            server.pool_swap(1, 1005, 10, 1, account="testa")
-        msg = str(ei.value)
-        assert msg.startswith(
-            PREFIX + "transaction dry-run reverted: Reverted"
-        )
-        assert "Pool 0xabc (items 1/1005): disabled." in msg
-        assert "liquidity removal is not gated on it" in msg
+        sent = []
+        monkeypatch.setattr(server, "_send_tx", lambda *a, **k: sent.append(a))
+        monkeypatch.setattr(server, "_validated_fn",
+                            lambda *a, **k: sent.append(a))
+        for dry in (False, True):
+            with pytest.raises(server.PreTxValidationError) as ei:
+                server.pool_swap(1, 1005, 10, 1, account="testa", dry_run=dry)
+            msg = str(ei.value)
+            assert "pool is disabled by the world admin" in msg
+            assert "No transaction was sent." in msg
+            assert "Reverted" not in msg
+        assert sent == []
 
-    def test_swap_message_is_unchanged_with_the_flag_off(
+    def test_a_bare_revert_on_an_enabled_pool_is_explained(
         self, snippets_off, world, monkeypatch
-    ):
-        monkeypatch.setattr(server, "_get_item_name", lambda i: f"i{i}")
-        monkeypatch.setattr(
-            server, "_require_pool", lambda a, b: (0xABC, 1000, 500, 30)
-        )
-        monkeypatch.setattr(server, "_pool_disabled", lambda pid: True)
-        monkeypatch.setattr(server, "_require_item_balance", lambda *a: 999)
-        monkeypatch.setattr(server, "_send_tx", _revert("Reverted"))
-        with pytest.raises(server.PreTxValidationError) as ei:
-            server.pool_swap(1, 1005, 10, 1, account="testa")
-        assert str(ei.value) == (
-            PREFIX + "transaction dry-run reverted: Reverted"
-        )
-
-    def test_an_enabled_pool_adds_nothing(
-        self, snippets_on, world, monkeypatch
     ):
         monkeypatch.setattr(server, "_get_item_name", lambda i: f"i{i}")
         monkeypatch.setattr(
@@ -217,10 +205,14 @@ class TestPoolDisabled:
         )
         monkeypatch.setattr(server, "_pool_disabled", lambda pid: False)
         monkeypatch.setattr(server, "_require_item_balance", lambda *a: 999)
+        monkeypatch.setattr(server, "_inventory_balance", lambda h, i: 999)
         monkeypatch.setattr(server, "_send_tx", _revert("Reverted"))
         with pytest.raises(server.PreTxValidationError) as ei:
             server.pool_swap(1, 1005, 10, 1, account="testa")
-        assert "disabled" not in str(ei.value)
+        msg = str(ei.value)
+        assert "without a reason" in msg
+        assert "balance 999" in msg and "pool enabled" in msg
+        assert "No transaction was sent." in msg
 
 
 # ---------------------------------------------------------------------------

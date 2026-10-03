@@ -1,0 +1,9210 @@
+{
+ "provenance": {
+  "repository": "https://github.com/Asphodel-OS/kamigotchi",
+  "commit": "ffda396330af1bc33238b6c37188772152b45439",
+  "inputs": "packages/contracts/src/{systems,components}/**/*.sol (ids) + packages/client/abi/<Contract>.json (ABIs)",
+  "generator": "executor/tests/tools/vendor_upstream_abi.py"
+ },
+ "abis": {
+  "031030a00e0cde32": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256,string)": [
+    "0x68c47df2",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "08322cbe766f854c": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint32)": [
+    "0x09c90324",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "08a72445a5cba588": {
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extract(uint256)": [
+    "0x85b39782",
+    [
+     "uint256[]"
+    ],
+    "nonpayable"
+   ],
+   "extract(uint256[])": [
+    "0x3b93c6e1",
+    [
+     "uint256[][]"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "get(uint256)": [
+    "0x9507d39a",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "get(uint256[])": [
+    "0x469dc88e",
+    [
+     "uint256[][]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "safeGet(uint256)": [
+    "0x04fd7bd9",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "safeGet(uint256[])": [
+    "0x7396a865",
+    [
+     "uint256[][]"
+    ],
+    "view"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256,uint256[])": [
+    "0x946aadc6",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],uint256[][])": [
+    "0xad0657a9",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "0912d4eb9aa0ea5e": {
+   "batchTransfer(uint256[],address)": [
+    "0xce40ad86",
+    [],
+    "nonpayable"
+   ],
+   "batchTransferToMany(uint256[],address[])": [
+    "0xebcee357",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "0a5b15b5f8bc6b3e": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "dropKillRewards(bytes)": [
+    "0x97f2d0bb",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "0cdd4ba11084d570": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256)": [
+    "0x3e991df3",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "0f7b56a9a7fd518f": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint32,address)": [
+    "0x72b0fa5f",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint32[],address)": [
+    "0xcebb631d",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "0f97290f656f0534": {
+   "addLiquidity(uint32,uint32,uint256,uint256,uint256,uint256)": [
+    "0xffb80b03",
+    [
+     "uint256",
+     "uint256",
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "removeLiquidity(uint32,uint32,uint256,uint256,uint256)": [
+    "0x68d6ac09",
+    [
+     "uint256",
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "swap(uint32,uint32,uint256,uint256)": [
+    "0x4a4f0718",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "10ff0eb62d885c8d": {
+   "addAlloBasic(bytes)": [
+    "0xb39bdf22",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addAlloBonus(bytes)": [
+    "0xeb04c569",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addAlloDT(bytes)": [
+    "0x59ce910b",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addAlloStat(bytes)": [
+    "0xb452abd4",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addFlag(uint32,string)": [
+    "0x06cc1c38",
+    [],
+    "nonpayable"
+   ],
+   "addRequirement(bytes)": [
+    "0x7e534103",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(bytes)": [
+    "0xcf5ba53f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "createConsumable(bytes)": [
+    "0xe96e3836",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "disable(uint32)": [
+    "0x3fbd60f4",
+    [],
+    "nonpayable"
+   ],
+   "enable(uint32)": [
+    "0xaea6c198",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32)": [
+    "0x00d84fd8",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setRarity(bytes)": [
+    "0xe5d96e6b",
+    [
+     "bool"
+    ],
+    "nonpayable"
+   ],
+   "setSlot(uint32,string)": [
+    "0x5cbf4483",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "14129e4d8091dea1": {
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "dec(uint256,uint32)": [
+    "0x89b53ed5",
+    [],
+    "nonpayable"
+   ],
+   "dec(uint256[],uint32)": [
+    "0xf07ab3e6",
+    [],
+    "nonpayable"
+   ],
+   "dec(uint256[],uint32[])": [
+    "0xc085aea4",
+    [],
+    "nonpayable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extract(uint256)": [
+    "0x85b39782",
+    [
+     "uint32"
+    ],
+    "nonpayable"
+   ],
+   "extract(uint256[])": [
+    "0x3b93c6e1",
+    [
+     "uint32[]"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "get(uint256)": [
+    "0x9507d39a",
+    [
+     "uint32"
+    ],
+    "view"
+   ],
+   "get(uint256[])": [
+    "0x469dc88e",
+    [
+     "uint32[]"
+    ],
+    "view"
+   ],
+   "getAt(bytes,uint256)": [
+    "0x6f9aa155",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(uint32)": [
+    "0x447e2bd2",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "inc(uint256,uint32)": [
+    "0xb3fe5af4",
+    [],
+    "nonpayable"
+   ],
+   "inc(uint256[],uint32)": [
+    "0x985059b7",
+    [],
+    "nonpayable"
+   ],
+   "inc(uint256[],uint32[])": [
+    "0x7e4ac984",
+    [],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "safeGet(uint256)": [
+    "0x04fd7bd9",
+    [
+     "uint32"
+    ],
+    "view"
+   ],
+   "safeGet(uint256[])": [
+    "0x7396a865",
+    [
+     "uint32[]"
+    ],
+    "view"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256,uint32)": [
+    "0xd923c3c4",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],uint32[])": [
+    "0x644a2da1",
+    [],
+    "nonpayable"
+   ],
+   "size(bytes)": [
+    "0x1c5ee10c",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "19e6214adb451a74": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint32[],uint256[],uint256)": [
+    "0x9032746d",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "1f6c3fbb4f9dea63": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped()": [
+    "0xe1df4ba6",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "268139a713ab51ae": {
+   "addRequirement(bytes)": [
+    "0x7e534103",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(bytes)": [
+    "0xcf5ba53f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32,uint32)": [
+    "0x31f3666c",
+    [],
+    "nonpayable"
+   ],
+   "removeBuy(uint32,uint32)": [
+    "0x86477dd5",
+    [],
+    "nonpayable"
+   ],
+   "removeSell(uint32,uint32)": [
+    "0xb2ba303a",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setBuyFixed(uint32,uint32)": [
+    "0x4ebee436",
+    [],
+    "nonpayable"
+   ],
+   "setBuyGDA(uint32,uint32,int32,int32,int32,bool)": [
+    "0xc6e851a3",
+    [],
+    "nonpayable"
+   ],
+   "setSellFixed(uint32,uint32)": [
+    "0x36a8a6f4",
+    [],
+    "nonpayable"
+   ],
+   "setSellScaled(uint32,uint32,int32)": [
+    "0xcb868db8",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "2e259b754c01cde0": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeBatch(uint32[])": [
+    "0x77445aed",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint32)": [
+    "0x09c90324",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "2e859676e02b1a37": {
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "dec(uint256,int32)": [
+    "0xc725619b",
+    [],
+    "nonpayable"
+   ],
+   "dec(uint256[],int32)": [
+    "0xcffd1d65",
+    [],
+    "nonpayable"
+   ],
+   "dec(uint256[],int32[])": [
+    "0xc1dc7382",
+    [],
+    "nonpayable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extract(uint256)": [
+    "0x85b39782",
+    [
+     "int32"
+    ],
+    "nonpayable"
+   ],
+   "extract(uint256[])": [
+    "0x3b93c6e1",
+    [
+     "int32[]"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "get(uint256)": [
+    "0x9507d39a",
+    [
+     "int32"
+    ],
+    "view"
+   ],
+   "get(uint256[])": [
+    "0x469dc88e",
+    [
+     "int32[]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "inc(uint256,int32)": [
+    "0xcd1f5b7a",
+    [],
+    "nonpayable"
+   ],
+   "inc(uint256[],int32)": [
+    "0xeb4b0e62",
+    [],
+    "nonpayable"
+   ],
+   "inc(uint256[],int32[])": [
+    "0xec0f3617",
+    [],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "safeGet(uint256)": [
+    "0x04fd7bd9",
+    [
+     "int32"
+    ],
+    "view"
+   ],
+   "safeGet(uint256[])": [
+    "0x7396a865",
+    [
+     "int32[]"
+    ],
+    "view"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256,int32)": [
+    "0xd93c413f",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],int32[])": [
+    "0x2cc7b545",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "32d5911196e0d502": {
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extract(uint256)": [
+    "0x85b39782",
+    [
+     "string"
+    ],
+    "nonpayable"
+   ],
+   "extract(uint256[])": [
+    "0x3b93c6e1",
+    [
+     "string[]"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "get(uint256)": [
+    "0x9507d39a",
+    [
+     "string"
+    ],
+    "view"
+   ],
+   "get(uint256[])": [
+    "0x469dc88e",
+    [
+     "string[]"
+    ],
+    "view"
+   ],
+   "getAt(bytes,uint256)": [
+    "0x6f9aa155",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(string)": [
+    "0xf94655da",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "safeGet(uint256)": [
+    "0x04fd7bd9",
+    [
+     "string"
+    ],
+    "view"
+   ],
+   "safeGet(uint256[])": [
+    "0x7396a865",
+    [
+     "string[]"
+    ],
+    "view"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256,string)": [
+    "0x64371977",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],string[])": [
+    "0xf9caff42",
+    [],
+    "nonpayable"
+   ],
+   "size(bytes)": [
+    "0x1c5ee10c",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "413c21605a05f787": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(address[],uint32,uint256[])": [
+    "0xd84c4975",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "43bf4629679850b7": {
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extract(uint256)": [
+    "0x85b39782",
+    [
+     "string"
+    ],
+    "nonpayable"
+   ],
+   "extract(uint256[])": [
+    "0x3b93c6e1",
+    [
+     "string[]"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "get(uint256)": [
+    "0x9507d39a",
+    [
+     "string"
+    ],
+    "view"
+   ],
+   "get(uint256[])": [
+    "0x469dc88e",
+    [
+     "string[]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "safeGet(uint256)": [
+    "0x04fd7bd9",
+    [
+     "string"
+    ],
+    "view"
+   ],
+   "safeGet(uint256[])": [
+    "0x7396a865",
+    [
+     "string[]"
+    ],
+    "view"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256,string)": [
+    "0x64371977",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],string[])": [
+    "0xf9caff42",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "44540f4b39cef8cb": {
+   "_emitter()": [
+    "0x9350a79a",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "components()": [
+    "0xba62fbe4",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "getUniqueEntityId()": [
+    "0x614bfa6e",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "init()": [
+    "0xe1c7392a",
+    [],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "register()": [
+    "0x1aa3a008",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "registerComponent(address,uint256)": [
+    "0xf3034770",
+    [],
+    "nonpayable"
+   ],
+   "registerComponentValueRemoved(uint256)": [
+    "0x0de3b7b5",
+    [],
+    "nonpayable"
+   ],
+   "registerComponentValueSet(uint256,bytes)": [
+    "0xcfd3c57f",
+    [],
+    "nonpayable"
+   ],
+   "registerSystem(address,uint256)": [
+    "0x1ee444b7",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "systems()": [
+    "0x0d59332e",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "updateEmitter(address)": [
+    "0x5e5163fc",
+    [],
+    "nonpayable"
+   ]
+  },
+  "48b6be07633793bd": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "reroll(uint256[])": [
+    "0xc32ffe1b",
+    [
+     "uint256[]"
+    ],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "491df68f6fb23865": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint32,uint32)": [
+    "0x276aaa75",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "59749601efeadeee": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "whitelist(address)": [
+    "0x9b19251a",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ]
+  },
+  "5d9e407750662a67": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint32[],uint256[])": [
+    "0x8330e879",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "5df95970e5c15916": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeBatched(uint256[],uint32,uint256,uint256)": [
+    "0x68f37c94",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256,uint32,uint256,uint256)": [
+    "0xc8372a87",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "630c346f80ae7804": {
+   "buyPublic(uint256)": [
+    "0xc0c8dd07",
+    [],
+    "nonpayable"
+   ],
+   "buyWL()": [
+    "0x5f11df2e",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "6f5b19c11e6dadc9": {
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extract(uint256)": [
+    "0x85b39782",
+    [
+     "uint32[]"
+    ],
+    "nonpayable"
+   ],
+   "extract(uint256[])": [
+    "0x3b93c6e1",
+    [
+     "uint32[][]"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "get(uint256)": [
+    "0x9507d39a",
+    [
+     "uint32[]"
+    ],
+    "view"
+   ],
+   "get(uint256[])": [
+    "0x469dc88e",
+    [
+     "uint32[][]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "safeGet(uint256)": [
+    "0x04fd7bd9",
+    [
+     "uint32[]"
+    ],
+    "view"
+   ],
+   "safeGet(uint256[])": [
+    "0x7396a865",
+    [
+     "uint32[][]"
+    ],
+    "view"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256,uint32[])": [
+    "0xf96911fa",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],uint32[][])": [
+    "0xbd51df6b",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "6fbe7be738bd86fe": {
+   "addFlag(uint32,string)": [
+    "0x06cc1c38",
+    [],
+    "nonpayable"
+   ],
+   "addGate(bytes)": [
+    "0x8f59323c",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(bytes)": [
+    "0xcf5ba53f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32)": [
+    "0x00d84fd8",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setTexts(uint32,string,string)": [
+    "0xbc50578f",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "70f71319b1378afc": {
+   "addRequirement(uint32,string,string,uint32,uint32,string)": [
+    "0x51e12765",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(bytes)": [
+    "0xcf5ba53f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32)": [
+    "0x00d84fd8",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "7297fde8ebbf4694": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped()": [
+    "0xe1df4ba6",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "tokenURI(uint256)": [
+    "0xc87b56dd",
+    [
+     "string"
+    ],
+    "view"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "73a5776c8f753d7c": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "stop(uint32)": [
+    "0x789ae24f",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "stopBatched(uint32[])": [
+    "0x01ef75e0",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "79ae2f54585b1d7c": {
+   "addRequirement(string,string,uint32,uint256,string)": [
+    "0x5da7c2d6",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(string)": [
+    "0x765a4b0b",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "removeRequirement()": [
+    "0x7c9052d2",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "7a02b94ee41f755f": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(bytes)": [
+    "0xcf5ba53f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setName(uint32,string)": [
+    "0x996d6225",
+    [],
+    "nonpayable"
+   ],
+   "setRoom(uint32,uint32)": [
+    "0x96a2c1d3",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "7b798e66dc84ad8f": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(string,uint256)": [
+    "0x92976665",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setValue(string,uint256)": [
+    "0x7c2da7aa",
+    [],
+    "nonpayable"
+   ],
+   "setValueAddress(string,address)": [
+    "0x1bb4b8e3",
+    [],
+    "nonpayable"
+   ],
+   "setValueArray(string,uint32[8])": [
+    "0x348984f3",
+    [],
+    "nonpayable"
+   ],
+   "setValueBool(string,bool)": [
+    "0xa83c6932",
+    [],
+    "nonpayable"
+   ],
+   "setValueString(string,string)": [
+    "0xab7d4d8c",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "7f48b7aae7dc729e": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256[],string,bool)": [
+    "0xbd0bfeb2",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "7fc385f1e5fe913f": {
+   "adminFreeze()": [
+    "0x0a659ad9",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "escapeHatch(address)": [
+    "0xa142d608",
+    [],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "setAdminFreeze(bool)": [
+    "0xf2be2fbd",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "withdraw(address,address,uint256)": [
+    "0xd9caed12",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "847465a21ed9e2d1": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint32,uint32[],uint32[])": [
+    "0x7c3f45fb",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "85da454cc9a1a260": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(address)": [
+    "0x240b27e6",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "86291c49f8d97f70": {
+   "adminFreeze()": [
+    "0x0a659ad9",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "setAdminFreeze(bool)": [
+    "0xf2be2fbd",
+    [],
+    "nonpayable"
+   ],
+   "transferFrom(address,address,address,uint256)": [
+    "0x15dacbea",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "8a470bc73a10730f": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeAllowFailure(bytes)": [
+    "0xf00c4431",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeBatched(uint256[])": [
+    "0x01929a9f",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "executeBatchedAllowFailure(uint256[])": [
+    "0xb0fa4458",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256)": [
+    "0x3e991df3",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "8bae6ffc0c441c5d": {
+   "adminCancel(uint256)": [
+    "0x2a628e83",
+    [],
+    "nonpayable"
+   ],
+   "adminPause(uint256)": [
+    "0x2692c59f",
+    [],
+    "nonpayable"
+   ],
+   "adminToggleEnabled(bool)": [
+    "0x2e8c210e",
+    [],
+    "nonpayable"
+   ],
+   "adminUnpause(uint256)": [
+    "0x25fc00f0",
+    [],
+    "nonpayable"
+   ],
+   "cancel(uint256)": [
+    "0x40e58ee5",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "claim(uint256)": [
+    "0x379607f5",
+    [],
+    "nonpayable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deposit(uint32,uint256)": [
+    "0xaaf10398",
+    [],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "initItem(uint32)": [
+    "0xe83e407f",
+    [],
+    "nonpayable"
+   ],
+   "isEnabled()": [
+    "0x6aa633b6",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "itemAddrs(uint32)": [
+    "0xc122aef3",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "itemScales(uint32)": [
+    "0x7d7b397a",
+    [
+     "int32"
+    ],
+    "view"
+   ],
+   "laneItems(uint32)": [
+    "0xe7c862f4",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setItem(uint32,address,int32)": [
+    "0x21321390",
+    [],
+    "nonpayable"
+   ],
+   "setLaneItem(uint32,bool)": [
+    "0x87a05a58",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unsetItem(uint32)": [
+    "0x7f17d8f5",
+    [],
+    "nonpayable"
+   ],
+   "withdraw(uint32,uint256)": [
+    "0x0e19dc3a",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "withdrawToOperator(uint32,uint256)": [
+    "0x8b39e1a0",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ]
+  },
+  "8d81adfaa97ca260": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(bytes)": [
+    "0xcf5ba53f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32)": [
+    "0x00d84fd8",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "905938759c2840eb": {
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "boost(uint256,int32)": [
+    "0xa8ed7591",
+    [
+     "int32"
+    ],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecatedCalcTotal(uint256)": [
+    "0x0701be9a",
+    [
+     "int32"
+    ],
+    "view"
+   ],
+   "deprecatedSync(uint256,int32)": [
+    "0x15278f6f",
+    [
+     "int32"
+    ],
+    "nonpayable"
+   ],
+   "deprecatedSync(uint256,int32,int32)": [
+    "0x1ddbf372",
+    [
+     "int32"
+    ],
+    "nonpayable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extract(uint256)": [
+    "0x85b39782",
+    [
+     "(int32,int32,int32,int32)"
+    ],
+    "nonpayable"
+   ],
+   "extract(uint256[])": [
+    "0x3b93c6e1",
+    [
+     "(int32,int32,int32,int32)[]"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "get(uint256)": [
+    "0x9507d39a",
+    [
+     "(int32,int32,int32,int32)"
+    ],
+    "view"
+   ],
+   "get(uint256[])": [
+    "0x469dc88e",
+    [
+     "(int32,int32,int32,int32)[]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "safeGet(uint256)": [
+    "0x04fd7bd9",
+    [
+     "(int32,int32,int32,int32)"
+    ],
+    "view"
+   ],
+   "safeGet(uint256[])": [
+    "0x7396a865",
+    [
+     "(int32,int32,int32,int32)[]"
+    ],
+    "view"
+   ],
+   "set(uint256,(int32,int32,int32,int32))": [
+    "0x32e5cc30",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],(int32,int32,int32,int32)[])": [
+    "0x9610dca5",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "shift(uint256,int32)": [
+    "0x9ad30956",
+    [
+     "int32"
+    ],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "98cdba1ec19a109e": {
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extract(uint256)": [
+    "0x85b39782",
+    [
+     "bool"
+    ],
+    "nonpayable"
+   ],
+   "extract(uint256[])": [
+    "0x3b93c6e1",
+    [
+     "bool[]"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "get(uint256)": [
+    "0x9507d39a",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "get(uint256[])": [
+    "0x469dc88e",
+    [
+     "bool[]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "safeGet(uint256)": [
+    "0x04fd7bd9",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "safeGet(uint256[])": [
+    "0x7396a865",
+    [
+     "bool[]"
+    ],
+    "view"
+   ],
+   "set(uint256)": [
+    "0x60fe47b1",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[])": [
+    "0x6ea9bfc5",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "996f83b185da6cc5": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "getAccount(uint256)": [
+    "0xce88b145",
+    [
+     "(uint32,string,int32,uint32)"
+    ],
+    "view"
+   ],
+   "getKami(uint256)": [
+    "0x1b1e0fc0",
+    [
+     "(uint256,uint32,string,string,((int32,int32,int32,int32),(int32,int32,int32,int32),(int32,int32,int32,int32),(int32,int32,int32,int32)),(uint32,uint32,uint32,uint32,uint32),string[],uint256,uint256,uint256,uint32,string)"
+    ],
+    "view"
+   ],
+   "getKamiByIndex(uint32)": [
+    "0x83e8abdf",
+    [
+     "(uint256,uint32,string,string,((int32,int32,int32,int32),(int32,int32,int32,int32),(int32,int32,int32,int32),(int32,int32,int32,int32)),(uint32,uint32,uint32,uint32,uint32),string[],uint256,uint256,uint256,uint32,string)"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "9a8cbd7623d1cdde": {
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "dec(uint256,uint32)": [
+    "0x89b53ed5",
+    [],
+    "nonpayable"
+   ],
+   "dec(uint256[],uint32)": [
+    "0xf07ab3e6",
+    [],
+    "nonpayable"
+   ],
+   "dec(uint256[],uint32[])": [
+    "0xc085aea4",
+    [],
+    "nonpayable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extract(uint256)": [
+    "0x85b39782",
+    [
+     "uint32"
+    ],
+    "nonpayable"
+   ],
+   "extract(uint256[])": [
+    "0x3b93c6e1",
+    [
+     "uint32[]"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "get(uint256)": [
+    "0x9507d39a",
+    [
+     "uint32"
+    ],
+    "view"
+   ],
+   "get(uint256[])": [
+    "0x469dc88e",
+    [
+     "uint32[]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "inc(uint256,uint32)": [
+    "0xb3fe5af4",
+    [],
+    "nonpayable"
+   ],
+   "inc(uint256[],uint32)": [
+    "0x985059b7",
+    [],
+    "nonpayable"
+   ],
+   "inc(uint256[],uint32[])": [
+    "0x7e4ac984",
+    [],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "safeGet(uint256)": [
+    "0x04fd7bd9",
+    [
+     "uint32"
+    ],
+    "view"
+   ],
+   "safeGet(uint256[])": [
+    "0x7396a865",
+    [
+     "uint32[]"
+    ],
+    "view"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256,uint32)": [
+    "0xd923c3c4",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],uint32[])": [
+    "0x644a2da1",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "9c4cd268c4ae2ac3": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(uint32,uint32,uint256,uint256,uint256)": [
+    "0x8da607ee",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "donate(uint32,uint32,uint256,uint256)": [
+    "0xf7d3082c",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32,uint32)": [
+    "0x31f3666c",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setDisabled(uint32,uint32,bool)": [
+    "0x249d80c5",
+    [],
+    "nonpayable"
+   ],
+   "setFee(uint32,uint32,uint256)": [
+    "0xbb18a9bd",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "9ca35d95245b7d9e": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256,uint256)": [
+    "0x915657fb",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "9dd5935bc3b22592": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256,uint32)": [
+    "0xe60f3a76",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "a1e57cc925387af1": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "forceReveal(uint256[])": [
+    "0x02d9e4af",
+    [
+     "uint256[]"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "reveal(uint256[])": [
+    "0xb93f208a",
+    [
+     "uint256[]"
+    ],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "a321000ff3f9cf9d": {
+   "addRequirement(bytes)": [
+    "0x7e534103",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addRewardBasic(bytes)": [
+    "0x510b8052",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addRewardDT(bytes)": [
+    "0x720c2ed5",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addRewardDisplay(bytes)": [
+    "0xb47fc7ad",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addRewardStat(bytes)": [
+    "0x071657f0",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(bytes)": [
+    "0xcf5ba53f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32)": [
+    "0x00d84fd8",
+    [],
+    "nonpayable"
+   ],
+   "removeRewards(uint32)": [
+    "0x629c5fe0",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setDisabled(uint32,bool)": [
+    "0x564eb313",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "a441021685e0f6fd": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeAdmin(uint256[])": [
+    "0xa781e655",
+    [],
+    "nonpayable"
+   ],
+   "executeTyped(uint256)": [
+    "0x3e991df3",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "a4b92e06c0914a44": {
+   "adminFreeze()": [
+    "0x0a659ad9",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "finalizeStage(address,uint64)": [
+    "0xfceb7dc3",
+    [],
+    "nonpayable"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "inc(address,uint64,address,uint64)": [
+    "0xaeb2242e",
+    [],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "setAdminFreeze(bool)": [
+    "0xf2be2fbd",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "a6796edee9fbfbf9": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint32)": [
+    "0x09c90324",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "aa73f67df8eb9c8d": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256[])": [
+    "0x72de78c2",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "forceReveal(uint256)": [
+    "0x265ab676",
+    [],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "acbcd61126535043": {
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extract(uint256)": [
+    "0x85b39782",
+    [
+     "address"
+    ],
+    "nonpayable"
+   ],
+   "extract(uint256[])": [
+    "0x3b93c6e1",
+    [
+     "address[]"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "get(uint256)": [
+    "0x9507d39a",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "get(uint256[])": [
+    "0x469dc88e",
+    [
+     "address[]"
+    ],
+    "view"
+   ],
+   "getAt(bytes,uint256)": [
+    "0x6f9aa155",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(address)": [
+    "0x3e1b5e0d",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "safeGet(uint256)": [
+    "0x04fd7bd9",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "safeGet(uint256[])": [
+    "0x7396a865",
+    [
+     "address[]"
+    ],
+    "view"
+   ],
+   "set(uint256,address)": [
+    "0x2f30c6f6",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],address[])": [
+    "0xacfede59",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "size(bytes)": [
+    "0x1c5ee10c",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "af16108a7a3dfbbd": {
+   "_getTraitStats(uint256)": [
+    "0xc4908186",
+    [
+     "(int32,int32,int32,int32,int32)"
+    ],
+    "view"
+   ],
+   "batchMint(uint256)": [
+    "0x8467be0d",
+    [
+     "uint256[]"
+    ],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setTraits()": [
+    "0xc061a3b5",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "b2681039e0759110": {
+   "addToPool(uint256[])": [
+    "0xa2f774e0",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "initTWAP(uint256)": [
+    "0x9cced066",
+    [],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setCycleDuration(uint256)": [
+    "0x8cc23934",
+    [],
+    "nonpayable"
+   ],
+   "setEnabled(bool)": [
+    "0x328d8f72",
+    [],
+    "nonpayable"
+   ],
+   "setMinPrice(uint256)": [
+    "0x5ea8cd12",
+    [],
+    "nonpayable"
+   ],
+   "setPool(uint256[])": [
+    "0xe0b7dcf4",
+    [],
+    "nonpayable"
+   ],
+   "setTWAPWindow(uint256)": [
+    "0x068d4825",
+    [],
+    "nonpayable"
+   ],
+   "setVendorAddress(address)": [
+    "0xd91376f3",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "b373f6dc2546792d": {
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "dec(uint256,uint256)": [
+    "0x578ffd38",
+    [],
+    "nonpayable"
+   ],
+   "dec(uint256[],uint256)": [
+    "0xb844a259",
+    [],
+    "nonpayable"
+   ],
+   "dec(uint256[],uint256[])": [
+    "0xc7bbba6e",
+    [],
+    "nonpayable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extract(uint256)": [
+    "0x85b39782",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "extract(uint256[])": [
+    "0x3b93c6e1",
+    [
+     "uint256[]"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "get(uint256)": [
+    "0x9507d39a",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "get(uint256[])": [
+    "0x469dc88e",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(uint256)": [
+    "0xfbdfa1ea",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "inc(uint256,uint256)": [
+    "0xe8a7201f",
+    [],
+    "nonpayable"
+   ],
+   "inc(uint256[],uint256)": [
+    "0x3e52c3b3",
+    [],
+    "nonpayable"
+   ],
+   "inc(uint256[],uint256[])": [
+    "0xba5d0104",
+    [],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "safeGet(uint256)": [
+    "0x04fd7bd9",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "safeGet(uint256[])": [
+    "0x7396a865",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256,uint256)": [
+    "0x1ab06ee5",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],uint256[])": [
+    "0xabc7c069",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "ba91aa0207040bd9": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256,string)": [
+    "0x68c47df2",
+    [
+     "uint32"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "c241659a5ac16411": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(address,string)": [
+    "0x65ca12ec",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "c4ca4d9b53a24f74": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256,uint32)": [
+    "0xe60f3a76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "c5a587b77b869996": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTypedCollection(uint256,uint32,uint256)": [
+    "0x70aca40d",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTypedOffer(uint32,uint256,uint256)": [
+    "0x4c967b83",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "c5f87a0fd34e5194": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256[])": [
+    "0x72de78c2",
+    [
+     "bytes"
+    ],
+    "payable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "c72623c859b2c9fa": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint32,uint256)": [
+    "0x5c817c70",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "c90b1e0b68d3aede": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "pure"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setAllDroptables(uint32[],uint256[],uint32[],uint256[],uint32[],uint256[])": [
+    "0x7f7d6a76",
+    [],
+    "nonpayable"
+   ],
+   "setNormalDroptable(uint32[],uint256[])": [
+    "0x3070b927",
+    [],
+    "nonpayable"
+   ],
+   "setRarePityDroptable(uint32[],uint256[])": [
+    "0x24997b09",
+    [],
+    "nonpayable"
+   ],
+   "setUncommonPityDroptable(uint32[],uint256[])": [
+    "0x22b3a2d3",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "db0ac0f41fc9ba2e": {
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "dec(uint256,uint256)": [
+    "0x578ffd38",
+    [],
+    "nonpayable"
+   ],
+   "dec(uint256[],uint256)": [
+    "0xb844a259",
+    [],
+    "nonpayable"
+   ],
+   "dec(uint256[],uint256[])": [
+    "0xc7bbba6e",
+    [],
+    "nonpayable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extract(uint256)": [
+    "0x85b39782",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "extract(uint256[])": [
+    "0x3b93c6e1",
+    [
+     "uint256[]"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "get(uint256)": [
+    "0x9507d39a",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "get(uint256[])": [
+    "0x469dc88e",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getAt(bytes,uint256)": [
+    "0x6f9aa155",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(uint256)": [
+    "0xfbdfa1ea",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "inc(uint256,uint256)": [
+    "0xe8a7201f",
+    [],
+    "nonpayable"
+   ],
+   "inc(uint256[],uint256)": [
+    "0x3e52c3b3",
+    [],
+    "nonpayable"
+   ],
+   "inc(uint256[],uint256[])": [
+    "0xba5d0104",
+    [],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "safeGet(uint256)": [
+    "0x04fd7bd9",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "safeGet(uint256[])": [
+    "0x7396a865",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256,uint256)": [
+    "0x1ab06ee5",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],uint256[])": [
+    "0xabc7c069",
+    [],
+    "nonpayable"
+   ],
+   "size(bytes)": [
+    "0x1c5ee10c",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "dcaaad571b4ccfc8": {
+   "addBonus(bytes)": [
+    "0x2029afd6",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addRequirement(bytes)": [
+    "0x7e534103",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(bytes)": [
+    "0xcf5ba53f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32)": [
+    "0x00d84fd8",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "dd561613b643099d": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(bytes)": [
+    "0xcf5ba53f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32,uint32)": [
+    "0x31f3666c",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "update(bytes)": [
+    "0xc43ed2c8",
+    [],
+    "nonpayable"
+   ]
+  },
+  "ddcc0b576409bb0a": {
+   "calcPrice()": [
+    "0xd98c4408",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint32)": [
+    "0x09c90324",
+    [
+     "bytes"
+    ],
+    "payable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "e57559bac6b68c69": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "rebuildListingIndex(uint256[])": [
+    "0x0c1b3835",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setEnabled(bool)": [
+    "0x328d8f72",
+    [],
+    "nonpayable"
+   ],
+   "setFeeRate(uint32[8])": [
+    "0x50a2df2f",
+    [],
+    "nonpayable"
+   ],
+   "setFeeRecipient(address)": [
+    "0xe74b981b",
+    [],
+    "nonpayable"
+   ],
+   "setPurchaseCooldown(uint256)": [
+    "0x74baa131",
+    [],
+    "nonpayable"
+   ],
+   "setVault(address)": [
+    "0x6817031b",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "e63bb085eb3cbf35": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped()": [
+    "0xe1df4ba6",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "isInWorld(uint256)": [
+    "0xb5f3365f",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "e68bc57071a55ffd": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256,uint32)": [
+    "0xe60f3a76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256,uint32[])": [
+    "0x46abd2a3",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "e694fee4ab24b83d": {
+   "addObjective(bytes)": [
+    "0x796c272f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addRequirement(bytes)": [
+    "0x7e534103",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addRewardBasic(bytes)": [
+    "0x510b8052",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addRewardDT(bytes)": [
+    "0x720c2ed5",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addRewardStat(bytes)": [
+    "0x071657f0",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(bytes)": [
+    "0xcf5ba53f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32)": [
+    "0x00d84fd8",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setDisabled(uint32,bool)": [
+    "0x564eb313",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "e6c597adae79ad94": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint32[],uint256[],uint32[],uint256[],uint256)": [
+    "0x34d8e3a1",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "e6ea5f65a982dad7": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(string)": [
+    "0x765a4b0b",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "eab6cf8b0561782e": {
+   "IS_SCRIPT()": [
+    "0xf8ccbf47",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "attachItemERC20(uint32)": [
+    "0x7e28c7da",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "initAccounts()": [
+    "0x49f2545b",
+    [],
+    "nonpayable"
+   ],
+   "initHarvests()": [
+    "0x2ce728ad",
+    [],
+    "nonpayable"
+   ],
+   "initPets()": [
+    "0xd9c5a518",
+    [],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "f029feb3451c6707": {
+   "addRole(address,string)": [
+    "0x7d72aa65",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "removeRole(address,string)": [
+    "0x1bfe0308",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "f1c1528bd1f92eb9": {
+   "adminFreeze()": [
+    "0x0a659ad9",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "setAdminFreeze(bool)": [
+    "0xf2be2fbd",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "f2ccdf33a6bf08d4": {
+   "authorizeWriter(address)": [
+    "0x4fef6a38",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "equal(uint256,bytes)": [
+    "0xd2f27dcd",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "equal(uint256[],bytes)": [
+    "0x2dfbb801",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "extract(uint256)": [
+    "0x85b39782",
+    [
+     "(int32,int32,int32)"
+    ],
+    "nonpayable"
+   ],
+   "extract(uint256[])": [
+    "0x3b93c6e1",
+    [
+     "(int32,int32,int32)[]"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256)": [
+    "0xe9ff6c76",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "extractRaw(uint256[])": [
+    "0xbcab0047",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "get(uint256)": [
+    "0x9507d39a",
+    [
+     "(int32,int32,int32)"
+    ],
+    "view"
+   ],
+   "get(uint256[])": [
+    "0x469dc88e",
+    [
+     "(int32,int32,int32)[]"
+    ],
+    "view"
+   ],
+   "getAt(bytes,uint256)": [
+    "0x6f9aa155",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue((int32,int32,int32))": [
+    "0xd2b54c3f",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getEntitiesWithValue(bytes)": [
+    "0xb361be46",
+    [
+     "uint256[]"
+    ],
+    "view"
+   ],
+   "getRaw(uint256)": [
+    "0xdd98e3c9",
+    [
+     "bytes"
+    ],
+    "view"
+   ],
+   "getRaw(uint256[])": [
+    "0xa1c58425",
+    [
+     "bytes[]"
+    ],
+    "view"
+   ],
+   "has(uint256)": [
+    "0xcccf7a8e",
+    [
+     "bool"
+    ],
+    "view"
+   ],
+   "id()": [
+    "0xaf640d0f",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint256)": [
+    "0x4cc82215",
+    [],
+    "nonpayable"
+   ],
+   "remove(uint256[])": [
+    "0x4a0fa538",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "safeGet(uint256)": [
+    "0x04fd7bd9",
+    [
+     "(int32,int32,int32)"
+    ],
+    "view"
+   ],
+   "safeGet(uint256[])": [
+    "0x7396a865",
+    [
+     "(int32,int32,int32)[]"
+    ],
+    "view"
+   ],
+   "set(uint256,(int32,int32,int32))": [
+    "0xdd4d16d5",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256,bytes)": [
+    "0x8b282947",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],(int32,int32,int32)[])": [
+    "0xffdf451a",
+    [],
+    "nonpayable"
+   ],
+   "set(uint256[],bytes[])": [
+    "0xa2c895aa",
+    [],
+    "nonpayable"
+   ],
+   "size(bytes)": [
+    "0x1c5ee10c",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ],
+   "unauthorizeWriter(address)": [
+    "0xbf4fe57e",
+    [],
+    "nonpayable"
+   ],
+   "writeAccess(address)": [
+    "0x861eb905",
+    [
+     "bool"
+    ],
+    "view"
+   ]
+  },
+  "f5d3f1a7b4df50d9": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256)": [
+    "0x3e991df3",
+    [],
+    "nonpayable"
+   ],
+   "executeTypedBatch(uint256[])": [
+    "0x4b9338a7",
+    [],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "fa254b576e612914": {
+   "addRequirement(uint32,string,string,uint32,uint256,string)": [
+    "0x1576edcb",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(uint32,uint32,uint32,int32,int32,int32,int32,uint256)": [
+    "0x1b49ba87",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32)": [
+    "0x00d84fd8",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "fb7b5ebc418e7fd5": {
+   "addBonus(bytes)": [
+    "0x2029afd6",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addRequirement(bytes)": [
+    "0x7e534103",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addScavRewardBasic(bytes)": [
+    "0xcffc49de",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addScavRewardDT(bytes)": [
+    "0x080e18d5",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addScavenge(uint32,uint256)": [
+    "0xdea6f5e8",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(bytes)": [
+    "0xcf5ba53f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32)": [
+    "0x00d84fd8",
+    [],
+    "nonpayable"
+   ],
+   "removeScavenge(uint32)": [
+    "0x593cf789",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "fcc5973c4d680dbc": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint32,uint256,uint256)": [
+    "0x21580eda",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "fdd7d9fda5ad4dac": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(bytes)": [
+    "0xcf5ba53f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32,string)": [
+    "0xed1fa0cb",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  }
+ },
+ "systems": {
+  "system.Kami721.BatchMint": {
+   "contract": "_721BatchMinterSystem",
+   "source": "packages/contracts/src/systems/_721BatchMinterSystem.sol",
+   "abi": "af16108a7a3dfbbd"
+  },
+  "system.Kami721.IsInWorld": {
+   "contract": "Kami721IsInWorldSystem",
+   "source": "packages/contracts/src/systems/Kami721IsInWorldSystem.sol",
+   "abi": "e63bb085eb3cbf35"
+  },
+  "system.Kami721.Metadata": {
+   "contract": "Kami721MetadataSystem",
+   "source": "packages/contracts/src/systems/Kami721MetadataSystem.sol",
+   "abi": "7297fde8ebbf4694"
+  },
+  "system.account.move": {
+   "contract": "AccountMoveSystem",
+   "source": "packages/contracts/src/systems/AccountMoveSystem.sol",
+   "abi": "08322cbe766f854c"
+  },
+  "system.account.register": {
+   "contract": "AccountRegisterSystem",
+   "source": "packages/contracts/src/systems/AccountRegisterSystem.sol",
+   "abi": "c241659a5ac16411"
+  },
+  "system.account.set.bio": {
+   "contract": "AccountSetBioSystem",
+   "source": "packages/contracts/src/systems/AccountSetBioSystem.sol",
+   "abi": "e6ea5f65a982dad7"
+  },
+  "system.account.set.name": {
+   "contract": "AccountSetNameSystem",
+   "source": "packages/contracts/src/systems/AccountSetNameSystem.sol",
+   "abi": "e6ea5f65a982dad7"
+  },
+  "system.account.set.operator": {
+   "contract": "AccountSetOperatorSystem",
+   "source": "packages/contracts/src/systems/AccountSetOperatorSystem.sol",
+   "abi": "85da454cc9a1a260"
+  },
+  "system.account.set.pfp": {
+   "contract": "AccountSetPFPSystem",
+   "source": "packages/contracts/src/systems/AccountSetPFPSystem.sol",
+   "abi": "0cdd4ba11084d570"
+  },
+  "system.account.use.item": {
+   "contract": "AccountUseItemSystem",
+   "source": "packages/contracts/src/systems/AccountUseItemSystem.sol",
+   "abi": "c72623c859b2c9fa"
+  },
+  "system.admin.set.flag": {
+   "contract": "_AdminSetFlagSystem",
+   "source": "packages/contracts/src/systems/_AdminSetFlagSystem.sol",
+   "abi": "7f48b7aae7dc729e"
+  },
+  "system.auction.buy": {
+   "contract": "AuctionBuySystem",
+   "source": "packages/contracts/src/systems/AuctionBuySystem.sol",
+   "abi": "491df68f6fb23865"
+  },
+  "system.auction.registry": {
+   "contract": "_AuctionRegistrySystem",
+   "source": "packages/contracts/src/systems/_AuctionRegistrySystem.sol",
+   "abi": "fa254b576e612914"
+  },
+  "system.auth.registry": {
+   "contract": "_AuthManageRoleSystem",
+   "source": "packages/contracts/src/systems/_AuthManageRoleSystem.sol",
+   "abi": "f029feb3451c6707"
+  },
+  "system.buy.gacha.ticket": {
+   "contract": "GachaBuyTicketSystem",
+   "source": "packages/contracts/src/systems/GachaBuyTicketSystem.sol",
+   "abi": "630c346f80ae7804"
+  },
+  "system.chat": {
+   "contract": "ChatSystem",
+   "source": "packages/contracts/src/systems/ChatSystem.sol",
+   "abi": "79ae2f54585b1d7c"
+  },
+  "system.config.registry": {
+   "contract": "_ConfigSetSystem",
+   "source": "packages/contracts/src/systems/_ConfigSetSystem.sol",
+   "abi": "7b798e66dc84ad8f"
+  },
+  "system.craft": {
+   "contract": "CraftSystem",
+   "source": "packages/contracts/src/systems/CraftSystem.sol",
+   "abi": "c72623c859b2c9fa"
+  },
+  "system.distribute.item": {
+   "contract": "_DistributeItemSystem",
+   "source": "packages/contracts/src/systems/_DistributeItemSystem.sol",
+   "abi": "413c21605a05f787"
+  },
+  "system.droptable.item.reveal": {
+   "contract": "DroptableRevealSystem",
+   "source": "packages/contracts/src/systems/DroptableRevealSystem.sol",
+   "abi": "aa73f67df8eb9c8d"
+  },
+  "system.echo.kamis": {
+   "contract": "EchoKamisSystem",
+   "source": "packages/contracts/src/systems/EchoKamisSystem.sol",
+   "abi": "1f6c3fbb4f9dea63"
+  },
+  "system.echo.room": {
+   "contract": "EchoRoomSystem",
+   "source": "packages/contracts/src/systems/EchoRoomSystem.sol",
+   "abi": "1f6c3fbb4f9dea63"
+  },
+  "system.erc20.portal": {
+   "contract": "TokenPortalSystem",
+   "source": "packages/contracts/src/systems/TokenPortalSystem.sol",
+   "abi": "8bae6ffc0c441c5d"
+  },
+  "system.faction.registry": {
+   "contract": "_FactionRegistrySystem",
+   "source": "packages/contracts/src/systems/_FactionRegistrySystem.sol",
+   "abi": "8d81adfaa97ca260"
+  },
+  "system.friend.accept": {
+   "contract": "FriendAcceptSystem",
+   "source": "packages/contracts/src/systems/FriendAcceptSystem.sol",
+   "abi": "0cdd4ba11084d570"
+  },
+  "system.friend.block": {
+   "contract": "FriendBlockSystem",
+   "source": "packages/contracts/src/systems/FriendBlockSystem.sol",
+   "abi": "85da454cc9a1a260"
+  },
+  "system.friend.cancel": {
+   "contract": "FriendCancelSystem",
+   "source": "packages/contracts/src/systems/FriendCancelSystem.sol",
+   "abi": "0cdd4ba11084d570"
+  },
+  "system.friend.request": {
+   "contract": "FriendRequestSystem",
+   "source": "packages/contracts/src/systems/FriendRequestSystem.sol",
+   "abi": "85da454cc9a1a260"
+  },
+  "system.getter": {
+   "contract": "GetterSystem",
+   "source": "packages/contracts/src/systems/GetterSystem.sol",
+   "abi": "996f83b185da6cc5"
+  },
+  "system.goal.claim": {
+   "contract": "GoalClaimSystem",
+   "source": "packages/contracts/src/systems/GoalClaimSystem.sol",
+   "abi": "08322cbe766f854c"
+  },
+  "system.goal.contribute": {
+   "contract": "GoalContributeSystem",
+   "source": "packages/contracts/src/systems/GoalContributeSystem.sol",
+   "abi": "c72623c859b2c9fa"
+  },
+  "system.goal.registry": {
+   "contract": "_GoalRegistrySystem",
+   "source": "packages/contracts/src/systems/_GoalRegistrySystem.sol",
+   "abi": "a321000ff3f9cf9d"
+  },
+  "system.harvest.admin": {
+   "contract": "_HarvestAdminSystem",
+   "source": "packages/contracts/src/systems/_HarvestAdminSystem.sol",
+   "abi": "73a5776c8f753d7c"
+  },
+  "system.harvest.collect": {
+   "contract": "HarvestCollectSystem",
+   "source": "packages/contracts/src/systems/HarvestCollectSystem.sol",
+   "abi": "8a470bc73a10730f"
+  },
+  "system.harvest.liquidate": {
+   "contract": "HarvestLiquidateSystem",
+   "source": "packages/contracts/src/systems/HarvestLiquidateSystem.sol",
+   "abi": "9ca35d95245b7d9e"
+  },
+  "system.harvest.start": {
+   "contract": "HarvestStartSystem",
+   "source": "packages/contracts/src/systems/HarvestStartSystem.sol",
+   "abi": "5df95970e5c15916"
+  },
+  "system.harvest.stop": {
+   "contract": "HarvestStopSystem",
+   "source": "packages/contracts/src/systems/HarvestStopSystem.sol",
+   "abi": "8a470bc73a10730f"
+  },
+  "system.item.burn": {
+   "contract": "ItemBurnSystem",
+   "source": "packages/contracts/src/systems/ItemBurnSystem.sol",
+   "abi": "5d9e407750662a67"
+  },
+  "system.item.registry": {
+   "contract": "_ItemRegistrySystem",
+   "source": "packages/contracts/src/systems/_ItemRegistrySystem.sol",
+   "abi": "10ff0eb62d885c8d"
+  },
+  "system.item.transfer": {
+   "contract": "ItemTransferSystem",
+   "source": "packages/contracts/src/systems/ItemTransferSystem.sol",
+   "abi": "19e6214adb451a74"
+  },
+  "system.kami.cast.item": {
+   "contract": "KamiCastItemSystem",
+   "source": "packages/contracts/src/systems/KamiCastItemSystem.sol",
+   "abi": "c4ca4d9b53a24f74"
+  },
+  "system.kami.equip": {
+   "contract": "KamiEquipSystem",
+   "source": "packages/contracts/src/systems/KamiEquipSystem.sol",
+   "abi": "9dd5935bc3b22592"
+  },
+  "system.kami.gacha.mint": {
+   "contract": "KamiGachaMintSystem",
+   "source": "packages/contracts/src/systems/KamiGachaMintSystem.sol",
+   "abi": "0cdd4ba11084d570"
+  },
+  "system.kami.gacha.reroll": {
+   "contract": "KamiGachaRerollSystem",
+   "source": "packages/contracts/src/systems/KamiGachaRerollSystem.sol",
+   "abi": "48b6be07633793bd"
+  },
+  "system.kami.gacha.reveal": {
+   "contract": "KamiGachaRevealSystem",
+   "source": "packages/contracts/src/systems/KamiGachaRevealSystem.sol",
+   "abi": "a1e57cc925387af1"
+  },
+  "system.kami.level": {
+   "contract": "KamiLevelSystem",
+   "source": "packages/contracts/src/systems/KamiLevelSystem.sol",
+   "abi": "0cdd4ba11084d570"
+  },
+  "system.kami.name": {
+   "contract": "KamiNameSystem",
+   "source": "packages/contracts/src/systems/KamiNameSystem.sol",
+   "abi": "031030a00e0cde32"
+  },
+  "system.kami.onyx.rename": {
+   "contract": "KamiOnyxRenameSystem",
+   "source": "packages/contracts/src/systems/KamiOnyxRenameSystem.sol",
+   "abi": "031030a00e0cde32"
+  },
+  "system.kami.onyx.respec": {
+   "contract": "KamiOnyxRespecSystem",
+   "source": "packages/contracts/src/systems/KamiOnyxRespecSystem.sol",
+   "abi": "0cdd4ba11084d570"
+  },
+  "system.kami.onyx.revive": {
+   "contract": "KamiOnyxReviveSystem",
+   "source": "packages/contracts/src/systems/KamiOnyxReviveSystem.sol",
+   "abi": "0cdd4ba11084d570"
+  },
+  "system.kami.sacrifice.commit": {
+   "contract": "KamiSacrificeCommitSystem",
+   "source": "packages/contracts/src/systems/KamiSacrificeCommitSystem.sol",
+   "abi": "a6796edee9fbfbf9"
+  },
+  "system.kami.sacrifice.reveal": {
+   "contract": "KamiSacrificeRevealSystem",
+   "source": "packages/contracts/src/systems/KamiSacrificeRevealSystem.sol",
+   "abi": "f5d3f1a7b4df50d9"
+  },
+  "system.kami.send": {
+   "contract": "KamiSendSystem",
+   "source": "packages/contracts/src/systems/KamiSendSystem.sol",
+   "abi": "0f7b56a9a7fd518f"
+  },
+  "system.kami.unequip": {
+   "contract": "KamiUnequipSystem",
+   "source": "packages/contracts/src/systems/KamiUnequipSystem.sol",
+   "abi": "ba91aa0207040bd9"
+  },
+  "system.kami.use.item": {
+   "contract": "KamiUseItemSystem",
+   "source": "packages/contracts/src/systems/KamiUseItemSystem.sol",
+   "abi": "c4ca4d9b53a24f74"
+  },
+  "system.kami721.stake": {
+   "contract": "Kami721StakeSystem",
+   "source": "packages/contracts/src/systems/Kami721StakeSystem.sol",
+   "abi": "2e259b754c01cde0"
+  },
+  "system.kami721.transfer": {
+   "contract": "Kami721TransferSystem",
+   "source": "packages/contracts/src/systems/Kami721TransferSystem.sol",
+   "abi": "0912d4eb9aa0ea5e"
+  },
+  "system.kami721.unstake": {
+   "contract": "Kami721UnstakeSystem",
+   "source": "packages/contracts/src/systems/Kami721UnstakeSystem.sol",
+   "abi": "2e259b754c01cde0"
+  },
+  "system.kamimarket.acceptoffer": {
+   "contract": "KamiMarketAcceptOfferSystem",
+   "source": "packages/contracts/src/systems/KamiMarketAcceptOfferSystem.sol",
+   "abi": "e68bc57071a55ffd"
+  },
+  "system.kamimarket.buy": {
+   "contract": "KamiMarketBuySystem",
+   "source": "packages/contracts/src/systems/KamiMarketBuySystem.sol",
+   "abi": "c5f87a0fd34e5194"
+  },
+  "system.kamimarket.cancel": {
+   "contract": "KamiMarketCancelSystem",
+   "source": "packages/contracts/src/systems/KamiMarketCancelSystem.sol",
+   "abi": "a441021685e0f6fd"
+  },
+  "system.kamimarket.list": {
+   "contract": "KamiMarketListSystem",
+   "source": "packages/contracts/src/systems/KamiMarketListSystem.sol",
+   "abi": "fcc5973c4d680dbc"
+  },
+  "system.kamimarket.offer": {
+   "contract": "KamiMarketOfferSystem",
+   "source": "packages/contracts/src/systems/KamiMarketOfferSystem.sol",
+   "abi": "c5a587b77b869996"
+  },
+  "system.kamimarket.registry": {
+   "contract": "_KamiMarketRegistrySystem",
+   "source": "packages/contracts/src/systems/_KamiMarketRegistrySystem.sol",
+   "abi": "e57559bac6b68c69"
+  },
+  "system.listing.buy": {
+   "contract": "ListingBuySystem",
+   "source": "packages/contracts/src/systems/ListingBuySystem.sol",
+   "abi": "847465a21ed9e2d1"
+  },
+  "system.listing.registry": {
+   "contract": "_ListingRegistrySystem",
+   "source": "packages/contracts/src/systems/_ListingRegistrySystem.sol",
+   "abi": "268139a713ab51ae"
+  },
+  "system.listing.sell": {
+   "contract": "ListingSellSystem",
+   "source": "packages/contracts/src/systems/ListingSellSystem.sol",
+   "abi": "847465a21ed9e2d1"
+  },
+  "system.local.setup": {
+   "contract": "__LocalSetupSystem",
+   "source": "packages/contracts/src/systems/__LocalSetupSystem.sol",
+   "abi": "eab6cf8b0561782e"
+  },
+  "system.newbievendor.buy": {
+   "contract": "NewbieVendorBuySystem",
+   "source": "packages/contracts/src/systems/NewbieVendorBuySystem.sol",
+   "abi": "ddcc0b576409bb0a"
+  },
+  "system.newbievendor.registry": {
+   "contract": "_NewbieVendorRegistrySystem",
+   "source": "packages/contracts/src/systems/_NewbieVendorRegistrySystem.sol",
+   "abi": "b2681039e0759110"
+  },
+  "system.node.registry": {
+   "contract": "_NodeRegistrySystem",
+   "source": "packages/contracts/src/systems/_NodeRegistrySystem.sol",
+   "abi": "fb7b5ebc418e7fd5"
+  },
+  "system.npc.registry": {
+   "contract": "_NPCRegistrySystem",
+   "source": "packages/contracts/src/systems/_NPCRegistrySystem.sol",
+   "abi": "7a02b94ee41f755f"
+  },
+  "system.pool": {
+   "contract": "PoolSystem",
+   "source": "packages/contracts/src/systems/PoolSystem.sol",
+   "abi": "0f97290f656f0534"
+  },
+  "system.pool.registry": {
+   "contract": "_PoolRegistrySystem",
+   "source": "packages/contracts/src/systems/_PoolRegistrySystem.sol",
+   "abi": "9c4cd268c4ae2ac3"
+  },
+  "system.quest.accept": {
+   "contract": "QuestAcceptSystem",
+   "source": "packages/contracts/src/systems/QuestAcceptSystem.sol",
+   "abi": "08322cbe766f854c"
+  },
+  "system.quest.complete": {
+   "contract": "QuestCompleteSystem",
+   "source": "packages/contracts/src/systems/QuestCompleteSystem.sol",
+   "abi": "0cdd4ba11084d570"
+  },
+  "system.quest.drop": {
+   "contract": "QuestDropSystem",
+   "source": "packages/contracts/src/systems/QuestDropSystem.sol",
+   "abi": "0cdd4ba11084d570"
+  },
+  "system.quest.registry": {
+   "contract": "_QuestRegistrySystem",
+   "source": "packages/contracts/src/systems/_QuestRegistrySystem.sol",
+   "abi": "e694fee4ab24b83d"
+  },
+  "system.recipe.registry": {
+   "contract": "_RecipeRegistrySystem",
+   "source": "packages/contracts/src/systems/_RecipeRegistrySystem.sol",
+   "abi": "70f71319b1378afc"
+  },
+  "system.relationship.advance": {
+   "contract": "RelationshipAdvanceSystem",
+   "source": "packages/contracts/src/systems/RelationshipAdvanceSystem.sol",
+   "abi": "491df68f6fb23865"
+  },
+  "system.relationship.registry": {
+   "contract": "_RelationshipRegistrySystem",
+   "source": "packages/contracts/src/systems/_RelationshipRegistrySystem.sol",
+   "abi": "dd561613b643099d"
+  },
+  "system.room.registry": {
+   "contract": "_RoomRegistrySystem",
+   "source": "packages/contracts/src/systems/_RoomRegistrySystem.sol",
+   "abi": "6fbe7be738bd86fe"
+  },
+  "system.sacrifice.registry": {
+   "contract": "_SacrificeRegistrySystem",
+   "source": "packages/contracts/src/systems/_SacrificeRegistrySystem.sol",
+   "abi": "c90b1e0b68d3aede"
+  },
+  "system.scavenge.claim": {
+   "contract": "ScavengeClaimSystem",
+   "source": "packages/contracts/src/systems/ScavengeClaimSystem.sol",
+   "abi": "0cdd4ba11084d570"
+  },
+  "system.setup.snapshot.t2": {
+   "contract": "_SnapshotT2System",
+   "source": "packages/contracts/src/systems/_SnapshotT2System.sol",
+   "abi": "0a5b15b5f8bc6b3e"
+  },
+  "system.skill.registry": {
+   "contract": "_SkillRegistrySystem",
+   "source": "packages/contracts/src/systems/_SkillRegistrySystem.sol",
+   "abi": "dcaaad571b4ccfc8"
+  },
+  "system.skill.respec": {
+   "contract": "SkillRespecSystem",
+   "source": "packages/contracts/src/systems/SkillRespecSystem.sol",
+   "abi": "0cdd4ba11084d570"
+  },
+  "system.skill.upgrade": {
+   "contract": "SkillUpgradeSystem",
+   "source": "packages/contracts/src/systems/SkillUpgradeSystem.sol",
+   "abi": "c4ca4d9b53a24f74"
+  },
+  "system.test.comp.event": {
+   "contract": "_TriggerCompEventSystem",
+   "source": "packages/contracts/src/systems/_TriggerCompEventSystem.sol",
+   "abi": "1f6c3fbb4f9dea63"
+  },
+  "system.trade.cancel": {
+   "contract": "TradeCancelSystem",
+   "source": "packages/contracts/src/systems/TradeCancelSystem.sol",
+   "abi": "a441021685e0f6fd"
+  },
+  "system.trade.complete": {
+   "contract": "TradeCompleteSystem",
+   "source": "packages/contracts/src/systems/TradeCompleteSystem.sol",
+   "abi": "a441021685e0f6fd"
+  },
+  "system.trade.create": {
+   "contract": "TradeCreateSystem",
+   "source": "packages/contracts/src/systems/TradeCreateSystem.sol",
+   "abi": "e6c597adae79ad94"
+  },
+  "system.trade.execute": {
+   "contract": "TradeExecuteSystem",
+   "source": "packages/contracts/src/systems/TradeExecuteSystem.sol",
+   "abi": "0cdd4ba11084d570"
+  },
+  "system.trait.registry": {
+   "contract": "_TraitRegistrySystem",
+   "source": "packages/contracts/src/systems/_TraitRegistrySystem.sol",
+   "abi": "fdd7d9fda5ad4dac"
+  },
+  "system.world.whitelist.set": {
+   "contract": "_WorldWhitelistSystem",
+   "source": "packages/contracts/src/systems/_WorldWhitelistSystem.sol",
+   "abi": "59749601efeadeee"
+  }
+ },
+ "components": {
+  "component.Time": {
+   "contract": "TimeComponent",
+   "source": "packages/contracts/src/components/TimeComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.Time.End": {
+   "contract": "TimeEndComponent",
+   "source": "packages/contracts/src/components/TimeEndComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.Time.Last": {
+   "contract": "TimeLastComponent",
+   "source": "packages/contracts/src/components/TimeLastComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.Time.LastAction": {
+   "contract": "TimeLastActionComponent",
+   "source": "packages/contracts/src/components/TimeLastActionComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.Time.Next": {
+   "contract": "TimeNextComponent",
+   "source": "packages/contracts/src/components/TimeNextComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.Time.Reset": {
+   "contract": "TimeResetComponent",
+   "source": "packages/contracts/src/components/TimeResetComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.Time.Start": {
+   "contract": "TimeStartComponent",
+   "source": "packages/contracts/src/components/TimeStartComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.address.operator": {
+   "contract": "AddressOperatorComponent",
+   "source": "packages/contracts/src/components/AddressOperatorComponent.sol",
+   "abi": "acbcd61126535043"
+  },
+  "component.address.owner": {
+   "contract": "AddressOwnerComponent",
+   "source": "packages/contracts/src/components/AddressOwnerComponent.sol",
+   "abi": "acbcd61126535043"
+  },
+  "component.affiinity": {
+   "contract": "AffinityComponent",
+   "source": "packages/contracts/src/components/AffinityComponent.sol",
+   "abi": "43bf4629679850b7"
+  },
+  "component.balance": {
+   "contract": "BalanceComponent",
+   "source": "packages/contracts/src/components/BalanceComponent.sol",
+   "abi": "2e859676e02b1a37"
+  },
+  "component.blacklist": {
+   "contract": "BlacklistComponent",
+   "source": "packages/contracts/src/components/BlacklistComponent.sol",
+   "abi": "6f5b19c11e6dadc9"
+  },
+  "component.block.reveal": {
+   "contract": "BlockRevealComponent",
+   "source": "packages/contracts/src/components/BlockRevealComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.cache.operator": {
+   "contract": "CacheOperatorComponent",
+   "source": "packages/contracts/src/components/CacheOperatorComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.cost": {
+   "contract": "CostComponent",
+   "source": "packages/contracts/src/components/CostComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.decay": {
+   "contract": "DecayComponent",
+   "source": "packages/contracts/src/components/DecayComponent.sol",
+   "abi": "2e859676e02b1a37"
+  },
+  "component.description": {
+   "contract": "DescriptionComponent",
+   "source": "packages/contracts/src/components/DescriptionComponent.sol",
+   "abi": "43bf4629679850b7"
+  },
+  "component.description.alt": {
+   "contract": "DescriptionAltComponent",
+   "source": "packages/contracts/src/components/DescriptionAltComponent.sol",
+   "abi": "43bf4629679850b7"
+  },
+  "component.exits": {
+   "contract": "ExitsComponent",
+   "source": "packages/contracts/src/components/ExitsComponent.sol",
+   "abi": "6f5b19c11e6dadc9"
+  },
+  "component.experience": {
+   "contract": "ExperienceComponent",
+   "source": "packages/contracts/src/components/ExperienceComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.for": {
+   "contract": "ForComponent",
+   "source": "packages/contracts/src/components/ForComponent.sol",
+   "abi": "43bf4629679850b7"
+  },
+  "component.has.flag": {
+   "contract": "HasFlagComponent",
+   "source": "packages/contracts/src/components/HasFlagComponent.sol",
+   "abi": "98cdba1ec19a109e"
+  },
+  "component.id.anchor": {
+   "contract": "IDAnchorComponent",
+   "source": "packages/contracts/src/components/IDAnchorComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.equipment.owns": {
+   "contract": "IDOwnsEquipmentComponent",
+   "source": "packages/contracts/src/components/IDOwnsEquipmentComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.flag.owns": {
+   "contract": "IDOwnsFlagComponent",
+   "source": "packages/contracts/src/components/IDOwnsFlagComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.from": {
+   "contract": "IDFromComponent",
+   "source": "packages/contracts/src/components/IDFromComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.holder": {
+   "contract": "IdHolderComponent",
+   "source": "packages/contracts/src/components/IdHolderComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.id.inventory.owns": {
+   "contract": "IDOwnsInventoryComponent",
+   "source": "packages/contracts/src/components/IDOwnsInventoryComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.kami.owns": {
+   "contract": "IDOwnsKamiComponent",
+   "source": "packages/contracts/src/components/IDOwnsKamiComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.kamiorder.owns": {
+   "contract": "IDOwnsKamiOrderComponent",
+   "source": "packages/contracts/src/components/IDOwnsKamiOrderComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.quest.owns": {
+   "contract": "IDOwnsQuestComponent",
+   "source": "packages/contracts/src/components/IDOwnsQuestComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.relationship.owns": {
+   "contract": "IDOwnsRelationshipComponent",
+   "source": "packages/contracts/src/components/IDOwnsRelationshipComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.skill.owns": {
+   "contract": "IDOwnsSkillComponent",
+   "source": "packages/contracts/src/components/IDOwnsSkillComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.source": {
+   "contract": "IdSourceComponent",
+   "source": "packages/contracts/src/components/IdSourceComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.id.target": {
+   "contract": "IdTargetComponent",
+   "source": "packages/contracts/src/components/IdTargetComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.id.tax.owns": {
+   "contract": "IDOwnsTaxComponent",
+   "source": "packages/contracts/src/components/IDOwnsTaxComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.to": {
+   "contract": "IDToComponent",
+   "source": "packages/contracts/src/components/IDToComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.token.withdraw.owns": {
+   "contract": "IDOwnsWithdrawalComponent",
+   "source": "packages/contracts/src/components/IDOwnsWithdrawalComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.trade.owns": {
+   "contract": "IDOwnsTradeComponent",
+   "source": "packages/contracts/src/components/IDOwnsTradeComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.id.type": {
+   "contract": "IDTypeComponent",
+   "source": "packages/contracts/src/components/IDTypeComponent.sol",
+   "abi": "db0ac0f41fc9ba2e"
+  },
+  "component.index": {
+   "contract": "IndexComponent",
+   "source": "packages/contracts/src/components/IndexComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.account": {
+   "contract": "IndexAccountComponent",
+   "source": "packages/contracts/src/components/IndexAccountComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.background": {
+   "contract": "IndexBackgroundComponent",
+   "source": "packages/contracts/src/components/IndexBackgroundComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.body": {
+   "contract": "IndexBodyComponent",
+   "source": "packages/contracts/src/components/IndexBodyComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.color": {
+   "contract": "IndexColorComponent",
+   "source": "packages/contracts/src/components/IndexColorComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.currency": {
+   "contract": "IndexCurrencyComponent",
+   "source": "packages/contracts/src/components/IndexCurrencyComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.face": {
+   "contract": "IndexFaceComponent",
+   "source": "packages/contracts/src/components/IndexFaceComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.faction": {
+   "contract": "IndexFactionComponent",
+   "source": "packages/contracts/src/components/IndexFactionComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.hand": {
+   "contract": "IndexHandComponent",
+   "source": "packages/contracts/src/components/IndexHandComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.item": {
+   "contract": "IndexItemComponent",
+   "source": "packages/contracts/src/components/IndexItemComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.kami": {
+   "contract": "IndexKamiComponent",
+   "source": "packages/contracts/src/components/IndexKamiComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.kami.listing": {
+   "contract": "IndexKamiListingComponent",
+   "source": "packages/contracts/src/components/IndexKamiListingComponent.sol",
+   "abi": "14129e4d8091dea1"
+  },
+  "component.index.node": {
+   "contract": "IndexNodeComponent",
+   "source": "packages/contracts/src/components/IndexNodeComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.npc": {
+   "contract": "IndexNPCComponent",
+   "source": "packages/contracts/src/components/IndexNPCComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.quest": {
+   "contract": "IndexQuestComponent",
+   "source": "packages/contracts/src/components/IndexQuestComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.recipe": {
+   "contract": "IndexRecipeComponent",
+   "source": "packages/contracts/src/components/IndexRecipeComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.relationship": {
+   "contract": "IndexRelationshipComponent",
+   "source": "packages/contracts/src/components/IndexRelationshipComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.room": {
+   "contract": "IndexRoomComponent",
+   "source": "packages/contracts/src/components/IndexRoomComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.index.skill": {
+   "contract": "IndexSkillComponent",
+   "source": "packages/contracts/src/components/IndexSkillComponent.sol",
+   "abi": "9a8cbd7623d1cdde"
+  },
+  "component.is.complete": {
+   "contract": "IsCompleteComponent",
+   "source": "packages/contracts/src/components/IsCompleteComponent.sol",
+   "abi": "98cdba1ec19a109e"
+  },
+  "component.is.disabled": {
+   "contract": "IsDisabledComponent",
+   "source": "packages/contracts/src/components/IsDisabledComponent.sol",
+   "abi": "98cdba1ec19a109e"
+  },
+  "component.is.registry": {
+   "contract": "IsRegistryComponent",
+   "source": "packages/contracts/src/components/IsRegistryComponent.sol",
+   "abi": "98cdba1ec19a109e"
+  },
+  "component.keys": {
+   "contract": "KeysComponent",
+   "source": "packages/contracts/src/components/KeysComponent.sol",
+   "abi": "6f5b19c11e6dadc9"
+  },
+  "component.level": {
+   "contract": "LevelComponent",
+   "source": "packages/contracts/src/components/LevelComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.location": {
+   "contract": "LocationComponent",
+   "source": "packages/contracts/src/components/LocationComponent.sol",
+   "abi": "f2ccdf33a6bf08d4"
+  },
+  "component.logictype": {
+   "contract": "LogicTypeComponent",
+   "source": "packages/contracts/src/components/LogicTypeComponent.sol",
+   "abi": "43bf4629679850b7"
+  },
+  "component.max": {
+   "contract": "MaxComponent",
+   "source": "packages/contracts/src/components/MaxComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.mediaURI": {
+   "contract": "MediaURIComponent",
+   "source": "packages/contracts/src/components/MediaURIComponent.sol",
+   "abi": "43bf4629679850b7"
+  },
+  "component.name": {
+   "contract": "NameComponent",
+   "source": "packages/contracts/src/components/NameComponent.sol",
+   "abi": "32d5911196e0d502"
+  },
+  "component.period": {
+   "contract": "PeriodComponent",
+   "source": "packages/contracts/src/components/PeriodComponent.sol",
+   "abi": "2e859676e02b1a37"
+  },
+  "component.proxy.vip.score": {
+   "contract": "ProxyVIPScoreComponent",
+   "source": "packages/contracts/src/components/ProxyVIPScoreComponent.sol",
+   "abi": "a4b92e06c0914a44"
+  },
+  "component.rarity": {
+   "contract": "RarityComponent",
+   "source": "packages/contracts/src/components/RarityComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.rate": {
+   "contract": "RateComponent",
+   "source": "packages/contracts/src/components/RateComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.reroll": {
+   "contract": "RerollComponent",
+   "source": "packages/contracts/src/components/RerollComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.scale": {
+   "contract": "ScaleComponent",
+   "source": "packages/contracts/src/components/ScaleComponent.sol",
+   "abi": "2e859676e02b1a37"
+  },
+  "component.skill.point": {
+   "contract": "SkillPointComponent",
+   "source": "packages/contracts/src/components/SkillPointComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.stat.harmony": {
+   "contract": "HarmonyComponent",
+   "source": "packages/contracts/src/components/HarmonyComponent.sol",
+   "abi": "905938759c2840eb"
+  },
+  "component.stat.health": {
+   "contract": "HealthComponent",
+   "source": "packages/contracts/src/components/HealthComponent.sol",
+   "abi": "905938759c2840eb"
+  },
+  "component.stat.power": {
+   "contract": "PowerComponent",
+   "source": "packages/contracts/src/components/PowerComponent.sol",
+   "abi": "905938759c2840eb"
+  },
+  "component.stat.slots": {
+   "contract": "SlotsComponent",
+   "source": "packages/contracts/src/components/SlotsComponent.sol",
+   "abi": "905938759c2840eb"
+  },
+  "component.stat.stamina": {
+   "contract": "StaminaComponent",
+   "source": "packages/contracts/src/components/StaminaComponent.sol",
+   "abi": "905938759c2840eb"
+  },
+  "component.stat.violence": {
+   "contract": "ViolenceComponent",
+   "source": "packages/contracts/src/components/ViolenceComponent.sol",
+   "abi": "905938759c2840eb"
+  },
+  "component.state": {
+   "contract": "StateComponent",
+   "source": "packages/contracts/src/components/StateComponent.sol",
+   "abi": "43bf4629679850b7"
+  },
+  "component.subtype": {
+   "contract": "SubtypeComponent",
+   "source": "packages/contracts/src/components/SubtypeComponent.sol",
+   "abi": "43bf4629679850b7"
+  },
+  "component.tax": {
+   "contract": "TaxComponent",
+   "source": "packages/contracts/src/components/TaxComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.token.address": {
+   "contract": "TokenAddressComponent",
+   "source": "packages/contracts/src/components/TokenAddressComponent.sol",
+   "abi": "acbcd61126535043"
+  },
+  "component.token.allowance": {
+   "contract": "TokenAllowanceComponent",
+   "source": "packages/contracts/src/components/TokenAllowanceComponent.sol",
+   "abi": "86291c49f8d97f70"
+  },
+  "component.token.holder": {
+   "contract": "TokenHolderComponent",
+   "source": "packages/contracts/src/components/TokenHolderComponent.sol",
+   "abi": "7fc385f1e5fe913f"
+  },
+  "component.type": {
+   "contract": "TypeComponent",
+   "source": "packages/contracts/src/components/TypeComponent.sol",
+   "abi": "43bf4629679850b7"
+  },
+  "component.type.entity": {
+   "contract": "EntityTypeComponent",
+   "source": "packages/contracts/src/components/EntityTypeComponent.sol",
+   "abi": "43bf4629679850b7"
+  },
+  "component.value": {
+   "contract": "ValueComponent",
+   "source": "packages/contracts/src/components/ValueComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.values": {
+   "contract": "ValuesComponent",
+   "source": "packages/contracts/src/components/ValuesComponent.sol",
+   "abi": "08a72445a5cba588"
+  },
+  "component.weights": {
+   "contract": "WeightsComponent",
+   "source": "packages/contracts/src/components/WeightsComponent.sol",
+   "abi": "08a72445a5cba588"
+  },
+  "component.whitelist": {
+   "contract": "WhitelistComponent",
+   "source": "packages/contracts/src/components/WhitelistComponent.sol",
+   "abi": "6f5b19c11e6dadc9"
+  },
+  "components.proxy.Permissions.ERC721": {
+   "contract": "ProxyPermissionsERC721Component",
+   "source": "packages/contracts/src/components/ProxyPermissionsERC721Component.sol",
+   "abi": "f1c1528bd1f92eb9"
+  }
+ },
+ "world": {
+  "contract": "World",
+  "abi": "44540f4b39cef8cb"
+ }
+}
