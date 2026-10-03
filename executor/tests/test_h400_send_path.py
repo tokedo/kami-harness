@@ -195,9 +195,13 @@ def chain_env(monkeypatch, accounts):
     """A real Web3 over the fake node; the read-only gates pass."""
     node = FakeNode(server.CHAIN_ID)
     game = Game(node)
-    w3 = make_w3(node)
+    # The production client construction (servers before 4.0.0 lack it).
+    w3 = getattr(server, "_install_read_retry", lambda w: w)(make_w3(node))
     clock = VirtualClock()
-    clock.on_sleep.append(lambda now: setattr(node, "block", node.block + 1))
+    # One block per virtual second, never backwards.
+    t0, b0 = clock.now, node.block
+    clock.on_sleep.append(lambda now: setattr(
+        node, "block", max(node.block, b0 + int(now - t0))))
     monkeypatch.setattr(server, "w3", w3)
     monkeypatch.setattr(server, "time", clock)
     monkeypatch.setattr(web3_threads, "time", clock)
@@ -379,13 +383,62 @@ def test_a_nonce_consumed_by_another_hash_is_a_collision_not_unconfirmed(
     server.level_up_kami(5, account="testa")        # fills base+2
     node.lag(op, times=2, behind=3)                 # sees base+3 as free
     step3 = seq["steps"][3].get("tx_hash")
+    # The invariant, not the mechanism: the second call either lands
+    # (4.0.0: the lane floor never hands out a nonce this harness saw
+    # used, so the stale read cannot collide) or its error NAMES the hash
+    # that consumed its nonce. It is never "may still be included".
+    try:
+        server.level_up_kami(5, account="testa")
+    except Exception as e:
+        text = str(e)
+        assert "may still be included" not in text, text
+        assert step3 and step3 in text, (
+            f"the collision does not name the hash that consumed the "
+            f"nonce ({step3}): {text}")
+
+
+def _external_send(node, key, nonce):
+    """A transaction on the same key from ANOTHER signer (a second
+    process, a game client): it shares no lane state with this one."""
+    from eth_account import Account
+    acct = Account.from_key(key)
+    signed = Account.sign_transaction({
+        "to": acct.address, "value": 0, "gas": 260_000, "nonce": nonce,
+        "chainId": server.CHAIN_ID, "maxFeePerGas": 2_500_000,
+        "maxPriorityFeePerGas": 0,
+    }, key)
+    resp = node.rpc({"jsonrpc": "2.0", "id": 1,
+                     "method": "eth_sendRawTransaction",
+                     "params": ["0x" + bytes(signed.raw_transaction).hex()]})
+    return resp["result"]
+
+
+def test_a_nonce_taken_by_another_signer_is_named_and_ends_the_wait_early(
+    chain_env,
+):
+    """A collision the lane CANNOT prevent: another signer on the same
+    key takes the next nonce, and this harness's read of `pending` comes
+    from a replica one transaction behind. The transaction it signs at
+    the consumed nonce is admitted by that replica and dropped on
+    gossip. 3.7.0 waits the full 120 s and says UNCONFIRMED "may still be
+    included"; it is a collision, and the hash that consumed the nonce
+    is on chain to be named."""
+    from conftest import KEY_A
+    node, game, clock, op = chain_env
+    eid = server._kami_entity_id(5)
+    game.xp[eid] = 1_000
+    server.level_up_kami(5, account="testa")             # nonce 500
+    external = _external_send(node, KEY_A, 501)          # another signer
+    node.lag(op, times=2, behind=1)                      # stale replica
+    t0 = clock.now
     with pytest.raises(Exception) as ei:
         server.level_up_kami(5, account="testa")
+    waited = clock.now - t0
     text = str(ei.value)
+    assert external in text, f"collision does not name {external}: {text}"
+    assert "NOT signed by this harness" in text, text
     assert "may still be included" not in text, text
-    assert step3 and step3 in text, (
-        f"the collision does not name the hash that consumed the nonce "
-        f"({step3}): {text}")
+    assert waited < 30, f"waited {waited:.0f}s on a transaction that cannot mine"
 
 
 # ---------------------------------------------------------------------------
@@ -432,7 +485,10 @@ def test_a_second_infrastructure_failure_in_the_dry_run_is_not_a_revert(
     once; the SECOND is raised as `transaction dry-run reverted: ...` —
     an infrastructure failure reported as a game revert."""
     node, game, clock, op = chain_env
-    node.fail("eth_call", times=2, error=READINESS_ERROR)
+    # Enough refusals to outlast every retry layer (4.0.0 retries a read
+    # three more times on a fresh session before the dry-run's own second
+    # attempt), so the dry-run really does fail twice.
+    node.fail("eth_call", times=8, error=READINESS_ERROR)
     game.xp[server._kami_entity_id(5)] = 1_000
     with pytest.raises(Exception) as ei:
         server.level_up_kami(5, account="testa")
@@ -472,7 +528,8 @@ def wall_env(monkeypatch, accounts):
     """The fake node on REAL time (the test measures wall latency)."""
     node = FakeNode(server.CHAIN_ID)
     game = Game(node)
-    monkeypatch.setattr(server, "w3", make_w3(node))
+    monkeypatch.setattr(server, "w3", getattr(
+        server, "_install_read_retry", lambda w: w)(make_w3(node)))
     monkeypatch.setattr(server, "_resolve_system", addr_for)
     monkeypatch.setattr(server, "_resolve_component", addr_for)
     monkeypatch.setattr(server, "_require_registered_operator", lambda a: AID)

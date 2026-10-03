@@ -171,6 +171,7 @@ class FakeNode:
         self.requests: list[tuple[str, list]] = []  # every request served
         self.sends: list[tuple[str, int, str]] = []  # (sender, nonce, hash) admitted
         self.executed: list[Tx] = []          # mined, in order
+        self.blocks: dict[int, list[Tx]] = defaultdict(list)
 
     # -- configuration ------------------------------------------------------
 
@@ -315,6 +316,14 @@ class FakeNode:
         self._mine()
         return h
 
+    def _eth_getBlockByNumber(self, number, full=False):
+        n = self.block if number in ("latest", "pending") else int(number, 16)
+        txs = [
+            self._eth_getTransactionByHash(t.hash) if full else t.hash
+            for t in self.blocks.get(n, [])
+        ]
+        return {"number": hex(n), "hash": _bh(n), "transactions": txs}
+
     def _eth_getTransactionReceipt(self, h):
         return self.receipts.get(h.lower())
 
@@ -356,6 +365,7 @@ class FakeNode:
         tx.mined_block = self.block
         self.by_nonce[tx.sender][tx.nonce] = tx.hash
         self.executed.append(tx)
+        self.blocks[self.block].append(tx)
         logs = []
         for i, (address, topics, data) in enumerate(res.logs):
             logs.append({

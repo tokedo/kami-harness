@@ -23,6 +23,21 @@ import secrets_store  # noqa: E402
 import server  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _isolated_lanes(tmp_path, monkeypatch):
+    """Every test gets its own lane state directory and lane registry.
+
+    A lane is per-process state (floor, ledger of signed hashes); a test
+    that inherited the previous test's lane would allocate nonces from
+    a floor its own fake chain never saw. The directory is a temp path,
+    so no test ever writes lane state under the developer's home.
+    """
+    monkeypatch.setenv("KAMI_LANE_DIR", str(tmp_path / "lanes"))
+    monkeypatch.setattr(server, "_LANES", {})
+    monkeypatch.setattr(server, "_INFLIGHT", {})
+    monkeypatch.setattr(server, "_REOFFERED", set())
+
+
 @pytest.fixture()
 def secret_store(tmp_path, monkeypatch):
     """Point the secret store at a temp keys file for the whole test.

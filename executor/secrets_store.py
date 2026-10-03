@@ -51,6 +51,7 @@ import getpass
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 SERVICE_PREFIX = "kami-mcp/"
@@ -75,6 +76,7 @@ _KC_ACCOUNT = getpass.getuser()
 _SECRET_SUFFIXES = ("_KEY", "_TOKEN", "_SECRET", "_PRIVY_ID")
 _SECRET_EXACT = {"PRIVY_ID"}
 
+_WRITE_LOCK = threading.RLock()
 _values: dict[str, str] = {}
 _sources: dict[str, str] = {}  # name -> "keychain" | "env"
 _envfile: dict[str, str] = {}
@@ -412,12 +414,15 @@ def put(name: str, value: str) -> None:
     """
     if not value:
         raise ValueError(f"Refusing to store empty secret '{name}'.")
-    if _backend() != "envfile" and is_protected(name):
-        _keychain_write(name, value)
-        _sources[name] = "keychain"
-    else:
-        from dotenv import set_key
-        set_key(str(keys_path()), name, value)
-        _envfile[name] = value
-        _sources[name] = "env"
-    _values[name] = value
+    # Tool bodies run on worker threads: two writes must not interleave
+    # their read-modify-write of the keys file.
+    with _WRITE_LOCK:
+        if _backend() != "envfile" and is_protected(name):
+            _keychain_write(name, value)
+            _sources[name] = "keychain"
+        else:
+            from dotenv import set_key
+            set_key(str(keys_path()), name, value)
+            _envfile[name] = value
+            _sources[name] = "env"
+        _values[name] = value

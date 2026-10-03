@@ -19,20 +19,30 @@ Architecture:
 
 import asyncio
 import contextlib
+import contextvars
 import csv
+import functools
 import hashlib
 import itertools
 import json
+import math
 import os
+import re
 import socket
 import struct
 import sys
+import threading
 import time
+import uuid
 import warnings
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Literal
 
+import anyio
+import anyio.from_thread
+import anyio.to_thread
 import eth_abi
 import httpx
 import pydantic
@@ -40,8 +50,11 @@ import yaml
 from eth_account.messages import encode_defunct
 from mcp.server.fastmcp import FastMCP
 from web3 import Web3
+from web3._utils.method_formatters import receipt_formatter
+from web3.datastructures import AttributeDict
 from web3.exceptions import TimeExhausted
 
+import lanes
 import rooms_graph
 import secrets_store
 from schema_version import SCHEMA_VERSION
@@ -91,7 +104,94 @@ ERROR_SNIPPETS = os.environ.get("KAMI_ERROR_SNIPPETS", "").strip().lower() in (
 # Web3
 # ---------------------------------------------------------------------------
 
-w3 = Web3(Web3.HTTPProvider(RPC_URL))
+# ---------------------------------------------------------------------------
+# The replica readiness class
+#
+# The public endpoint is load-balanced across replicas, and a replica a
+# block or two behind the head answers a read at a height it has not
+# reached with
+#
+#   {'code': 5, 'message': 'jsonrpc readiness error: failed to load state
+#    at height N; historical version not ready: N: invalid height (latest
+#    height: N): invalid request'}
+#
+# It clears on the next request. Before 4.0.0 only the dry-run's replay
+# list knew it; anywhere else in a send it was terminal (its JSON-RPC
+# code is 5, so the -32000 retry routing never saw it) and it aborted
+# batch loops mid-run. Every READ is now retried on this class, three
+# times (0.5 s, 1 s, 2 s), each time on a NEW HTTP session — a new TCP
+# connection, which the load balancer may route to another replica.
+# eth_sendRawTransaction is never retried here: the lane re-offers the
+# same signed bytes itself, and decides what a refusal means.
+# ---------------------------------------------------------------------------
+
+_READINESS_MARKERS = (
+    "jsonrpc readiness error",
+    "historical version not ready",
+    "failed to load state at height",
+)
+_READ_METHODS = frozenset({
+    "eth_call", "eth_getBalance", "eth_getTransactionCount",
+    "eth_estimateGas", "eth_getTransactionReceipt",
+    "eth_getTransactionByHash", "eth_blockNumber", "eth_getCode",
+    "eth_getBlockByNumber", "eth_getLogs", "eth_chainId", "eth_gasPrice",
+})
+_READ_RETRY_DELAYS_S = (0.5, 1.0, 2.0)
+
+
+def _is_readiness(text) -> bool:
+    lo = str(text).lower()
+    return any(m in lo for m in _READINESS_MARKERS)
+
+
+def _response_is_readiness(resp) -> bool:
+    err = resp.get("error") if isinstance(resp, dict) else None
+    if not err:
+        return False
+    return _is_readiness(json.dumps(err, default=str))
+
+
+def _fresh_provider(provider):
+    """A provider on a NEW HTTP session to the same endpoint.
+
+    A non-HTTP provider (the offline test node) has no connection to
+    renew and is returned as is.
+    """
+    if isinstance(provider, Web3.HTTPProvider):
+        return Web3.HTTPProvider(
+            provider.endpoint_uri,
+            request_kwargs={"timeout": 30},
+            exception_retry_configuration=None,
+        )
+    return provider
+
+
+def _install_read_retry(w3_instance):
+    """Wrap a Web3 instance's provider so reads retry the readiness class.
+
+    Installed on the production client at import, and by the offline
+    suite on its own client, so both run the same code.
+    """
+    provider = w3_instance.provider
+    inner = provider.make_request
+
+    def make_request(method, params):
+        resp = inner(method, params)
+        if method in _READ_METHODS and _response_is_readiness(resp):
+            for delay in _READ_RETRY_DELAYS_S:
+                time.sleep(delay)
+                fresh = _fresh_provider(provider)
+                call = inner if fresh is provider else fresh.make_request
+                resp = call(method, params)
+                if not _response_is_readiness(resp):
+                    break
+        return resp
+
+    provider.make_request = make_request
+    return w3_instance
+
+
+w3 = _install_read_retry(Web3(Web3.HTTPProvider(RPC_URL)))
 # Yominet charges `maxFeePerGas` AS OFFERED and refunds nothing, so an
 # over-offer is a pure loss: wallets offering 5.0 Mwei pay 2x for nothing
 # (observed in the community 2026-08-16). 2,500,000 wei is the live base
@@ -702,6 +802,94 @@ class TxUnconfirmedError(RuntimeError):
         )
 
 
+class TxNotExecutedError(RuntimeError):
+    """A broadcast transaction that did NOT execute and never will.
+
+    Not a fourth way of being unsure: the ledger proved it. Either its
+    nonce was consumed by a different hash (TxNonceCollisionError), or
+    the node does not hold it and its nonce is unconsumed
+    (TxDroppedError). No gas was spent by this hash."""
+
+    status = "dropped"
+
+    def __init__(self, tx_hash: str, nonce: int, detail: str,
+                 consumed_by: str | None = None,
+                 signed_by_harness: bool | None = None):
+        self.tx_hash = tx_hash
+        self.nonce = nonce
+        self.consumed_by = consumed_by
+        self.signed_by_harness = signed_by_harness
+        super().__init__(detail)
+
+
+class TxNonceCollisionError(TxNotExecutedError):
+    """The nonce was consumed by another transaction."""
+
+    def __init__(self, tx_hash: str, nonce: int, consumed_by: str | None,
+                 signed_by_harness: bool, origin: str = ""):
+        who = consumed_by or "a transaction whose hash was not found"
+        by = (
+            f"signed by this harness{(' (' + origin + ')') if origin else ''}"
+            if signed_by_harness else "NOT signed by this harness"
+        )
+        super().__init__(
+            tx_hash, nonce,
+            f"transaction {tx_hash} was NOT executed and cannot be: its "
+            f"nonce {nonce} was consumed by {who} ({by}). This hash spent "
+            f"no gas. It is a nonce collision, not an unconfirmed "
+            f"transaction.",
+            consumed_by=consumed_by, signed_by_harness=signed_by_harness,
+        )
+
+
+class TxDroppedError(TxNotExecutedError):
+    """The node does not hold the transaction; its nonce is unconsumed."""
+
+    def __init__(self, tx_hash: str, nonce: int, evidence: str):
+        super().__init__(
+            tx_hash, nonce,
+            f"transaction {tx_hash} was NOT executed: the node no longer "
+            f"holds it ({evidence}) and its nonce {nonce} is unconsumed; "
+            f"the nonce was released. This hash spent no gas.",
+        )
+
+
+class LaneBlockedError(RuntimeError):
+    """Transactions armed behind a nonce gap that could not be filled.
+
+    Raised before this call sends its own action: sending it would
+    either queue it behind the same gap or release the armed ones at an
+    unknown later time."""
+
+    def __init__(self, address: str, gap_nonce: int, armed: list[dict],
+                 reason: str):
+        self.address = address
+        self.gap_nonce = gap_nonce
+        self.armed = armed
+        hashes = ", ".join(
+            f"{a['tx_hash']} (nonce {a['nonce']}, {a['tool']}"
+            + (f" step {a['step']}" if a.get("step") is not None else "")
+            + ")" for a in armed
+        )
+        super().__init__(
+            f"lane blocked behind nonce {gap_nonce} for {address}: "
+            f"{len(armed)} transaction(s) signed earlier by this harness "
+            f"are armed behind it and will execute when nonce {gap_nonce} "
+            f"is used: {hashes}. The gap could not be filled ({reason}). "
+            f"Nothing was sent by this call."
+        )
+
+
+class CallCancelledError(RuntimeError):
+    """The client cancelled the call; raised at the next step boundary."""
+
+    def __init__(self, tool: str):
+        super().__init__(
+            f"{tool}: cancelled by the client; stopped at a step boundary "
+            f"and nothing further was sent"
+        )
+
+
 class BatchTxError(RuntimeError):
     """One or more per-item failures in a multi-transaction tool call.
 
@@ -985,20 +1173,43 @@ def _await_receipt(
     account: str | None = None,
     ceiling_key: str | None = None,
 ):
-    """Wait for the receipt and enforce the three terminal states.
+    """Wait for the receipt and enforce the terminal states.
 
     confirmed-success -> returns the receipt;
     confirmed-revert  -> raises OnChainRevertError (gas spent, tx final);
-    unconfirmed       -> raises TxUnconfirmedError (outcome unknown).
+    not executed      -> raises TxNonceCollisionError / TxDroppedError
+                         (the ledger PROVED it: its nonce went to another
+                         hash, or the node no longer holds it);
+    unconfirmed       -> raises TxUnconfirmedError (the node still holds
+                         it, or nothing could be proven either way).
+
+    The budget is cut into slices of _RESOLVE_EVERY_S. Between slices the
+    transaction's fate is resolved against the node (_check_inflight), so
+    a hash that can never mine ends the wait early instead of burning the
+    whole budget and being called "unconfirmed".
 
     `account` and `ceiling_key` feed the mechanics snippet only: the live
     state of the kamis this call names, and the _GAS_CEILINGS entry it
     provisioned when the revert was out-of-gas.
     """
-    try:
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
-    except TimeExhausted:
+    slices = max(1, math.ceil(timeout / _RESOLVE_EVERY_S))
+    receipt = None
+    for i in range(slices):
+        wait_s = min(_RESOLVE_EVERY_S, max(1, timeout - i * _RESOLVE_EVERY_S))
+        try:
+            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=wait_s)
+            break
+        except TimeExhausted:
+            if i == slices - 1:
+                break
+            _check_inflight(tx_hash)
+    if receipt is None:
         raise TxUnconfirmedError(_hex_hash(tx_hash), timeout)
+    return _receipt_outcome(receipt, built, account, ceiling_key)
+
+
+def _receipt_outcome(receipt, built, account=None, ceiling_key=None):
+    """A receipt's terminal state: return it on success, raise on revert."""
     if receipt.status != 1:
         # Receipt arithmetic first: it is deterministic, needs no archive
         # state, and identifies the one revert class a replay cannot.
@@ -1048,6 +1259,12 @@ def _failed_tx_fields(e: Exception) -> dict:
     if isinstance(e, TxUnconfirmedError):
         # Outcome genuinely unknown: it may yet land and spend gas.
         return {"tx_hash": getattr(e, "tx_hash", None), "status": "unconfirmed"}
+    if isinstance(e, TxNotExecutedError):
+        # Proven not executed: a hash with no effect and no gas.
+        out = {"tx_hash": e.tx_hash, "status": "dropped", "nonce": e.nonce}
+        if e.consumed_by is not None or isinstance(e, TxNonceCollisionError):
+            out["consumed_by"] = e.consumed_by
+        return out
     return {"status": "error"}
 
 
@@ -1395,7 +1612,12 @@ _RETRY_ROUTING_MARKER = "-32000"
 # Initia rejects a stale sequence before broadcast ("account sequence
 # mismatch, expected 30, got 28"); nothing was sent, and the next
 # attempt re-reads the nonce. A snippet must not introduce any of these.
-_RETRY_ROUTING_MARKERS = (_RETRY_ROUTING_MARKER, "account sequence mismatch")
+# Since 4.0.0 the replica readiness class routes to a retry too (it is
+# pre-send by the time it reaches _send_tx_retry), so a snippet must not
+# introduce it either.
+_RETRY_ROUTING_MARKERS = (
+    _RETRY_ROUTING_MARKER, "account sequence mismatch",
+) + _READINESS_MARKERS
 
 
 def _safe_read(fn, *args):
@@ -1803,9 +2025,13 @@ def _dry_run(
     except Exception as first:
         # A refused eth_call is not a reverted one. Reporting infra
         # failure as "dry-run reverted" invents a revert that never
-        # happened, so the transient classes are retried once and only
-        # a second failure is reported at all.
-        if _is_replay_infra_error(_revert_text(first)):
+        # happened, so the transient classes are retried once — and a
+        # failure that is STILL infrastructure is reported as what it
+        # is: the node did not run the dry-run, so nothing is known
+        # about the call and nothing was sent.
+        if _is_replay_infra_error(_revert_text(first)) or _is_readiness(
+            _revert_text(first)
+        ):
             time.sleep(1)
             try:
                 fn.call(params)
@@ -1813,8 +2039,16 @@ def _dry_run(
             except Exception as second:
                 first = second
         e = first
+        text = _revert_text(e)
+        if _is_replay_infra_error(text) or _is_readiness(text):
+            err = PreTxValidationError(
+                f"transaction dry-run not performed: the node failed to "
+                f"run it twice (infrastructure, not a game revert): {text}"
+            )
+            err.infrastructure = True
+            raise err
         raise PreTxValidationError(
-            f"transaction dry-run reverted: {_revert_text(e)}",
+            f"transaction dry-run reverted: {text}",
             mechanics={
                 "call_args": getattr(fn, "args", None),
                 "account": account,
@@ -1835,8 +2069,9 @@ def _wrap_send_error(e: Exception, addr: str, role: str, account: str):
             bal = w3.from_wei(w3.eth.get_balance(addr), "ether")
         except Exception:
             bal = "unreadable"
+        whose = f" (account '{account}')" if account else ""
         return ValueError(
-            f"{role} wallet {addr} (account '{account}') holds {bal} ETH "
+            f"{role} wallet {addr}{whose} holds {bal} ETH "
             f"on Yominet; the transaction requires gas paid in ETH from "
             f"this wallet. Raw RPC error: {s}"
         )
@@ -1844,24 +2079,709 @@ def _wrap_send_error(e: Exception, addr: str, role: str, account: str):
 
 
 # ---------------------------------------------------------------------------
-# Transaction helper
+# Calls — one control object per tool invocation
+#
+# Tool bodies run on worker threads (see _thread_tools at the end of the
+# module). Each invocation gets a _CallControl in a context variable:
+# its identity (so the lane can tell this call's transactions from an
+# earlier call's), a cancel flag the send path checks at every step
+# boundary, progress reporting for every landed transaction, and the
+# notices that become the first key of the result.
 # ---------------------------------------------------------------------------
 
-# Every send reads its nonce at the PENDING block, never at latest.
+
+class _CallControl:
+    def __init__(self, tool: str, ctx=None):
+        self.tool = tool
+        self.id = f"{tool}#{uuid.uuid4().hex[:12]}"
+        self.cancelled = threading.Event()
+        self.ctx = ctx
+        self.notices: list[str] = []
+        self.steps = 0
+
+    def check(self) -> None:
+        """A step boundary: stop here if the client cancelled."""
+        if self.cancelled.is_set():
+            raise CallCancelledError(self.tool)
+
+    def notice(self, text: str) -> None:
+        if text and text not in self.notices:
+            self.notices.append(text)
+
+    def _post(self, coro_fn, *args) -> None:
+        if self.ctx is None:
+            return
+        try:
+            anyio.from_thread.run(coro_fn, *args)
+        except Exception:
+            pass
+
+    def step(self, tx_hash, status: str) -> None:
+        """One transaction reached a terminal state: report progress."""
+        self.steps += 1
+        if self.ctx is not None:
+            self._post(
+                self.ctx.report_progress, float(self.steps), None,
+                f"{self.tool}: transaction {self.steps} {status} {tx_hash}",
+            )
+
+    def log(self, level: str, message: str) -> None:
+        if self.ctx is not None:
+            self._post(self.ctx.log, level, message)
+
+
+_CALL: contextvars.ContextVar = contextvars.ContextVar("kami_call", default=None)
+
+
+def _call() -> _CallControl:
+    """The current call; a direct (unwrapped) invocation gets its own."""
+    ctl = _CALL.get()
+    return ctl if ctl is not None else _CallControl("direct")
+
+
+def _err_text(e: BaseException) -> str:
+    """An exception as text that is NEVER empty."""
+    text = str(e).strip()
+    return text if text else type(e).__name__
+
+
+# ---------------------------------------------------------------------------
+# Transaction helper — every send rides its signer's LANE
+# ---------------------------------------------------------------------------
+
+# Every send reads its nonce at the PENDING block, never at latest — and
+# since 4.0.0 that read is no longer the whole story.
 #
 # The public RPC is load-balanced across nodes, and right after a
 # confirmed transaction a node that has not yet caught up serves a stale
-# sequence at `latest` — observed across the hybrid-play fleet on
-# 2026-07-28, where sequential sends inside one batch tool collided with
-# their own predecessor. `pending` counts the sender's in-flight
-# transactions and closes that race at the source.
-#
-# This is the first half of the fix; `_send_tx_retry`'s re-fetch on
-# "account sequence mismatch" is the second and stays. The harm being
-# avoided is a retry of a NON-IDEMPOTENT transfer: a level-up, a feed or
-# an ETH send that is resubmitted after a stale-nonce rejection can
-# execute twice, and no amount of retry logic can un-spend it.
+# sequence. `pending` closed that race at `latest` (2026-07-28), but a
+# replica can be behind at `pending` too, and then two consecutive sends
+# sign the SAME nonce: for a call whose calldata and gas are identical
+# (a level-up, a feed) the signed bytes are identical, the second
+# "confirmation" is the first transaction's receipt, and a level is
+# counted twice (reproduced in tests/test_h400_send_path.py). Each send
+# therefore takes max(pending, the lane's FLOOR) — the floor is never
+# below anything this harness saw accepted or mined.
 _NONCE_BLOCK = "pending"
+
+# Receipt budget of ONE transaction. Every call must fit a 90 s wall-clock
+# box, so a single send waits 60 s at most, resolving every 5 s.
+_SINGLE_RECEIPT_BUDGET_S = 60
+_RESOLVE_EVERY_S = 5
+# The same signed bytes are re-offered on an ambiguous refusal: up to
+# three re-offers, one second apart. Re-offering the same bytes is
+# idempotent; re-signing is not, and happens only at the same nonce.
+_REOFFER_ATTEMPTS = 3
+_REOFFER_SPACING_S = 1.0
+# Fresh nonces one send may take when the node proves the previous one
+# consumed by another hash (C1).
+_NONCE_ATTEMPTS = 3
+# "Proven gone" = two null lookups (receipt AND transaction), each on a
+# fresh HTTP session, this far apart. One null is never proof: this
+# endpoint answers null for a mined transaction on some requests.
+_GONE_SPACING_S = 1.0
+# How long a later call waits for an earlier call's armed tail, released
+# by a gap fill, to mine before it reports and moves on.
+_DRAIN_BUDGET_S = 30
+# How many blocks back a collision search looks for the transaction that
+# consumed a nonce, when it is not one this harness signed (one batched
+# read; a few blocks per second on this chain, so ~20-60 s of history).
+_CONSUMER_SCAN_BLOCKS = 64
+
+# A gap fill is a zero-value transfer to self. eth_estimateGas for a
+# plain or self transfer on Yominet read 173,460-173,531 from six public
+# senders on 2026-10-03 (read-only); the 2026-08 observation behind
+# _PLAIN_TRANSFER_GAS was 113,251 gas used. 1.5 x the current estimate.
+_FILL_GAS = 260_000
+
+_LANES: dict[tuple[int, str], lanes.Lane] = {}
+_LANES_LOCK = threading.Lock()
+# Broadcast hash (as returned) -> (lane, ledger hash). The two agree on a
+# real node; they are kept apart so an offline fake cannot confuse them.
+_INFLIGHT: dict[str, tuple] = {}
+_REOFFERED: set[str] = set()
+
+
+def _lane(address: str, chain_id: int = CHAIN_ID) -> lanes.Lane:
+    addr = Web3.to_checksum_address(address)
+    key = (chain_id, addr)
+    with _LANES_LOCK:
+        lane = _LANES.get(key)
+        if lane is None:
+            lane = lanes.Lane(chain_id, addr, lanes.default_dir())
+            _LANES[key] = lane
+        return lane
+
+
+class _RpcUnavailable(Exception):
+    """A lookup that could not be made or answered. Never proof."""
+
+
+def _rpc(method: str, params: list, fresh: bool = False):
+    provider = getattr(w3, "provider", None)
+    if provider is None or not callable(getattr(provider, "make_request", None)):
+        raise _RpcUnavailable("no JSON-RPC provider")
+    if fresh:
+        provider = _fresh_provider(provider)
+    try:
+        resp = provider.make_request(method, params)
+    except Exception as e:
+        raise _RpcUnavailable(_err_text(e)) from e
+    if not isinstance(resp, dict):
+        raise _RpcUnavailable(str(resp)[:200])
+    if resp.get("error") is not None:
+        raise _RpcUnavailable(json.dumps(resp["error"], default=str)[:300])
+    return resp.get("result")
+
+
+def _tx_status(tx_hash: str, fresh: bool = False) -> str:
+    """'mined' | 'held' | 'absent' for one hash, as this node sees it."""
+    if _rpc("eth_getTransactionReceipt", [tx_hash], fresh):
+        return "mined"
+    tx = _rpc("eth_getTransactionByHash", [tx_hash], fresh)
+    if tx:
+        return "mined" if tx.get("blockNumber") else "held"
+    return "absent"
+
+
+def _proven_absent(tx_hash: str) -> bool:
+    """Two null lookups on fresh sessions, _GONE_SPACING_S apart."""
+    for i in range(2):
+        if i:
+            time.sleep(_GONE_SPACING_S)
+        try:
+            if _tx_status(tx_hash, fresh=True) != "absent":
+                return False
+        except _RpcUnavailable:
+            return False
+    return True
+
+
+def _count(addr: str, block: str) -> int | None:
+    try:
+        return int(w3.eth.get_transaction_count(addr, block))
+    except Exception:
+        return None
+
+
+# Broadcast refusals, read from the node's own words. Anything not named
+# here is AMBIGUOUS: the node may or may not hold the transaction, so the
+# same bytes are re-offered and the hash is looked up — never re-signed.
+_SEND_TAKEN = ("same nonce", "replacement transaction underpriced",
+               "nonce already")
+_SEND_KNOWN = ("already known", "already exists", "already in mempool",
+               "known transaction", "already imported")
+_SEND_STALE = ("nonce too low", "account sequence mismatch",
+               "invalid nonce", "nonce is too low")
+_SEND_DEFINITIVE = ("insufficient funds", "does not exist",
+                    "unknown address", "intrinsic gas", "max lane gas",
+                    "exceeds block gas limit", "fee cap", "underpriced",
+                    "invalid sender", "invalid chain id")
+
+
+def _classify_send_error(text: str) -> str:
+    lo = text.lower()
+    if any(m in lo for m in _SEND_TAKEN):
+        return "taken"
+    if any(m in lo for m in _SEND_KNOWN):
+        return "known"
+    if any(m in lo for m in _SEND_STALE):
+        m = re.search(r"expected (\d+),? got (\d+)", lo)
+        if m and int(m.group(2)) > int(m.group(1)):
+            return "ambiguous"   # "ahead of the sequence": nothing consumed
+        return "stale"
+    if _is_readiness(lo):
+        return "ambiguous"
+    if any(m in lo for m in _SEND_DEFINITIVE):
+        return "definitive"
+    return "ambiguous"
+
+
+class _BroadcastRefused(RuntimeError):
+    """The node did not take the transaction, and the ledger proved it.
+    The message is the node's own words, verbatim."""
+
+
+def _offer(raw: bytes, entry_hash: str) -> tuple[str, str]:
+    """Offer ONE signed transaction; re-offer the SAME bytes if ambiguous.
+
+    Returns (verdict, payload):
+      accepted — the node took it (payload: the hash it answered);
+      consumed — the node says the nonce is used and our hash is absent;
+      refused  — definitive refusal, or proven absent after re-offers;
+      unknown  — could not be proven either way (payload: last answer).
+    """
+    last = ""
+    for attempt in range(1 + _REOFFER_ATTEMPTS):
+        if attempt:
+            time.sleep(_REOFFER_SPACING_S)
+        try:
+            return "accepted", _hex_hash(w3.eth.send_raw_transaction(raw))
+        except Exception as e:
+            last = _err_text(e)
+        cls = _classify_send_error(last)
+        if cls == "known":
+            return "accepted", entry_hash
+        if cls == "definitive":
+            return "refused", last
+        try:
+            st = _tx_status(entry_hash)
+        except _RpcUnavailable:
+            st = None
+        if st in ("mined", "held"):
+            return "accepted", entry_hash
+        if cls in ("stale", "taken"):
+            # C1: a NEW nonce only once this one is proven consumed by a
+            # different hash — the node's word plus our hash proven
+            # absent. Without that proof nothing is re-signed.
+            if st == "absent" and _proven_absent(entry_hash):
+                return "consumed", last
+            return "unknown", last
+    if _proven_absent(entry_hash):
+        return "refused", last
+    return "unknown", last
+
+
+def _lane_next_nonce(lane: lanes.Lane, addr: str) -> int:
+    pending = int(w3.eth.get_transaction_count(addr, _NONCE_BLOCK))
+    return max(pending, lane.floor)
+
+
+def _origin(e: dict | lanes.Entry) -> str:
+    d = e.public() if isinstance(e, lanes.Entry) else e
+    when = d.get("signed_at")
+    stamp = (
+        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(when))
+        if isinstance(when, (int, float)) else "?"
+    )
+    step = f" step {d['step']}" if d.get("step") is not None else ""
+    what = "gap fill" if d.get("kind") == "fill" else d.get("tool") or "?"
+    return f"{what}{step}, signed {stamp}"
+
+
+def _scan_consumer(addr: str, nonce: int) -> str | None:
+    """The hash that used `nonce` for `addr`, from recent blocks.
+
+    Only on the collision path, and in ONE batched read of the last
+    _CONSUMER_SCAN_BLOCKS blocks. None when it is not found there.
+    """
+    try:
+        head = int(_rpc("eth_blockNumber", []), 16)
+    except (_RpcUnavailable, TypeError, ValueError):
+        return None
+    numbers = list(range(head, max(-1, head - _CONSUMER_SCAN_BLOCKS), -1))
+    try:
+        responses = _batch_call(
+            [("eth_getBlockByNumber", [hex(b), True]) for b in numbers])
+        blocks = [r.get("result") for r in responses
+                  if isinstance(r, dict)] if isinstance(responses, list) else []
+    except Exception:
+        blocks = []
+    lo_addr = addr.lower()
+    for blk in blocks:
+        for tx in (blk or {}).get("transactions") or []:
+            if (isinstance(tx, dict)
+                    and str(tx.get("from", "")).lower() == lo_addr
+                    and int(str(tx.get("nonce", "0x0")), 16) == nonce):
+                return tx.get("hash")
+    return None
+
+
+def _lane_consumer(lane: lanes.Lane, nonce: int, exclude: str):
+    """(hash, signed_by_harness, origin) of what consumed `nonce`."""
+    rec = lane.recent_at(nonce)
+    if rec is not None and rec["hash"] != exclude:
+        return rec["hash"], True, _origin(rec)
+    for e in lane.at_nonce(nonce):
+        if e.hash == exclude:
+            continue
+        try:
+            if _tx_status(e.hash) == "mined":
+                return e.hash, True, _origin(e)
+        except _RpcUnavailable:
+            pass
+    return _scan_consumer(lane.address, nonce), False, ""
+
+
+def _check_inflight(tx_hash) -> None:
+    """Between receipt slices: raise if the ledger PROVES it cannot mine."""
+    ref = _INFLIGHT.get(_hex_hash(tx_hash).lower())
+    if ref is None:
+        return
+    lane, eh = ref
+    entry = lane.entries.get(eh)
+    if entry is None or entry.state == lanes.RELEASED:
+        return
+    try:
+        if _tx_status(eh) in ("mined", "held"):
+            return
+    except _RpcUnavailable:
+        return
+    latest = _count(lane.address, "latest")
+    if latest is None:
+        return
+    if entry.nonce < latest:
+        if not _proven_absent(eh):
+            return
+        who, ours, origin = _lane_consumer(lane, entry.nonce, exclude=eh)
+        with lane.critical():
+            lane.release(entry, f"nonce {entry.nonce} consumed by {who}")
+        raise TxNonceCollisionError(
+            _hex_hash(tx_hash), entry.nonce, who, ours, origin)
+    if not _proven_absent(eh):
+        return
+    if entry.raw and eh not in _REOFFERED:
+        # Same call, same bytes: re-offering is idempotent (C1).
+        _REOFFERED.add(eh)
+        verdict, _payload = _offer(bytes.fromhex(entry.raw[2:]), eh)
+        if verdict in ("accepted", "unknown"):
+            return
+    with lane.critical():
+        lane.release(entry, "not held by the node (two fresh lookups)")
+    raise TxDroppedError(
+        _hex_hash(tx_hash), entry.nonce,
+        "two lookups on fresh sessions found neither the transaction nor "
+        "a receipt",
+    )
+
+
+def _lane_fill(lane: lanes.Lane, addr: str, key: str, nonce: int,
+               ctl: _CallControl) -> tuple[str | None, str]:
+    """Sign and offer a zero-value self-transfer AT `nonce`.
+
+    Exactly one transaction can occupy a nonce, so a fill is mutually
+    exclusive with whatever else was signed there: if the original
+    resurfaces and wins, the fill is the one dropped. Returns (sent
+    hash, "") or (None, reason).
+    """
+    tx = {
+        "from": addr, "to": addr, "value": 0, "gas": _FILL_GAS,
+        "chainId": CHAIN_ID, "nonce": nonce, **_GAS_PRICE,
+    }
+    try:
+        signed = w3.eth.account.sign_transaction(tx, private_key=key)
+    except Exception as e:
+        return None, _err_text(e)
+    raw = bytes(signed.raw_transaction)
+    h = _seq_tx_hash(raw)
+    entry = lane.add(nonce, h, raw, ctl.id, ctl.tool, None, kind="fill")
+    lane.save()
+    verdict, payload = _offer(raw, h)
+    if verdict in ("accepted", "unknown"):
+        lane.offered(entry)
+        _INFLIGHT[payload.lower() if verdict == "accepted" else h] = (lane, h)
+        return (payload if verdict == "accepted" else h), ""
+    lane.release(entry, f"fill {verdict}: {payload}")
+    return None, payload
+
+
+def _batch_receipts(hashes: list[str]) -> dict | None:
+    """{hash: raw receipt} for those mined, in ONE round-trip; None when
+    the endpoint will not batch (callers then read one by one)."""
+    if not hashes:
+        return {}
+    try:
+        responses = _batch_call(
+            [("eth_getTransactionReceipt", [h]) for h in hashes])
+    except Exception:
+        return None
+    if not isinstance(responses, list):
+        return None
+    out = {}
+    for resp in responses:
+        if (isinstance(resp, dict) and isinstance(resp.get("id"), int)
+                and 0 <= resp["id"] < len(hashes) and resp.get("result")):
+            out[hashes[resp["id"]].lower()] = resp["result"]
+    return out
+
+
+def _format_receipt(raw: dict):
+    return AttributeDict.recursive(receipt_formatter(raw))
+
+
+def _lane_drain(lane, addr, key, ctl, pending: int, held: list) -> None:
+    """C4 — an earlier call's transactions are armed behind a gap.
+
+    Fill every gap nonce with a zero-value self-transfer (never with this
+    call's own action), let the released transactions mine, and say so:
+    the call's first notice names every released transaction with its
+    tool, step, signing time, hash and outcome. If a gap cannot be
+    filled the call refuses before sending its own action.
+    """
+    armed = sorted((e for e in held if e.nonce >= pending),
+                   key=lambda e: e.nonce)
+    held_nonces = {e.nonce for e in held}
+    gaps = [n for n in range(pending, armed[-1].nonce)
+            if n not in held_nonces]
+    fills = []
+    for n in gaps:
+        sent, reason = _lane_fill(lane, addr, key, n, ctl)
+        if sent is None:
+            raise LaneBlockedError(
+                addr, n, [e.public() for e in armed], reason)
+        fills.append((n, sent))
+    targets = {e.hash.lower(): e for e in armed}
+    targets.update({h.lower(): None for _n, h in fills})
+    outcome: dict[str, str] = {}
+    deadline = time.monotonic() + _DRAIN_BUDGET_S
+    while True:
+        open_ = [h for h in targets if h not in outcome]
+        if not open_:
+            break
+        found = _batch_receipts(open_)
+        for h in open_:
+            raw = None
+            if found is not None:
+                raw = found.get(h)
+            else:
+                try:
+                    raw = _rpc("eth_getTransactionReceipt", [h])
+                except _RpcUnavailable:
+                    raw = None
+            if raw:
+                ok = int(str(raw.get("status", "0x0")), 16) == 1
+                outcome[h] = "success" if ok else "reverted"
+                e = targets[h]
+                lane.mined(e.hash if e else h, None if e else
+                           next(n for n, s in fills if s.lower() == h))
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(1.0)
+    parts = []
+    for e in armed:
+        st = outcome.get(e.hash.lower(), "unconfirmed")
+        parts.append(f"{e.hash} ({_origin(e)}) -> {st}")
+    filled = ", ".join(
+        f"nonce {n} by {h} -> {outcome.get(h.lower(), 'unconfirmed')}"
+        for n, h in fills
+    )
+    ctl.notice(
+        f"released {len(armed)} transaction(s) left armed behind nonce "
+        f"{pending} by an earlier call: " + "; ".join(parts)
+        + f". Gap filled with a zero-value self-transfer: {filled}. This "
+        f"call re-ran its own validation afterwards."
+    )
+
+
+def _lane_prepare(lane: lanes.Lane, addr: str, key: str,
+                  ctl: _CallControl) -> bool:
+    """Resolve the ledger before a nonce is chosen. True if it drained.
+
+    Free when the ledger is empty, which is the steady state: a loop's
+    previous step is resolved by its own receipt before the next begins.
+    """
+    active, tombs = lane.active(), lane.tombstones()
+    if not active and not tombs:
+        return False
+    latest = _count(addr, "latest")
+    pending = _count(addr, _NONCE_BLOCK)
+    held = []
+    for e in active:
+        try:
+            st = _tx_status(e.hash)
+        except _RpcUnavailable:
+            continue                      # unknowable now: keep it
+        if st == "mined":
+            if e.call != ctl.id and e.kind == "action":
+                ctl.notice(
+                    f"an earlier call's transaction {e.hash} "
+                    f"({_origin(e)}) has since mined at nonce {e.nonce}")
+            lane.mined(e.hash)
+            continue
+        if st == "held":
+            held.append(e)
+            continue
+        if latest is not None and e.nonce < latest:
+            if _proven_absent(e.hash):
+                who, ours, origin = _lane_consumer(lane, e.nonce, e.hash)
+                lane.release(e, f"nonce {e.nonce} consumed by {who}")
+                if e.call != ctl.id:
+                    ctl.notice(
+                        f"an earlier call's transaction {e.hash} "
+                        f"({_origin(e)}) was NOT executed: its nonce "
+                        f"{e.nonce} was consumed by {who or 'another hash'}"
+                        f"{' (signed by this harness, ' + origin + ')' if ours else ''}")
+        elif _proven_absent(e.hash):
+            lane.release(e, "not held by the node (two fresh lookups)")
+    for t in tombs:
+        if latest is not None and t.nonce < latest:
+            try:
+                if _tx_status(t.hash) == "mined":
+                    ctl.notice(
+                        f"a transaction this harness had released, {t.hash} "
+                        f"({_origin(t)}), mined late at nonce {t.nonce}")
+                    lane.mined(t.hash)
+                    continue
+            except _RpcUnavailable:
+                continue
+            lane.prune(t)
+    lane.recompute_floor()
+    if pending is not None and any(e.nonce >= pending for e in held):
+        _lane_drain(lane, addr, key, ctl, pending, held)
+        return True
+    return False
+
+
+def _lane_send(
+    signer_addr: str, signer_key: str, build, *, role: str, account: str,
+    revalidate=None, step: int | None = None,
+) -> tuple[str, dict, lanes.Entry, lanes.Lane]:
+    """The send critical section for ONE transaction.
+
+    Under the lane lock: resolve the ledger (draining an earlier call's
+    armed tail if there is one, then re-running this call's validation),
+    pick max(pending, floor), build and sign, write the entry AHEAD of
+    the broadcast, offer it. A refusal is resolved, never guessed at:
+    the same bytes are re-offered when the answer is ambiguous, and a
+    new nonce is taken ONLY when the node says this one is used and our
+    hash is proven absent. Returns (broadcast hash, built tx, entry,
+    lane); the receipt wait happens outside the lock.
+    """
+    ctl = _call()
+    ctl.check()
+    lane = _lane(signer_addr)
+    with lane.critical():
+        if _lane_prepare(lane, signer_addr, signer_key, ctl) and revalidate:
+            revalidate()
+        last = ""
+        for _attempt in range(_NONCE_ATTEMPTS):
+            nonce = _lane_next_nonce(lane, signer_addr)
+            try:
+                built = build(nonce)
+                signed = w3.eth.account.sign_transaction(
+                    built, private_key=signer_key)
+            except Exception as e:
+                raise _wrap_send_error(e, signer_addr, role, account)
+            raw = bytes(signed.raw_transaction)
+            h = _seq_tx_hash(raw)
+            if lane.is_live_hash(h, nonce):
+                # These exact bytes already went out as another step.
+                lane.floor = max(lane.floor, nonce + 1)
+                continue
+            entry = lane.add(nonce, h, raw, ctl.id, ctl.tool, step)
+            lane.save()
+            verdict, payload = _offer(raw, h)
+            if verdict in ("accepted", "unknown"):
+                lane.offered(entry)
+                if verdict == "unknown":
+                    entry.evidence = f"broadcast unanswered: {payload}"[:300]
+                lane.save()
+                sent = payload if verdict == "accepted" else h
+                _INFLIGHT[sent.lower()] = (lane, h)
+                return sent, built, entry, lane
+            lane.release(entry, f"{verdict}: {payload}")
+            if verdict == "consumed":
+                lane.floor = max(lane.floor, nonce + 1)
+                last = payload
+                continue
+            raise _wrap_send_error(
+                _BroadcastRefused(payload), signer_addr, role, account)
+        raise _wrap_send_error(
+            _BroadcastRefused(
+                f"no free nonce after {_NONCE_ATTEMPTS} attempts; the "
+                f"node's last answer: {last}"),
+            signer_addr, role, account)
+
+
+def _lane_await(lane, entry, tx_hash, built, timeout=None,
+                account=None, ceiling_key=None):
+    """The receipt wait for one lane send, with the ledger kept true."""
+    ctl = _call()
+    timeout = _SINGLE_RECEIPT_BUDGET_S if timeout is None else timeout
+    try:
+        receipt = _await_receipt(
+            tx_hash, built, timeout=timeout, account=account,
+            ceiling_key=ceiling_key,
+        )
+    except OnChainRevertError as e:
+        with lane.critical():
+            lane.mined(entry.hash, entry.nonce)
+        _INFLIGHT.pop(_hex_hash(tx_hash).lower(), None)
+        ctl.step(e.tx_hash, "reverted")
+        raise
+    except TxNotExecutedError as e:
+        ctl.step(e.tx_hash, "dropped")
+        raise
+    except TxUnconfirmedError as e:
+        ctl.step(e.tx_hash, "unconfirmed")
+        raise
+    with lane.critical():
+        lane.mined(entry.hash, entry.nonce)
+    _INFLIGHT.pop(_hex_hash(tx_hash).lower(), None)
+    ctl.step(_hex_hash(receipt.transactionHash), "success")
+    return receipt
+
+
+def _signed_send(fn_or_tx, signer_addr, signer_key, role, account, *,
+                 gas_limit=None, value_wei=0, revalidate=None,
+                 ceiling_key=None, timeout=None, plain=False):
+    """Build, sign, send ONE transaction on the signer's lane and await
+    its receipt. `fn_or_tx` is a bound contract function, or (plain) a
+    transaction dict for a value transfer."""
+
+    def build(nonce):
+        if plain:
+            return {**fn_or_tx, "nonce": nonce}
+        tx_params = {
+            "from": signer_addr, "chainId": CHAIN_ID, "nonce": nonce,
+            **_GAS_PRICE,
+        }
+        if value_wei:
+            tx_params["value"] = value_wei
+        if gas_limit:
+            tx_params["gas"] = gas_limit
+        return fn_or_tx.build_transaction(tx_params)
+
+    tx_hash, built, entry, lane = _lane_send(
+        signer_addr, signer_key, build, role=role, account=account,
+        revalidate=revalidate,
+    )
+    receipt = _lane_await(lane, entry, tx_hash, built, timeout,
+                          account=account, ceiling_key=ceiling_key)
+    return receipt
+
+
+def _validated_fn(system_id, abi, fn_name, args, from_addr, value_wei=0,
+                  account=None):
+    """The bound function, dry-run against the CURRENT system address.
+
+    System addresses are cached for the process. When a dry-run reverts
+    for a reason that is not infrastructure, the system id is resolved
+    again from the World registry; if the address changed (a redeploy),
+    the component cache is dropped too and the dry-run is retried once
+    against the new address. An unchanged address means the cache was
+    not the cause, and the original refusal stands.
+    """
+    fn = getattr(
+        w3.eth.contract(address=_resolve_system(system_id), abi=abi).functions,
+        fn_name,
+    )(*args)
+    try:
+        _dry_run(fn, from_addr, value_wei, account=account)
+        return fn
+    except PreTxValidationError as first:
+        if getattr(first, "infrastructure", False):
+            raise
+        old = _system_cache.get(system_id)
+        if old is None:
+            raise
+        _system_cache.pop(system_id, None)
+        try:
+            new = _resolve_system(system_id)
+        except Exception:
+            _system_cache[system_id] = old
+            raise first
+        if new == old:
+            raise
+        _component_cache.clear()
+        print(
+            f"NOTE: {system_id} moved {old} -> {new}; re-resolved from the "
+            f"World registry", file=sys.stderr,
+        )
+        fn = getattr(w3.eth.contract(address=new, abi=abi).functions,
+                     fn_name)(*args)
+        _dry_run(fn, from_addr, value_wei, account=account)
+        return fn
 
 
 def _send_tx(
@@ -1877,39 +2797,24 @@ def _send_tx(
 
     Validates before signing (PreTxValidationError, no gas spent):
     operator bound to a registered account, operator gas balance, and
-    an eth_call dry-run of the exact calldata. After broadcast the
-    receipt is enforced: a confirmed revert raises OnChainRevertError,
-    a receipt timeout raises TxUnconfirmedError; a returned result is
-    always a confirmed success.
+    an eth_call dry-run of the exact calldata. The send rides the
+    operator's lane. After broadcast the receipt is enforced: a
+    confirmed revert raises OnChainRevertError; a nonce consumed by
+    another hash raises TxNonceCollisionError; a transaction the node
+    no longer holds raises TxDroppedError; no receipt within the budget
+    raises TxUnconfirmedError. A returned result is always a confirmed
+    success.
     """
     acct = _get_account(account)
-    addr = _resolve_system(system_id)
-    contract = w3.eth.contract(address=addr, abi=abi)
-    fn = contract.functions.executeTyped(*args)
-
     _require_registered_operator(account)
     _require_gas_balance(acct.operator_addr, gas_limit, 0, "operator")
-    _dry_run(fn, acct.operator_addr, account=account)
-
-    tx_params = {
-        "from": acct.operator_addr,
-        "chainId": CHAIN_ID,
-        "nonce": w3.eth.get_transaction_count(acct.operator_addr, _NONCE_BLOCK),
-        **_GAS_PRICE,
-    }
-    if gas_limit:
-        tx_params["gas"] = gas_limit
-
-    try:
-        built = fn.build_transaction(tx_params)
-        signed = w3.eth.account.sign_transaction(built, private_key=acct.operator_key)
-        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    except Exception as e:
-        raise _wrap_send_error(e, acct.operator_addr, "operator", account)
-    receipt = _await_receipt(
-        tx_hash, built, timeout=120, account=account, ceiling_key=ceiling_key
+    fn = _validated_fn(system_id, abi, "executeTyped", args,
+                       acct.operator_addr, account=account)
+    receipt = _signed_send(
+        fn, acct.operator_addr, acct.operator_key, "operator", account,
+        gas_limit=gas_limit, ceiling_key=ceiling_key,
+        revalidate=lambda: _dry_run(fn, acct.operator_addr, account=account),
     )
-
     result = {
         "tx_hash": _hex_hash(receipt.transactionHash),
         "status": "success",
@@ -1941,9 +2846,8 @@ def _send_batch_tx(
     Validates before signing (PreTxValidationError, no gas spent):
     non-empty target array (an empty batch executes as an on-chain
     status=1 no-op), registered account, signer gas balance, and an
-    eth_call dry-run. The batch call is atomic on-chain; a confirmed
-    revert raises OnChainRevertError, a receipt timeout raises
-    TxUnconfirmedError.
+    eth_call dry-run. The batch call is atomic on-chain; it rides the
+    signer's lane and its receipt is enforced as _send_tx's is.
 
     Gas is `gas_base + gas_per_item * count`. `gas_base` defaults to 0 —
     the historical shape — but a family whose cost curve has a large
@@ -1969,9 +2873,6 @@ def _send_batch_tx(
         signer_addr, signer_key, role = (
             acct.operator_addr, acct.operator_key, "operator",
         )
-    addr = _resolve_system(system_id)
-    contract = w3.eth.contract(address=addr, abi=abi)
-    fn = getattr(contract.functions, fn_name)(*args)
     count = max(len(args[0]) if isinstance(args[0], list) else 1, 1)
     gas = _batch_gas(gas_base, gas_per_item, count, "entities")
 
@@ -1980,23 +2881,12 @@ def _send_batch_tx(
     else:
         _require_registered_operator(account)
     _require_gas_balance(signer_addr, gas, 0, role)
-    _dry_run(fn, signer_addr, account=account)
-
-    tx_params = {
-        "from": signer_addr,
-        "chainId": CHAIN_ID,
-        "nonce": w3.eth.get_transaction_count(signer_addr, _NONCE_BLOCK),
-        "gas": gas,
-        **_GAS_PRICE,
-    }
-    try:
-        built = fn.build_transaction(tx_params)
-        signed = w3.eth.account.sign_transaction(built, private_key=signer_key)
-        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    except Exception as e:
-        raise _wrap_send_error(e, signer_addr, role, account)
-    receipt = _await_receipt(
-        tx_hash, built, timeout=180, account=account, ceiling_key=ceiling_key
+    fn = _validated_fn(system_id, abi, fn_name, args, signer_addr,
+                       account=account)
+    receipt = _signed_send(
+        fn, signer_addr, signer_key, role, account, gas_limit=gas,
+        ceiling_key=ceiling_key,
+        revalidate=lambda: _dry_run(fn, signer_addr, account=account),
     )
     result = {
         "tx_hash": _hex_hash(receipt.transactionHash),
@@ -2009,6 +2899,16 @@ def _send_batch_tx(
     return result
 
 
+# What _send_tx_retry re-runs on. Since 4.0.0 a failure that reaches it
+# never follows an admitted broadcast: the lane resolves those itself
+# and raises a post-broadcast type, which is re-raised below. What is
+# left is pre-send: a stale sequence (the lane already moved past it)
+# and the replica readiness class on a read that outlived its retries.
+_SEND_RETRY_MARKERS = _RETRY_ROUTING_MARKERS
+_POST_BROADCAST = (OnChainRevertError, TxUnconfirmedError, TxNotExecutedError,
+                   LaneBlockedError, CallCancelledError)
+
+
 def _send_tx_retry(
     account: str,
     system_id: str,
@@ -2018,29 +2918,25 @@ def _send_tx_retry(
     retries: int = 3,
     ceiling_key: str | None = None,
 ) -> dict:
-    """_send_tx with retry on transient RPC errors (e.g. -32000 nonce race)."""
+    """_send_tx with retry on transient pre-send RPC errors."""
     for attempt in range(retries):
         try:
             return _send_tx(
                 account, system_id, abi, args, gas_limit,
                 ceiling_key=ceiling_key,
             )
-        except (OnChainRevertError, TxUnconfirmedError):
+        except _POST_BROADCAST:
             # Never blindly resubmit: a confirmed revert is final (a
-            # retry would re-execute the action), and an unconfirmed tx
-            # may still land (a retry could execute it twice).
+            # retry would re-execute the action), an unconfirmed tx may
+            # still land (a retry could execute it twice), a proven
+            # non-execution is a fact to report, and a cancel is the
+            # client's decision.
             raise
         except Exception as e:
-            # Each retry re-reads the nonce inside _send_tx, so a stale
-            # sequence resolves itself. Never reached for a confirmed
-            # revert or an unconfirmed tx: both are re-raised above.
             if attempt < retries - 1 and any(
-                m in str(e) for m in _RETRY_ROUTING_MARKERS
+                m in str(e) for m in _SEND_RETRY_MARKERS
             ):
-                # 1s, 2s, 4s. A wider backoff only helps a sequence that
-                # is stale because the node is behind; it cannot help a
-                # sequence that is stale because ANOTHER signer is using
-                # the same key (see CHANGELOG 3.4.0).
+                # 1s, 2s, 4s.
                 time.sleep(2 ** attempt)
                 continue
             raise
@@ -2060,7 +2956,8 @@ def _send_tx_owner(
     Validates before signing (PreTxValidationError, no gas spent):
     registered account for the owner wallet (skipped for
     system.account.register, which creates that account), owner gas
-    balance, and an eth_call dry-run of the exact calldata.
+    balance, and an eth_call dry-run of the exact calldata. Rides the
+    owner's lane.
     """
     acct = _get_account(account)
     if not acct.owner_key:
@@ -2069,34 +2966,17 @@ def _send_tx_owner(
             f"Set {account.upper()}_OWNER_KEY in "
             f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
         )
-    addr = _resolve_system(system_id)
-    contract = w3.eth.contract(address=addr, abi=abi)
-    fn = contract.functions.executeTyped(*args)
-
     if system_id != "system.account.register":
         _require_registered_owner(account)
     _require_gas_balance(acct.owner_addr, gas_limit, value_wei, "owner")
-    _dry_run(fn, acct.owner_addr, value_wei, account=account)
-
-    tx_params = {
-        "from": acct.owner_addr,
-        "chainId": CHAIN_ID,
-        "nonce": w3.eth.get_transaction_count(acct.owner_addr, _NONCE_BLOCK),
-        **_GAS_PRICE,
-    }
-    if value_wei:
-        tx_params["value"] = value_wei
-    if gas_limit:
-        tx_params["gas"] = gas_limit
-
-    try:
-        built = fn.build_transaction(tx_params)
-        signed = w3.eth.account.sign_transaction(built, private_key=acct.owner_key)
-        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    except Exception as e:
-        raise _wrap_send_error(e, acct.owner_addr, "owner", account)
-    receipt = _await_receipt(tx_hash, built, timeout=120, account=account)
-
+    fn = _validated_fn(system_id, abi, "executeTyped", args, acct.owner_addr,
+                       value_wei, account=account)
+    receipt = _signed_send(
+        fn, acct.owner_addr, acct.owner_key, "owner", account,
+        gas_limit=gas_limit, value_wei=value_wei,
+        revalidate=lambda: _dry_run(fn, acct.owner_addr, value_wei,
+                                    account=account),
+    )
     result = {
         "tx_hash": _hex_hash(receipt.transactionHash),
         "status": "success",
@@ -2122,19 +3002,17 @@ def _send_eth(
     value_wei: int,
     gas_limit: int | None = None,
 ) -> dict:
-    """Sign and send a plain ETH value transfer (empty calldata)."""
+    """Sign and send a plain ETH value transfer (empty calldata), on the
+    sender's lane."""
     tx = {
         "from": from_addr,
         "to": to_addr,
         "value": value_wei,
         "gas": gas_limit or _PLAIN_TRANSFER_GAS,
         "chainId": CHAIN_ID,
-        "nonce": w3.eth.get_transaction_count(from_addr, _NONCE_BLOCK),
         **_GAS_PRICE,
     }
-    signed = w3.eth.account.sign_transaction(tx, private_key=from_key)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    receipt = _await_receipt(tx_hash, tx, timeout=120)
+    receipt = _signed_send(tx, from_addr, from_key, "sender", "", plain=True)
     return {
         "tx_hash": _hex_hash(receipt.transactionHash),
         "status": "success",
@@ -2869,6 +3747,11 @@ accounts:
 """
 
 
+# Key-file, roster and account-registry writes, serialised (tool bodies
+# run on worker threads).
+_STATE_WRITE_LOCK = threading.RLock()
+
+
 def _roster_add_account(
     label: str, owner_address: str, operator_address: str
 ) -> str:
@@ -2881,6 +3764,11 @@ def _roster_add_account(
     fail the tool call — returns "created", "added", "already_present",
     or "failed: <reason>".
     """
+    with _STATE_WRITE_LOCK:
+        return _roster_append(label, owner_address, operator_address)
+
+
+def _roster_append(label: str, owner_address: str, operator_address: str) -> str:
     entry = (
         f"  {label}:\n"
         f'    owner_address: "{owner_address}"\n'
@@ -2925,6 +3813,14 @@ def create_operator_wallet(account: str) -> dict:
     operator key. The new operator is bound on-chain later by
     register_account.
     """
+    # Check-then-create is one step: tool bodies run on worker threads,
+    # and two concurrent calls must not both pass the "already has an
+    # operator key" check.
+    with _STATE_WRITE_LOCK:
+        return _create_operator_wallet(account)
+
+
+def _create_operator_wallet(account: str) -> dict:
     label = account.lower()
     if not label.replace("_", "").isalnum():
         raise ValueError(
@@ -9962,7 +10858,6 @@ def _seq_prefetch_reads(steps: list[dict], aid: int) -> dict:
             (key, _resolve_component(subjects[key][0]), subjects[key][1])
             for key in plan
         ]
-        provider = _seq_batch_provider(None)
         out: dict = {}
         for start in range(0, len(calls), _SEQ_READ_CHUNK):
             part = calls[start:start + _SEQ_READ_CHUNK]
@@ -9975,12 +10870,7 @@ def _seq_prefetch_reads(steps: list[dict], aid: int) -> dict:
                 ])
                 for _key, addr, eid in part
             ]
-            saved = provider.request_counter
-            provider.request_counter = itertools.count(0)
-            try:
-                responses = provider.make_batch_request(requests)
-            finally:
-                provider.request_counter = saved
+            responses = _batch_call(requests)
             if not isinstance(responses, list):
                 return out
             by_id = {
@@ -10213,6 +11103,29 @@ def _seq_batch_provider(timeout_s: float | None):
     return _seq_batch_providers[key]
 
 
+# Every JSON-RPC batch borrows its provider's request-id counter (the
+# batch ids must be chosen: they are the nonces of a broadcast, the
+# indices of a read plan). Swapping a SHARED counter while another
+# thread draws an id from it would shift a batch's ids off its items, so
+# every swap happens under this lock, and read batches go through a
+# DEDICATED provider — never `w3.provider`, which every other call uses.
+_BATCH_LOCK = threading.RLock()
+_READ_BATCH_TIMEOUT_S = 30.0
+
+
+def _batch_call(requests: list, first_id: int = 0, timeout_s=None):
+    """One JSON-RPC batch with ids first_id.. — thread-safe."""
+    provider = _seq_batch_provider(
+        _READ_BATCH_TIMEOUT_S if timeout_s is None else timeout_s)
+    with _BATCH_LOCK:
+        saved = provider.request_counter
+        provider.request_counter = itertools.count(first_id)
+        try:
+            return provider.make_batch_request(requests)
+        finally:
+            provider.request_counter = saved
+
+
 def _seq_tx_hash(raw) -> str:
     """A signed transaction's hash, KNOWN BEFORE IT IS BROADCAST.
 
@@ -10280,14 +11193,15 @@ def _seq_batch_send(
     requests = [
         ("eth_sendRawTransaction", [_hex_hash(raw)]) for _j, _n, raw in items
     ]
-    saved = provider.request_counter
-    provider.request_counter = itertools.count(items[0][1])
-    try:
-        responses = provider.make_batch_request(requests)
-    except Exception as e:
-        raise _SeqBatchTransportError(f"{type(e).__name__}: {e}") from e
-    finally:
-        provider.request_counter = saved
+    with _BATCH_LOCK:
+        saved = provider.request_counter
+        provider.request_counter = itertools.count(items[0][1])
+        try:
+            responses = provider.make_batch_request(requests)
+        except Exception as e:
+            raise _SeqBatchTransportError(f"{type(e).__name__}: {e}") from e
+        finally:
+            provider.request_counter = saved
     if not isinstance(responses, list):
         # A single object instead of an array is the node refusing the
         # BATCH, not the transactions in it.
@@ -10438,16 +11352,10 @@ def _seq_mined(by_step: dict[int, str]) -> list[int]:
     if not by_step:
         return []
     order = sorted(by_step)
-    provider = _seq_batch_provider(None)
     try:
-        saved = provider.request_counter
-        provider.request_counter = itertools.count(0)
-        try:
-            responses = provider.make_batch_request(
-                [("eth_getTransactionReceipt", [by_step[i]]) for i in order]
-            )
-        finally:
-            provider.request_counter = saved
+        responses = _batch_call(
+            [("eth_getTransactionReceipt", [by_step[i]]) for i in order]
+        )
         if isinstance(responses, list):
             return [
                 order[resp["id"]] for resp in responses
@@ -10537,6 +11445,163 @@ def _seq_reconcile(
                    "receipt found for the pre-computed hash")
 
 
+# ---------------------------------------------------------------------------
+# 4.0.0 — a refused step: re-offer, then fill, never re-sign the tail
+#
+# 3.5.0-3.7.0 assumed a node REFUSES every nonce behind a gap. This node
+# QUEUES them: one refused broadcast left every later signed step
+# admitted but unmineable, invisible to `pending`, armed until any later
+# call filled the gap nonce — which then executed them at an arbitrary
+# time (reproduced in tests/test_h400_send_path.py). So:
+#
+#   1. a refused step's SAME signed bytes are re-offered, in nonce
+#      order, up to _REOFFER_ATTEMPTS rounds, _REOFFER_SPACING_S apart —
+#      idempotent, and nothing is ever re-signed at a fresh nonce;
+#   2. a refused step BELOW an accepted one is a gap: its nonce is
+#      FILLED with a zero-value self-transfer, so the armed tail
+#      executes now, predictably — as it would have had the refused
+#      step reverted on chain, which never stopped the tail either;
+#   3. refused steps above every accepted one are a clean suffix: not
+#      sent, nonces released, nothing armed.
+# ---------------------------------------------------------------------------
+
+_SEQ_RECEIPT_BASE_S = 30
+_SEQ_RECEIPT_STEP_S = 0.5
+
+
+def _lane_mined(lane: lanes.Lane, tx_hash: str, nonce: int) -> None:
+    with lane.critical():
+        lane.mined(tx_hash, nonce)
+
+
+def _lane_release(lane: lanes.Lane, entry: lanes.Entry, why: str) -> None:
+    with lane.critical():
+        lane.release(entry, why)
+
+
+def _seq_take(j, sent, evidence, rows, built_by_step, builts, hashes):
+    """A refused row the node turned out to hold (or took on re-offer)."""
+    text = rows[j].pop("reason", None)
+    if text:
+        rows[j]["broadcast_error"] = text
+    rows[j]["status"] = "unconfirmed"
+    rows[j]["tx_hash"] = sent
+    rows[j]["reconciled"] = evidence
+    builts[j] = built_by_step[j]
+    hashes[j] = sent
+
+
+def _seq_reoffer(rows, offered, nonce_by_step, hash_by_step, raw_by_step,
+                 built_by_step, builts, hashes, lane, addr) -> None:
+    """Re-offer refused rows' SAME bytes as one batch per round, bounded.
+
+    Nonces never change, so nothing is re-signed: the signed bytes of a
+    refused step stay valid until its nonce is used, and offering them
+    again is idempotent. The batch is the same transport as the first
+    offer (ids are the nonces, chunked), so a node that refuses every
+    nonce behind a refusal refuses them again, and one that queues them
+    admits them — either way the answer is the node's, never inferred.
+    """
+    for rnd in range(_REOFFER_ATTEMPTS):
+        todo = [j for j in sorted(offered)
+                if rows[j]["status"] == "not_sent"
+                and "consumed_by" not in rows[j]]
+        if not todo:
+            return
+        if rnd:
+            time.sleep(_REOFFER_SPACING_S)
+        still = []
+        for j in todo:
+            try:
+                st = _tx_status(hash_by_step[j])
+            except _RpcUnavailable:
+                st = None
+            if st in ("mined", "held"):
+                _seq_take(j, hash_by_step[j],
+                          f"the node holds hash {hash_by_step[j]}",
+                          rows, built_by_step, builts, hashes)
+            else:
+                still.append(j)
+        if not still:
+            return
+        items = [
+            (j, built_by_step[j], SimpleNamespace(raw_transaction=raw_by_step[j]))
+            for j in still
+        ]
+        _mode, outcomes = _seq_broadcast(items, addr)
+        for j, accepted, payload in outcomes:
+            if accepted:
+                _seq_take(j, payload,
+                          f"re-offered the same signed bytes (round {rnd + 1})",
+                          rows, built_by_step, builts, hashes)
+                continue
+            rows[j]["reason"] = payload[:300]
+            if _classify_send_error(payload) != "stale":
+                continue
+            n = nonce_by_step[j]
+            latest = _count(addr, "latest")
+            if latest is not None and n < latest and _proven_absent(
+                hash_by_step[j]
+            ):
+                # Not a gap: the nonce is used, by another hash.
+                who, ours, _origin_text = _lane_consumer(
+                    lane, n, hash_by_step[j])
+                rows[j]["consumed_by"] = who
+                rows[j]["signed_by_harness"] = ours
+
+
+def _seq_fill_gap(j, rows, nonce_by_step, entries, lane, addr, key, ctl,
+                  filled, notices, parsed, hashes) -> None:
+    n = nonce_by_step[j]
+    reason = rows[j].get("reason", "")
+    # The dropped step's entry is released FIRST: its nonce is about to
+    # be superseded, and only one transaction can ever hold it.
+    lane.release(entries[j], f"dropped: {reason}")
+    sent, why = _lane_fill(lane, addr, key, n, ctl)
+    after = [k for k in sorted(hashes) if nonce_by_step[k] > n]
+    span = (
+        f"steps {after[0]}-{after[-1]}" if len(after) > 1
+        else f"step {after[0]}" if after else "no later step"
+    )
+    if sent is not None:
+        lane.release(entries[j], f"dropped: {reason}; nonce {n} filled by {sent}")
+        rows[j]["nonce_filled_by"] = sent
+        filled.append({"nonce": n, "tx_hash": sent, "for_step": j,
+                       "status": "unconfirmed",
+                       "ledger_hash": _seq_fill_ledger_hash(lane, n)})
+        notices.append(
+            f"step {j} ({parsed[j]['op']}) was dropped: {reason[:200]}; "
+            f"nonce {n} was filled by a zero-value self-transfer {sent}; "
+            f"{span} ran after it (outcomes in steps)."
+        )
+        return
+    lane.release(entries[j], f"dropped: {reason}; nonce {n} NOT filled: {why}")
+    rows[j]["nonce_fill_error"] = why[:300]
+    notices.append(
+        f"step {j} ({parsed[j]['op']}) was dropped: {reason[:200]}; its "
+        f"nonce {n} could NOT be filled ({why[:200]}): {span} are ARMED "
+        f"behind nonce {n} and will execute when it is next used. The "
+        f"next send on this signer fills it first and reports them."
+    )
+
+
+def _seq_fill_ledger_hash(lane: lanes.Lane, nonce: int) -> str:
+    for e in lane.at_nonce(nonce):
+        if e.kind == "fill" and e.state == lanes.OFFERED:
+            return e.hash
+    return ""
+
+
+def _seq_not_executed(row: dict, e: TxNotExecutedError) -> None:
+    """C7: a sequence row that did not and will not run is not_sent."""
+    row["status"] = "not_sent"
+    row["tx_hash"] = e.tx_hash
+    row["reason"] = str(e)[:300]
+    if isinstance(e, TxNonceCollisionError):
+        row["consumed_by"] = e.consumed_by
+        row["signed_by_harness"] = e.signed_by_harness
+
+
 @mcp.tool()
 def act_sequence(steps: list[dict], account: str = "main") -> dict:
     """Run up to 64 actions in one pipelined burst: feed, liquidate, harvest_start, harvest_stop.
@@ -10571,42 +11636,39 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
     killer_bounty = _seq_static_validate(parsed, account, aid, total_gas)
 
     acct = _get_account(account)
-    fns = []
-    for system_id, abi, fn_name, args, _gas, _ck in plans:
-        contract = w3.eth.contract(address=_resolve_system(system_id), abi=abi)
-        fns.append(getattr(contract.functions, fn_name)(*args))
+    addr = acct.operator_addr
+    K = len(parsed)
 
-    # The dry run is STEP 1 ONLY, and deliberately so: an eth_call for
-    # step 2 executes against the pending block, where step 1 has not
-    # happened. A dry run of the whole plan would fail correct sequences
-    # and pass wrong ones.
-    _dry_run(fns[0], acct.operator_addr, account=account)
+    def _bind() -> list:
+        # The dry run is STEP 1 ONLY, and deliberately so: an eth_call for
+        # step 2 executes against the pending block, where step 1 has not
+        # happened. A dry run of the whole plan would fail correct
+        # sequences and pass wrong ones. Step 1's dry-run re-resolves a
+        # moved system address (_validated_fn); later steps are bound
+        # after it, so they see the re-resolved cache.
+        sid0, abi0, name0, args0, _g, _c = plans[0]
+        first = _validated_fn(sid0, abi0, name0, args0, addr, account=account)
+        out = [first]
+        for system_id, abi, fn_name, args, _gas, _ck in plans[1:]:
+            contract = w3.eth.contract(
+                address=_resolve_system(system_id), abi=abi)
+            out.append(getattr(contract.functions, fn_name)(*args))
+        return out
+
+    fns = _bind()
+    ctl = _call()
+    ctl.check()
 
     # Every step's nonce AND its hash are known before it is offered:
-    # the hash is keccak256 of the signed raw transaction (3.7.0). That
-    # pair is what makes a step lookup-able on chain when the broadcast
-    # cannot say what happened to it.
+    # the hash is keccak256 of the signed raw transaction. That pair is
+    # what makes a step lookup-able on chain when the broadcast cannot
+    # say what happened to it. The raw bytes are kept for one purpose:
+    # re-offering the SAME bytes inside this call.
     nonce_by_step: dict[int, int] = {}
     hash_by_step: dict[int, str] = {}
     built_by_step: dict[int, dict] = {}
-
-    def _sign_from(start: int, nonce: int) -> list:
-        signed = []
-        for j in range(start, len(parsed)):
-            built = fns[j].build_transaction({
-                "from": acct.operator_addr,
-                "chainId": CHAIN_ID,
-                "nonce": nonce + (j - start),
-                "gas": plans[j][4],
-                **_GAS_PRICE,
-            })
-            sig = w3.eth.account.sign_transaction(
-                built, private_key=acct.operator_key)
-            nonce_by_step[j] = built["nonce"]
-            hash_by_step[j] = _seq_tx_hash(sig.raw_transaction)
-            built_by_step[j] = built
-            signed.append((j, built, sig))
-        return signed
+    raw_by_step: dict[int, bytes] = {}
+    entries: dict[int, lanes.Entry] = {}
 
     rows: list[dict] = [
         {"index": i, "op": st["op"], **_seq_step_ids(st), "status": "not_sent"}
@@ -10614,142 +11676,267 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
     ]
     builts: dict[int, dict] = {}
     hashes: dict[int, str] = {}
+    filled: list[dict] = []
+    notices: list[str] = []
+    lane = _lane(addr)
 
-    # A4. Nonce read ONCE, at `pending`, and every step signed before the
-    # first broadcast. Measured on 2026-08-28 (U-1, account shrike, two
-    # system.kami.use.item feeds at nonces 1513/1514 on one keep-alive
-    # session to one endpoint): both broadcasts were ACCEPTED, no
-    # `account sequence mismatch`, both mined status 1 in blocks
-    # 32678986 and 32678987 — adjacent blocks in the same second — in
-    # 0.974 s wall from first send to second receipt. The rejection path
-    # below is therefore a defensive branch, not the expected one.
-    nonce = w3.eth.get_transaction_count(acct.operator_addr, _NONCE_BLOCK)
-    pending = _sign_from(0, nonce)
-    resent = False
-    reconciled = False
-    while pending:
-        mode, outcomes = _seq_broadcast(pending, acct.operator_addr)
-        refused_at: int | None = None
-        refusal_text = ""
-        for j, accepted, payload in outcomes:
-            if accepted:
-                # EVERY acceptance is recorded, including one that comes
-                # after a refusal in the same body. 3.6.0 stopped at the
-                # first refusal and threw the rest of the list away.
-                builts[j] = built_by_step[j]
-                hashes[j] = payload
-                rows[j]["tx_hash"] = payload
-                rows[j]["status"] = "unconfirmed"
-                if mode == "serial":
-                    rows[j]["broadcast"] = "serial"
-                continue
-            if refused_at is None:
-                refused_at, refusal_text = j, payload
-            rows[j]["status"] = "not_sent"
-            rows[j]["reason"] = payload[:300]
-        if refused_at is None:
-            pending = []
-            continue
-        # The refusal stops the sequence: every later step that got no
-        # outcome of its own is unsent behind the gap, and says why.
-        for k in range(refused_at, len(parsed)):
-            if k not in hashes and "reason" not in rows[k]:
-                rows[k]["status"] = "not_sent"
-                rows[k]["reason"] = refusal_text[:300]
-        # ASK THE NODE BEFORE ACTING ON THE REFUSAL (3.7.0). A resend
-        # re-signs the tail at fresh nonces, so resending a step the
-        # node is already holding does the step TWICE. 3.6.0 took the
-        # refusal at its word; on 2026-08-28 the word was false for 38
-        # steps at once.
-        _seq_reconcile(rows, hashes, builts, nonce_by_step, hash_by_step,
-                       built_by_step, acct.operator_addr)
-        still = [k for k in range(refused_at, len(parsed))
-                 if rows[k]["status"] == "not_sent"]
-        if (still and not resent
-                and still == list(range(still[0], len(parsed)))
-                and any(m in refusal_text for m in _SEQ_REJECTION_MARKERS)):
-            # Nothing landed for still[0]..K and the node holds none of
-            # them: it refused the raw transactions, so those nonces
-            # were never consumed. Resend the tail EXACTLY ONCE — wait
-            # for the steps that did land, re-read the nonce, re-sign.
-            # A reverted step is never resent by this path: a revert is
-            # not a rejection, it consumed its nonce and is final (P4).
-            resent = True
-            for k in range(still[0]):
-                if k in hashes:
-                    try:
-                        w3.eth.wait_for_transaction_receipt(
-                            hashes[k], timeout=120)
-                    except Exception:
-                        pass
-            for k in still:
-                rows[k].pop("reason", None)
-            nonce = w3.eth.get_transaction_count(
-                acct.operator_addr, _NONCE_BLOCK)
-            pending = _sign_from(still[0], nonce)
-            continue
-        reconciled = True
-        break
+    def _sign_from(start: int, nonce: int) -> list:
+        signed = []
+        for j in range(start, K):
+            built = fns[j].build_transaction({
+                "from": addr,
+                "chainId": CHAIN_ID,
+                "nonce": nonce + (j - start),
+                "gas": plans[j][4],
+                **_GAS_PRICE,
+            })
+            sig = w3.eth.account.sign_transaction(
+                built, private_key=acct.operator_key)
+            raw = bytes(sig.raw_transaction)
+            nonce_by_step[j] = built["nonce"]
+            hash_by_step[j] = _seq_tx_hash(raw)
+            built_by_step[j] = built
+            raw_by_step[j] = raw
+            entries[j] = lane.add(built["nonce"], hash_by_step[j], raw,
+                                  ctl.id, "act_sequence", j)
+            signed.append((j, built, sig))
+        return signed
 
-    # A6 (3.7.0). Before any row is REPORTED not_sent, it is reconciled
-    # against the node: a nonce the node holds, or a hash the chain has,
-    # was sent whatever the broadcast managed to say about it. The loop
-    # above already reconciles before it decides to resend, so this runs
-    # only when the loop did not — and is a no-op, with no round-trip,
-    # when nothing is marked not_sent.
-    if not reconciled:
-        _seq_reconcile(rows, hashes, builts, nonce_by_step, hash_by_step,
-                       built_by_step, acct.operator_addr)
+    # The lane is held across the whole sign + broadcast + re-offer +
+    # fill: no other send on this signer can take a nonce inside the
+    # sequence, or the gap a refused step leaves.
+    with lane.critical():
+        if _lane_prepare(lane, addr, acct.operator_key, ctl):
+            # An earlier call's armed tail was drained: state moved, so
+            # this call's own validation runs again before anything goes.
+            killer_bounty = _seq_static_validate(parsed, account, aid,
+                                                 total_gas)
+            fns = _bind()
+        # A4. One nonce read (at `pending`, raised to the lane floor) and
+        # every step signed before the first broadcast — 2026-08-28: two
+        # pipelined feeds at consecutive nonces were both accepted and
+        # mined in adjacent blocks.
+        nonce = _lane_next_nonce(lane, addr)
+        queue = _sign_from(0, nonce)
+        lane.save()
+        while queue:
+            mode, outcomes = _seq_broadcast(queue, addr)
+            offered: set[int] = set()
+            for j, accepted, payload in outcomes:
+                offered.add(j)
+                if accepted:
+                    # EVERY acceptance is recorded, including one after a
+                    # refusal in the same body: a node that QUEUES nonces
+                    # behind a gap holds them, armed.
+                    builts[j] = built_by_step[j]
+                    hashes[j] = payload
+                    rows[j]["tx_hash"] = payload
+                    rows[j]["status"] = "unconfirmed"
+                    if mode == "serial":
+                        rows[j]["broadcast"] = "serial"
+                    continue
+                rows[j]["status"] = "not_sent"
+                rows[j]["reason"] = payload[:300]
+            # `not_sent` is a claim about the NODE, so ask the node first
+            # (3.7.0): a nonce it holds, or a hash with a receipt, was sent.
+            _seq_reconcile(rows, hashes, builts, nonce_by_step, hash_by_step,
+                           built_by_step, addr)
+            _seq_reoffer(rows, offered, nonce_by_step, hash_by_step,
+                         raw_by_step, built_by_step, builts, hashes, lane,
+                         addr)
+            sent_nonces = [nonce_by_step[j] for j in offered if j in hashes]
+            top = max(sent_nonces) if sent_nonces else None
+            refused = [j for j in sorted(offered)
+                       if rows[j]["status"] == "not_sent"
+                       and "consumed_by" not in rows[j]]
+            for j in sorted(offered):
+                if "consumed_by" in rows[j]:
+                    lane.release(entries[j], f"nonce consumed by "
+                                 f"{rows[j]['consumed_by']}")
+            gaps = [j for j in refused
+                    if top is not None and nonce_by_step[j] < top]
+            suffix = [j for j in refused if j not in gaps]
+            for j in offered:
+                if j in hashes:
+                    lane.offered(entries[j])
+                    _INFLIGHT[hashes[j].lower()] = (lane, hash_by_step[j])
+            for j in gaps:
+                _seq_fill_gap(j, rows, nonce_by_step, entries, lane, addr,
+                              acct.operator_key, ctl, filled, notices,
+                              parsed, hashes)
+            for j in suffix:
+                lane.release(entries[j],
+                             f"not sent: {rows[j].get('reason', '')}")
+            if suffix:
+                first = suffix[0]
+                notices.append(
+                    f"step {first} ({parsed[first]['op']}) and the "
+                    f"{len(suffix) - 1} step(s) after it in its batch were "
+                    f"not sent: {rows[first].get('reason', '')[:200]}; their "
+                    f"nonces were released and nothing is armed behind them."
+                )
+            lane.save()
+            rest = [item for item in queue if item[0] not in offered]
+            if rest and (suffix or not outcomes):
+                why = (
+                    f"not offered: step {suffix[0]} before it could not be "
+                    f"sent" if suffix else "not offered"
+                )
+                for j, _b, _s in rest:
+                    rows[j]["status"] = "not_sent"
+                    rows[j]["reason"] = why
+                    lane.release(entries[j], why)
+                rest = []
+            queue = rest
 
-    # A5. Receipts in order, on ONE budget, each caught: a step's
-    # terminal state is its own and is never inferred from a neighbour's.
-    deadline = time.monotonic() + 120 + 10 * len(parsed)
-    for i in range(len(parsed)):
-        if i not in hashes:
-            continue
-        remaining = max(1, int(deadline - time.monotonic()))
+    notice = " ".join(notices)
+
+    # A5. Receipts in BATCHES — one eth_getTransactionReceipt batch per
+    # poll for every open step — on one budget that fits the call's
+    # wall-clock box: 30 s + 0.5 s per step. After the gap fill no step
+    # can be stuck behind a hole, so the budget is spent only on steps
+    # that can mine. A node that will not batch reads falls back to one
+    # wait per step on the same deadline (the 3.7.0 path).
+    deadline = time.monotonic() + _SEQ_RECEIPT_BASE_S + _SEQ_RECEIPT_STEP_S * K
+    pend = [i for i in range(K) if i in hashes]
+    fill_open = [f for f in filled if f.get("tx_hash")]
+    receipts: dict[int, object] = {}
+    batch_ok = True
+    while pend or fill_open:
+        want = [hashes[i] for i in pend] + [f["tx_hash"] for f in fill_open]
+        found = _batch_receipts(want)
+        if found is None:
+            batch_ok = False
+            break
+        for i in list(pend):
+            raw = found.get(hashes[i].lower())
+            if raw:
+                receipts[i] = _format_receipt(raw)
+                pend.remove(i)
+        for f in list(fill_open):
+            raw = found.get(f["tx_hash"].lower())
+            if raw:
+                ok = int(str(raw.get("status", "0x0")), 16) == 1
+                f["status"] = "success" if ok else "reverted"
+                _lane_mined(lane, f["ledger_hash"], f["nonce"])
+                fill_open.remove(f)
+        if (not pend and not fill_open) or time.monotonic() >= deadline:
+            break
+        time.sleep(1.0)
+
+    def _row_from_receipt(i: int, receipt) -> None:
+        receipts[i] = receipt
         try:
-            receipt = _await_receipt(
-                hashes[i], builts.get(i), timeout=remaining,
-                account=account, ceiling_key=plans[i][5],
-            )
-        except Exception as e:
+            _receipt_outcome(receipt, builts.get(i), account, plans[i][5])
+        except OnChainRevertError as e:
             rows[i].update(_failed_tx_fields(e))
-            reason = getattr(e, "reason", None)
-            if reason:
-                rows[i]["reason"] = reason
-            continue
+            if e.reason:
+                rows[i]["reason"] = e.reason
+            return
         rows[i].update({
             "status": "success",
             "tx_hash": _hex_hash(receipt.transactionHash),
             "block": receipt.blockNumber,
             "gas_used": receipt.gasUsed,
         })
-        if parsed[i]["op"] == "liquidate":
+
+    for i in sorted(receipts):
+        _row_from_receipt(i, receipts[i])
+    if not batch_ok:
+        for i in list(pend):
+            remaining = max(1, int(deadline - time.monotonic()))
+            try:
+                receipt = _await_receipt(
+                    hashes[i], builts.get(i), timeout=remaining,
+                    account=account, ceiling_key=plans[i][5],
+                )
+            except TxNotExecutedError as e:
+                _seq_not_executed(rows[i], e)
+                _lane_release(lane, entries[i], str(e))
+                continue
+            except Exception as e:
+                rows[i].update(_failed_tx_fields(e))
+                reason = getattr(e, "reason", None)
+                if reason:
+                    rows[i]["reason"] = reason
+                continue
+            receipts[i] = receipt
+            rows[i].update({
+                "status": "success",
+                "tx_hash": _hex_hash(receipt.transactionHash),
+                "block": receipt.blockNumber,
+                "gas_used": receipt.gasUsed,
+            })
+        pend = []
+    for i in pend:
+        # The budget ended. Labels are facts: `unconfirmed` only while the
+        # node still holds the hash (or nothing can be proven either way).
+        h = hash_by_step[i]
+        try:
+            st = _tx_status(h)
+        except _RpcUnavailable:
+            st = None
+        if st == "mined":
+            try:
+                raw = _rpc("eth_getTransactionReceipt", [h])
+            except _RpcUnavailable:
+                raw = None
+            if raw:
+                _row_from_receipt(i, _format_receipt(raw))
+            continue
+        if st != "absent":
+            continue
+        latest = _count(addr, "latest")
+        n = nonce_by_step[i]
+        if latest is not None and n < latest and _proven_absent(h):
+            who, ours, origin = _lane_consumer(lane, n, h)
+            _seq_not_executed(rows[i], TxNonceCollisionError(
+                hashes[i], n, who, ours, origin))
+            _lane_release(lane, entries[i], f"nonce {n} consumed by {who}")
+        elif _proven_absent(h):
+            _seq_not_executed(rows[i], TxDroppedError(
+                hashes[i], n, "accepted at broadcast, no longer held"))
+            _lane_release(lane, entries[i], "no longer held by the node")
+
+    for i, row in enumerate(rows):
+        if row["status"] in ("success", "reverted") and i in entries:
+            _lane_mined(lane, entries[i].hash, nonce_by_step[i])
+            _INFLIGHT.pop(hashes.get(i, "").lower(), None)
+        if i in hashes:
+            ctl.step(row.get("tx_hash", hashes[i]), row["status"])
+        if row["status"] == "success" and parsed[i]["op"] == "liquidate":
             killer = parsed[i]["kami_id"]
             decoded = _decode_kill(
-                receipt, parsed[i]["victim_kami_id"], killer,
+                receipts[i], parsed[i]["victim_kami_id"], killer,
                 killer_bounty.get(killer),
             )
             after = decoded.pop("killer_bounty_after", None)
             if after is not None:
                 # The sequence rule: this step's post-value is the next
-                # liquidate's pre-value. Verified against the 2026-08-28
-                # sweep (see _decode_kill). `recoil` is NOT reported
-                # here — hp_before for step i would have to have been
-                # read before step i-1 landed, which never happened.
+                # liquidate's pre-value (verified against the 2026-08-28
+                # sweep, see _decode_kill). `recoil` is NOT reported here
+                # — hp_before for step i would have to have been read
+                # before step i-1 landed, which never happened.
                 killer_bounty[killer] = after
             rows[i].update(decoded)
 
     landed = sum(1 for r in rows if r["status"] == "success")
     sent = sum(1 for r in rows if r["status"] != "not_sent")
-    return {
+    result: dict = {}
+    if notice:
+        result["notice"] = notice
+    result.update({
         "status": "complete" if landed == len(rows) else "partial",
         "steps": rows,
         "sent": sent,
         "landed": landed,
         "account": account,
-    }
+    })
+    if filled:
+        result["filled"] = [
+            {k: v for k, v in f.items() if k != "ledger_hash"} for f in filled
+        ]
+    return result
 
 
 
@@ -11389,6 +12576,124 @@ mcp._mcp_server.instructions = (
     f"schema_version={SCHEMA_VERSION} "
     f"error_snippets={'on' if ERROR_SNIPPETS else 'off'}"
 )
+
+
+# ---------------------------------------------------------------------------
+# Tool bodies run on worker threads
+#
+# FastMCP dispatches every request as its own task, but calls a SYNC tool
+# body inline on the event loop — so one long write loop blocked every
+# read, every emergency write, and even the client's cancel notification
+# (reproduced in tests/test_h400_send_path.py). Every registered tool's
+# body now runs on a worker thread; an `async def` body runs on a private
+# event loop inside that thread (four of them never awaited anything and
+# blocked the same way). The registry's name, description and parameter
+# schema are untouched — only the callable behind them changes — so the
+# surface fingerprint cannot move (asserted below).
+#
+# Writes serialise on their SIGNER's lane, and only around the send
+# critical section (resolve, allocate, sign, write-ahead, broadcast,
+# re-offer, fill): receipt waits are outside it, so writes on one signer
+# interleave at step boundaries, writes on different signers run
+# concurrently, and reads take no lock at all.
+#
+# A client cancel sets the call's flag; the send path checks it at every
+# step boundary and the loop stops there, reporting what landed. MCP
+# answers a cancelled request with its own error and drops the tool's
+# response, so what landed reaches the client as a progress notification
+# per transaction (when the client supplied a progress token) and one log
+# notification carrying the partial outcome; the hashes also stay in the
+# signer's lane ledger until resolved.
+# ---------------------------------------------------------------------------
+
+_TOOL_BODIES: dict[str, tuple] = {}
+
+
+def _run_body(fn, is_async: bool, kwargs: dict, ctl: _CallControl):
+    token = _CALL.set(ctl)
+    try:
+        if is_async:
+            return asyncio.run(fn(**kwargs))
+        return fn(**kwargs)
+    finally:
+        _CALL.reset(token)
+
+
+def _with_notices(result, ctl: _CallControl):
+    """The call's notices become the FIRST key of a dict result."""
+    if not ctl.notices or not isinstance(result, dict):
+        return result
+    text = " ".join(ctl.notices)
+    prior = result.get("notice")
+    merged = text + (" " + prior if prior else "")
+    return {"notice": merged,
+            **{k: v for k, v in result.items() if k != "notice"}}
+
+
+def _prefix_notices(e: BaseException, ctl: _CallControl) -> BaseException:
+    if ctl.notices and isinstance(e, Exception):
+        e.args = ("NOTICE: " + " ".join(ctl.notices) + "\n" + str(e),)
+    return e
+
+
+def _call_body(name: str, fn, is_async: bool, kwargs: dict,
+               ctl: _CallControl):
+    try:
+        out = _run_body(fn, is_async, kwargs, ctl)
+    except BaseException as e:
+        if ctl.cancelled.is_set():
+            ctl.log("warning", f"{name} was cancelled; partial outcome: "
+                               f"{_err_text(e)[:4000]}")
+        raise _prefix_notices(e, ctl)
+    out = _with_notices(out, ctl)
+    if ctl.cancelled.is_set():
+        ctl.log("warning", f"{name} was cancelled; partial outcome: "
+                           f"{json.dumps(out, default=str)[:4000]}")
+    return out
+
+
+def _threaded(name: str, fn, is_async: bool):
+    @functools.wraps(fn)
+    async def runner(**kwargs):
+        try:
+            ctx = mcp.get_context()
+            ctx.request_context  # raises outside a request
+        except Exception:
+            ctx = None
+        ctl = _CallControl(name, ctx)
+        try:
+            return await anyio.to_thread.run_sync(
+                functools.partial(_call_body, name, fn, is_async, kwargs, ctl),
+                abandon_on_cancel=True,
+            )
+        except anyio.get_cancelled_exc_class():
+            # The worker keeps running until its next step boundary,
+            # where the send path sees this flag and stops.
+            ctl.cancelled.set()
+            raise
+
+    return runner
+
+
+def run_tool(name: str, **kwargs):
+    """Invoke a tool body as the MCP server would — same call control,
+    same notices — but on the calling thread. For scripts and tests."""
+    fn, is_async = _TOOL_BODIES[name]
+    return _call_body(name, fn, is_async, kwargs, _CallControl(name))
+
+
+def _thread_tools() -> None:
+    for tool in mcp._tool_manager.list_tools():
+        if tool.name in _TOOL_BODIES:
+            continue
+        _TOOL_BODIES[tool.name] = (tool.fn, tool.is_async)
+        tool.fn = _threaded(tool.name, tool.fn, tool.is_async)
+        tool.is_async = True
+
+
+_thread_tools()
+if compute_tools_hash() != TOOLS_HASH:  # pragma: no cover
+    raise RuntimeError("threading the tool bodies moved the surface")
 
 
 # ---------------------------------------------------------------------------

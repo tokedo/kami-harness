@@ -398,11 +398,15 @@ def test_a_broadcast_rejection_resends_the_tail_exactly_once(seq_env):
     out = server.act_sequence(_steps(3), account="testa")
     assert chain.rejections == 1
     # 1 at head + 1 reconciliation (3.7.0 asks the node whether it holds
-    # the refused nonce before resending it) + 1 before re-signing.
-    assert chain.nonce_reads == 3
+    # the refused nonce before resending it). 4.0.0: the refused step's
+    # SAME signed bytes are re-offered at the same nonces — nothing is
+    # re-signed, so the third read (the re-sign's) is gone.
+    assert chain.nonce_reads == 2
     assert [r["status"] for r in out["steps"]] == [
         "success", "success", "success"
     ]
+    assert out["steps"][1]["reconciled"] == (
+        "re-offered the same signed bytes (round 1)")
 
 
 def test_a_second_rejection_reports_the_tail_not_sent(seq_env):
@@ -410,11 +414,11 @@ def test_a_second_rejection_reports_the_tail_not_sent(seq_env):
     chain = FakeChain(outcomes, reject_once=False)   # rejects forever
     _install(seq_env, chain, ["ok", "ok", "ok"])
     out = server.act_sequence(_steps(3), account="testa")
-    assert chain.rejections == 2
-    # 1 at head, then a reconciliation read before each of the two
-    # decisions 3.7.0 will not take on the broadcast's word alone
-    # (resend, then report not_sent), plus the resend's own re-read.
-    assert chain.nonce_reads == 4
+    # 4.0.0: the first refusal, then three bounded re-offers of the SAME
+    # bytes (3 x 1 s), each refused. 3.7.0 resent once, re-signed.
+    assert chain.rejections == 4
+    # 1 at head + 1 reconciliation; no re-sign, so no re-sign read.
+    assert chain.nonce_reads == 2
     statuses = [r["status"] for r in out["steps"]]
     assert statuses == ["success", "not_sent", "not_sent"]
     assert out["sent"] == 1 and out["landed"] == 1

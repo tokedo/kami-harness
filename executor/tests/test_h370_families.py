@@ -338,7 +338,9 @@ def test_a_missing_response_names_the_nonce_and_the_batch_size(
         chain.provider, "make_batch_request", lambda reqs: inner(reqs[:3])
     )
     out = server.act_sequence(_steps(5), account="testa")
-    assert out["steps"][3]["reason"] == (
+    # 4.0.0: a silent nonce is re-offered (same bytes); the first
+    # broadcast's silence stays on the row, naming nonce and batch.
+    assert out["steps"][3]["broadcast_error"] == (
         "no response for nonce 103 in batch of 5"
     )
 
