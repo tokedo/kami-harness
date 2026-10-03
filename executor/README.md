@@ -453,10 +453,18 @@ carries at most 6 decimal places.
 ## Adding new tools
 
 1. Identify the system ID from `integration/system-ids.md`
-2. Get the ABI from `integration/api/<system>.md`
+2. Get the ABI from the game's own ABI for that system — the vendored
+   `tests/fixtures/upstream_abi/upstream_abi.json` lists every system's
+   functions with their selectors. Not every system has `executeTyped`
+   (`system.pool`'s swap is `swap`).
 3. Add the ABI constant and `@mcp.tool()` function to `server.py`
 4. Pick the serving path:
-   - on-chain write: `_send_tx(account, system_id, abi, args)`
+   - on-chain write: `_send_tx(account, system_id, abi, args,
+     fn_name=...)` (`fn_name` defaults to `executeTyped`). Then run
+     `python3 tests/tools/encoding_table.py --write` and commit the
+     regenerated `selector_table.json`: `test_upstream_encoding.py`
+     fails until every (system, function, argument types, return types)
+     the code encodes exists upstream and the table matches the code.
    - world-state read: `_lens_request(...)` — one request, envelope
      passed through. The thin-wrapper rule is binding: no formula math,
      no multi-query composition, no cross-query joins, no derived fields
@@ -472,6 +480,9 @@ carries at most 6 decimal places.
    initialize `instructions` and is not repeated in the description.
 7. Update the counts in `SPEC.md` §P1 and the `tools_hash` in §P2 — any
    tool added, removed, renamed, or reworded changes both.
+8. Upstream moved? Regenerate the vendored ABI from a checkout of the
+   new pinned commit (`python3 tests/tools/vendor_upstream_abi.py
+   <checkout>`, after updating its `UPSTREAM_COMMIT`), then the table.
 
 Entity ID derivation: kami token index -> entity ID via `_kami_entity_id()`.
 See `integration/entity-ids.md` for other entity types.

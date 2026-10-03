@@ -32,9 +32,9 @@ at all.
 ## [4.0.0] — 2026-10-03 — one send path, the token portal, lens 1.0.0
 
 MAJOR. **100 tools** (ACT 59 / PERCEIVE 34 / META 7; the OUTSOURCE class
-is gone), registry mass **69,265** against the unchanged 73,000 budget
+is gone), registry mass **69,351** against the unchanged 73,000 budget
 (Python 3.13), `tools_hash`
-`3cd1c08c7d9a8a3f26c88049c9cb66a8cdd042fc22fe56e17087838328304315`.
+`907899dc681349b5d37860b3183cfb46135c338aabdfd586ca90f449e511b2be`.
 `SCHEMA_VERSION` **4.0.0**. Built against **kami-lens 1.0.0**
 (`0ffc8a7`): deploy the lens first (SPEC D1). Two parts: the send path and concurrency
 (part 1, no surface change of its own), then the surface (part 2).
@@ -119,6 +119,20 @@ Changed semantics and return shapes:
 - **`list_accounts`** no longer has `kamibots_registered`.
 - A dry-run that fails twice on infrastructure says "not performed",
   never "reverted".
+- **`pool_swap`** now sends the pool system's real `swap` — on every
+  earlier version it could not land at all (Part 2). `dry_run` runs the
+  chain's own `eth_call` and returns its `amount_out` (beside the
+  quote's `expected_out`), so it refuses what the chain would refuse; a
+  disabled pool is refused before signing; a sent swap reports
+  `received` and `inventory_out` {before, after}.
+- **Portal receipt ids** are returned in the lens's 0x-hex form
+  (`portal_withdraw`, `portal_claim`, `portal_cancel`); both forms are
+  still accepted.
+- **HP read-back**: `feed_kami`, `use_item_batch` and
+  `feed_level_allocate_batch` (`fed`) carry `hp` {`last_synced_before`,
+  `after`} when the item acts on HP (catalog effect `HP±`, `HEALTH±`,
+  `TEMP<n>HEALTH`): the stored HP as of the kami's last sync, and the HP
+  the use synced.
 - Configuration: `KAMI_LANE_DIR` (nonce ledger), `KAMI_CALL_BUDGET_S`;
   `{LABEL}_KAMIBOTS_API_KEY` / `{LABEL}_PRIVY_ID` are no longer read.
 
@@ -182,6 +196,46 @@ Changed semantics and return shapes:
   is owed to a live write test); `register_account` names `Account: Operator is an
   account owner`; `systems/state-reading.md` and the getter comment now
   agree with upstream (the getter adds regeneration without the cap).
+- **`pool_swap` had never landed a transaction — fixed, and the class
+  closed.** Its ABI named `executeTyped(uint32,uint32,uint256,uint256)`
+  (`0x7827e2de`); the pool system has no such function — it exposes
+  named functions, and its swap is `swap(uint32,uint32,uint256,uint256)
+  returns (uint256)` (`0x4a4f0718`). Every live swap was refused by its
+  own dry-run with a bare `Reverted`, on every harness version, while
+  the tool's `dry_run` stopped before the `eth_call` and answered clean;
+  the transaction index holds 1,490 successful `swap` calls to the pool
+  system from other clients and none, from anyone, of `0x7827e2de`. The
+  hermetic suite never saw it because the fake chain accepted whatever
+  the harness encoded. Now: `_send_tx` takes the function name;
+  `pool_swap` sends `swap`; `dry_run` runs the real `eth_call`; the pool
+  system's reasons (`Pool: slippage exceeded`, `Pool: insufficient
+  output`, `entity not enabled`, `Pool does not exist`, untradeable item,
+  zero input) read as words, and a bare revert is checked against the
+  balance, the disabled flag and a fresh quote rather than passed on.
+  The same audit found the pool fee read from a `component.value.fee`
+  that does not exist (every quote fell back to 30 bps, which every live
+  pool happens to charge); it is now the pool's `component.rate`, as
+  upstream reads it.
+- **Every encoded call is checked against upstream, statically.**
+  `executor/tests/fixtures/upstream_abi/upstream_abi.json` vendors every
+  system, component and the World ABI of the game repository at
+  `ffda3963` (generator `executor/tests/tools/vendor_upstream_abi.py`,
+  which refuses any other commit). `executor/tests/tools/encoding_table.py`
+  reads `server.py`'s syntax tree, binds each ABI constant to the
+  system, component or World it is used with, and
+  `test_upstream_encoding.py` requires every (target, function,
+  argument types, return types) to exist upstream, every ABI constant
+  to be bound or a standard ERC-20, and every non-literal resolution to
+  be accounted for. `selector_table.json` beside it — every tool, the
+  system or contract it sends to, the function, the 4-byte selector and
+  the signer, plus every view function read — must equal what the code
+  derives. The fake chain now answers a function its upstream contract
+  lacks with the chain's own bare revert, and refuses to model one. Two
+  dead ABI constants went (a `getValue` the state component never had;
+  the single-kami stop of the removed `stop_harvest_batch`).
+- **Caller findings from the live acceptance run**: receipt ids in the
+  lens's 0x-hex form; the harvest SIZE refusal names the RPC node (it
+  read as the harvest node); the HP read-back above.
 - **Deferred, not built**: `act_sequence` per-step keys (`"optional"`,
   `{"op": "move"}`) — designed at zero schema cost and recorded in
   SPEC "Not for now".
@@ -201,13 +255,13 @@ Registry mass by family (Python 3.13):
 | scavenge | 5 | 3,240 | 5 | 3,283 |
 | travel | 2 | 1,884 | 2 | 2,010 |
 | lens wrappers | 25 | 13,877 | 27 | 12,796 |
-| token portal | 0 | 0 | 4 | 3,021 |
+| token portal | 0 | 0 | 4 | 3,048 |
 | meta (wallet/bridge) | 7 | 4,346 | 7 | 4,241 |
-| everything else | 40 | 29,532 | 40 | 29,389 |
-| **total** | **104** | **72,855** | **100** | **69,265** |
+| everything else | 40 | 29,532 | 40 | 29,448 |
+| **total** | **104** | **72,855** | **100** | **69,351** |
 
 The two standing sentences were 4,150 of the 3.7.0 total, spread over
-the read families above. Headroom at 4.0.0: 3,735.
+the read families above. Headroom at 4.0.0: 3,649.
 
 ### Part 1 — one send path, and reads never wait behind writes
 
