@@ -344,7 +344,7 @@ class TestLens052Passthroughs:
     def captured(self, monkeypatch):
         seen = {}
 
-        def fake(query, args=None, prose=False, oversize=False):
+        def fake(query, args=None, prose=False, oversize=False, **kw):
             seen["query"] = query
             seen["args"] = list(args or [])
             seen["prose"] = prose

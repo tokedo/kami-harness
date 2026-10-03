@@ -1,8 +1,8 @@
 """Tool-contract surface checks for the 4.0.0 interface.
 
-Verifies the advertised tool count (98: 3.7.0's 104 less the nine
+Verifies the advertised tool count (100: 3.7.0's 104 less the nine
 strategy-service tools and stop_harvest_batch, plus the four token-portal
-tools), the surface taxonomy (ACT/PERCEIVE/META), the EXPOSURE.md row
+tools and the two lens 1.0.0 reads), the surface taxonomy (ACT/PERCEIVE/META), the EXPOSURE.md row
 coverage for READ tools (with the deferred rows), the standing text in
 the MCP instructions (not on descriptions), schema portability
 (SPEC §5.1: no anyOf/oneOf/allOf/$ref), the registry-mass budget, the
@@ -57,6 +57,7 @@ LENS_TOOLS = {
     "lens_battles", "lens_trades", "lens_auctions", "lens_quests",
     "lens_market", "lens_portal", "lens_transfers", "lens_feed",
     "lens_chat", "lens_status", "lens_roster", "lens_skills",
+    "lens_receipts", "lens_pool_history",
 }
 
 # H3/H3.1: new ACT tools (liquidation, gacha, chat send; the post-sweep
@@ -115,7 +116,7 @@ def test_tool_surface_count():
     assert H3_ACT_TOOLS <= names
     assert "store_operator_key" not in names
     assert PORTAL_TOOLS <= names
-    assert len(names) == 98
+    assert len(names) == 100
 
 
 def test_removed_tools_absent():
@@ -127,7 +128,7 @@ def test_lens_wrapper_set():
     names = set(_tools())
     assert LENS_TOOLS <= names
     assert {n for n in names if n.startswith("lens_")} == LENS_TOOLS
-    assert len(LENS_TOOLS) == 25
+    assert len(LENS_TOOLS) == 27
 
 
 def test_taxonomy_covers_registry_exactly():
@@ -136,8 +137,8 @@ def test_taxonomy_covers_registry_exactly():
     counts = {}
     for cls in server.TOOL_CLASSES.values():
         counts[cls] = counts.get(cls, 0) + 1
-    assert counts == {"ACT": 59, "PERCEIVE": 32, "META": 7}
-    assert len(server.READ_TOOLS) == 35
+    assert counts == {"ACT": 59, "PERCEIVE": 34, "META": 7}
+    assert len(server.READ_TOOLS) == 37
     assert server.READ_TOOLS <= names
     # every lens wrapper is PERCEIVE
     for n in LENS_TOOLS:
@@ -153,6 +154,8 @@ def test_standing_text_is_said_once_in_the_instructions():
     i = server.mcp._mcp_server.instructions
     for sentence in (server._UNTRUSTED_STANDING_SENTENCE,
                      server._LENS_SERVING_SENTENCE,
+                     server._LENS_VERIFY_SENTENCE,
+                     server._LENS_INCOMPLETE_SENTENCE,
                      server._NONCE_LANE_SENTENCE,
                      server._time_box_sentence()):
         assert sentence in i
@@ -413,7 +416,7 @@ def test_surface_identical_across_capability_flags():
         )
         if baseline is None:
             baseline = payload
-            assert payload["count"] == 98
+            assert payload["count"] == 100
             assert payload["tools_hash"] == server.TOOLS_HASH
             continue
         assert json.dumps(payload, sort_keys=True) == json.dumps(

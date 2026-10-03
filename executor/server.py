@@ -3725,11 +3725,31 @@ class LensNotReadyError(LensUnavailableError):
 
 class LensQueryError(ValueError):
     """A lens query answered with an error; code + message pass through
-    (BAD_ARGS, NOT_FOUND, KAMIDEN_UNAVAILABLE, CHAT_DISABLED, ...)."""
+    (BAD_ARGS, NOT_FOUND, KAMIDEN_UNAVAILABLE, CHAT_DISABLED, INCOMPLETE,
+    NOT_QUOTABLE, ...)."""
 
     def __init__(self, code: str, message: str):
         self.code = code
         super().__init__(f"{code}: {message}")
+
+
+class LensNotAppliedError(LensQueryError):
+    """`--at-least <block>` timed out: the mirror has not applied that
+    block yet (lens 1.0.0). Not a failure of the read — the same read
+    later answers. Carries the daemon's `appliedThrough` at the timeout."""
+
+    def __init__(self, message: str, applied_through):
+        self.applied_through = applied_through
+        super().__init__("NOT_APPLIED", message)
+
+
+# lens 1.0.0: `--at-least` holds a world read until meta.appliedThrough
+# reaches the block; `--max-wait` defaults to 5000 ms and is capped at
+# 30000. The socket timeout must outlast the wait, or a read the daemon
+# is still legitimately holding would read here as an unresponsive daemon.
+_LENS_TIMEOUT_S = 30
+_LENS_WAIT_DEFAULT_MS = 5_000
+_LENS_WAIT_CAP_MS = 30_000
 
 
 def _lens_request(
@@ -3737,13 +3757,31 @@ def _lens_request(
     args: list | None = None,
     prose: bool = False,
     oversize: bool = False,
+    at_least: int | None = None,
+    max_wait_ms: int | None = None,
 ) -> dict:
-    """One JSON-lines request to the kami-lens daemon socket.
+    """One JSON-lines request to the kami-lens daemon socket, on its own
+    connection.
 
     Returns the envelope {data, untrusted, meta} verbatim. Raises
     LensUnavailableError when the daemon is unreachable or not yet
-    serving; LensQueryError for query-level errors, code passed
-    through."""
+    serving; LensNotAppliedError when `at_least` timed out;
+    LensQueryError for every other query-level error, code passed
+    through.
+
+    `at_least` (lens 1.0.0) holds the read until the mirror has applied
+    that block. The daemon answers one connection's requests in order,
+    so a held read must not share a connection with anything else —
+    every call here opens its own, which is what makes that true."""
+    args = list(args or [])
+    timeout = _LENS_TIMEOUT_S
+    if at_least is not None:
+        args.append(f"--at-least={int(at_least)}")
+        wait_ms = _LENS_WAIT_DEFAULT_MS
+        if max_wait_ms is not None:
+            wait_ms = max(0, min(int(max_wait_ms), _LENS_WAIT_CAP_MS))
+            args.append(f"--max-wait={wait_ms}")
+        timeout = max(_LENS_TIMEOUT_S, wait_ms / 1000 + 15)
     req: dict = {"id": 1, "query": query}
     if args:
         req["args"] = [str(a) for a in args]
@@ -3757,7 +3795,7 @@ def _lens_request(
     try:
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            conn.settimeout(30)
+            conn.settimeout(timeout)
             conn.connect(KAMI_LENS_SOCKET)
             conn.sendall(payload)
             buf = b""
@@ -3776,7 +3814,8 @@ def _lens_request(
         raise LensUnavailableError(f"cannot connect to the daemon socket: {e}")
     except (socket.timeout, TimeoutError):
         raise LensUnavailableError(
-            "the daemon did not answer within 30s", daemon_state="unresponsive"
+            f"the daemon did not answer within {timeout:g}s",
+            daemon_state="unresponsive",
         )
     except OSError as e:
         raise LensUnavailableError(f"socket error: {e}")
@@ -3787,6 +3826,8 @@ def _lens_request(
         message = str(err.get("message") or "")
         if code == "NOT_READY":
             raise LensNotReadyError(message)
+        if code == "NOT_APPLIED":
+            raise LensNotAppliedError(message, err.get("appliedThrough"))
         if code == "NOT_FOUND" and "mirror not initialized" in message:
             raise LensUnavailableError(message, daemon_state="starting")
         raise LensQueryError(code, message)
@@ -4594,18 +4635,28 @@ def bridge_status(tx_hash: str, account: str = "main") -> dict:
 #
 # One tool per lens query, 1:1 with the daemon's query registry.
 # Each wrapper is exactly: argument mapping + socket call + envelope
-# pass-through. Shared serving/untrusted sentences are appended to every
-# READ description once, at the end of this module.
+# pass-through. The shared serving/untrusted/verify sentences are said
+# once, in the MCP instructions (STANDING_TEXT), not per description.
+
+
+def _at(at_least_block: int) -> int | None:
+    """at_least_block (-1: none) -> the lens `--at-least` block."""
+    return at_least_block if at_least_block >= 0 else None
 
 
 @mcp.tool()
-def lens_kami(kami_index: int, stats: bool = False) -> dict:
+def lens_kami(
+    kami_index: int, stats: bool = False, equipment: bool = False,
+    at_least_block: int = -1,
+) -> dict:
     """Single-kami vitals by on-chain index: HP and rate, state, level,
     XP, level-up readiness, unspent skill points, cooldown, and MUSU
     accrued while harvesting. No traits and no skill list.
 
     stats adds the stat block — base/shift/boost/sync/total for
     health, power, harmony, violence — and [body, hand] affinities.
+    equipment adds {capacity, slots: [{slot, item: {index, name} |
+    null}]}, slot names as upstream (Head_Slot, Body_Slot, ...).
 
     Args:
         kami_index: Kami token index (e.g. 45).
@@ -4614,7 +4665,9 @@ def lens_kami(kami_index: int, stats: bool = False) -> dict:
     args: list = [kami_index]
     if stats:
         args.append("--stats")
-    return _lens_request("kami", args)
+    if equipment:
+        args.append("--equipment")
+    return _lens_request("kami", args, at_least=_at(at_least_block))
 
 
 @mcp.tool()
@@ -4631,7 +4684,8 @@ def lens_skills(kami_index: int = -1) -> dict:
 
 @mcp.tool()
 def lens_account(
-    account_key: str = "", prose: bool = False, identity_only: bool = False
+    account_key: str = "", prose: bool = False, identity_only: bool = False,
+    at_least_block: int = -1,
 ) -> dict:
     """Account by on-chain index or name: identity, room, stamina
     (current/total), kami roster. identity_only omits the roster.
@@ -4645,12 +4699,14 @@ def lens_account(
     args: list = [account_key] if account_key else []
     if identity_only:
         args.append("--slim")
-    return _lens_request("account", args, prose=prose)
+    return _lens_request("account", args, prose=prose,
+                         at_least=_at(at_least_block))
 
 
 @mcp.tool()
 def lens_party(
-    account_index: int = -1, full: bool = False, stats: bool = False
+    account_index: int = -1, full: bool = False, stats: bool = False,
+    at_least_block: int = -1,
 ) -> dict:
     """Party report for an account: kamis with full vitals, first 50 by
     kami index; kamisTotal/kamisServed count them.
@@ -4665,24 +4721,29 @@ def lens_party(
         args.append("--full")
     if stats:
         args.append("--stats")
-    return _lens_request("party", args)
+    return _lens_request("party", args, at_least=_at(at_least_block))
 
 
 @mcp.tool()
-def lens_roster(account_index: int = -1, stats: bool = False) -> dict:
+def lens_roster(
+    account_index: int = -1, stats: bool = False, full: bool = False,
+    at_least_block: int = -1,
+) -> dict:
     """Compact roster: one line per kami (index, state, HP) plus where
     the account is. Uncapped, until stats caps it.
 
     Args:
         account_index: Account index (-1: daemon default operator).
         stats: Add the stat block (as lens_kami) per row. Caps the
-            list at 50 rows, with kamisTotal/kamisServed; there is no
-            uncapped stats form.
+            list at 50 rows, with kamisTotal/kamisServed.
+        full: Lift the 50-row cap stats brings.
     """
     args: list = [account_index] if account_index >= 0 else []
     if stats:
         args.append("--stats")
-    return _lens_request("roster", args)
+    if full:
+        args.append("--full")
+    return _lens_request("roster", args, at_least=_at(at_least_block))
 
 
 @mcp.tool()
@@ -4693,6 +4754,9 @@ def lens_node(
     full: bool = False,
     stats: bool = False,
     eligible_only: bool = False,
+    target_kami_indices: list[int] = [],  # noqa: B006 — never mutated
+    occupant_account_index: int = -1,
+    at_least_block: int = -1,
 ) -> dict:
     """Harvest node with its ACTIVE harvests (occupant identities),
     first 50 by kami index; harvestsTotal/harvestsServed count them.
@@ -4714,6 +4778,9 @@ def lens_node(
         stats: Add the stat block (as lens_kami) per occupant.
             Requires with_vitals.
         eligible_only: Only target-side eligible rows.
+        target_kami_indices: Only these occupant kamis (up to 500);
+            targetsAbsent lists those not on the node.
+        occupant_account_index: Only that account's harvests.
     """
     args: list = [node_index]
     if attacker_kami_index >= 0:
@@ -4730,7 +4797,12 @@ def lens_node(
         args.append("--stats")
     if eligible_only:
         args.append("--eligible-only")
-    return _lens_request("node", args)
+    if target_kami_indices:
+        args.append("--targets=" + ",".join(str(int(k)) for k in
+                                            target_kami_indices))
+    if occupant_account_index >= 0:
+        args.append(f"--account={occupant_account_index}")
+    return _lens_request("node", args, at_least=_at(at_least_block))
 
 
 @mcp.tool()
@@ -4750,7 +4822,7 @@ def lens_room(room_index: int, full: bool = False) -> dict:
 
 
 @mcp.tool()
-def lens_inventory(account_key: str = "") -> dict:
+def lens_inventory(account_key: str = "", at_least_block: int = -1) -> dict:
     """Any account's item inventory (zero balances dropped, ascending
     item index).
 
@@ -4758,12 +4830,14 @@ def lens_inventory(account_key: str = "") -> dict:
         account_key: Account index (digits) or account name. Empty:
             the daemon's default operator, if set.
     """
-    return _lens_request("inventory", [account_key] if account_key else [])
+    return _lens_request("inventory", [account_key] if account_key else [],
+                         at_least=_at(at_least_block))
 
 
 @mcp.tool()
 def lens_item(item_index: int) -> dict:
-    """Item registry row by index.
+    """Item registry row by index; an ERC-20 item carries token
+    {address, scale} (the token portal's).
 
     Includes the item's pool facts where a pool exists: both reserves,
     the fee in basis points, LP supply, and the implied rate before fees.
@@ -4946,26 +5020,54 @@ def lens_portal(account_index: int) -> dict:
 
 
 @mcp.tool()
+def lens_receipts(account: str = "main", at_least_block: int = -1) -> dict:
+    """PENDING token-portal withdrawal receipts of a roster account: id,
+    item, itemAmount, tokenAmount, tax, token, endTime, claimableNow,
+    secondsToClaimable, lane OWNER|OPERATOR, payout {route, address},
+    state WAITING|CLAIMABLE|PAUSED. A claimed or cancelled receipt is
+    gone (history: lens_portal).
+
+    Args:
+        account: Roster label (as portal_claim); sent as its owner
+            address.
+    """
+    acct = _get_account(account)
+    addr = acct.owner_addr or acct._operator_addr
+    if not addr:
+        raise ValueError(f"account '{account}' has no wallet address")
+    return _lens_request("receipts", [addr], at_least=_at(at_least_block))
+
+
+@mcp.tool()
 def lens_transfers(account_index: int) -> dict:
     """Item transfer history for an account."""
     return _lens_request("transfers", [account_index])
 
 
 @mcp.tool()
-def lens_feed(since_seq: int = -1, event_type: str = "") -> dict:
-    """Buffered world feed events (kills, trades, and similar), newest
-    buffered window.
+def lens_feed(
+    since_seq: int = -1, event_type: str = "", limit: int = -1,
+    account_index: int = -1,
+) -> dict:
+    """Buffered world feed events (kills, trades, and similar): the
+    NEWEST `limit` matching events (default 50, 1-500), ascending seq;
+    eventsMatched/eventsServed count them. With since_seq: the events
+    after it, oldest first, at most `limit`.
 
     Args:
-        since_seq: Only events after this sequence number (-1 from the
-            start of the buffer).
+        since_seq: Only events after this sequence number (-1: newest).
         event_type: Filter to one event type (empty for all).
+        account_index: Only events involving this account.
     """
     args: list = []
     if since_seq >= 0:
         args.append(since_seq)
     if event_type:
         args.append(event_type)
+    if limit >= 0:
+        args.append(f"--limit={limit}")
+    if account_index >= 0:
+        args.append(f"--account={account_index}")
     return _lens_request("feed", args)
 
 
@@ -5005,8 +5107,24 @@ def lens_status() -> dict:
     """kami-lens daemon status: sync state, live block, blocks behind
     chain head (blockLag), stream health, degraded and feedsDegraded
     flags, per-feed service health, and the daemon's version and
-    configuration."""
+    configuration. headBlockNumber/headSampledAt/blockLag are omitted
+    together when the head sample is missing or over 60 s old."""
     return _lens_request("status")
+
+
+@mcp.tool()
+def lens_pool_history(item_a: int, item_b: int, from_ts: int = -1) -> dict:
+    """Pool price history for an item pair (the client's pool chart):
+    {baseIndex, quoteIndex, points: [{bucketTs, price}]}. Needs the
+    Kamiden feed service (KAMIDEN_UNAVAILABLE when it is down).
+
+    Args:
+        from_ts: Unix seconds to start from (-1: all).
+    """
+    args: list = [item_a, item_b]
+    if from_ts >= 0:
+        args.append(from_ts)
+    return _lens_request("pool-history", args)
 
 
 
@@ -8868,8 +8986,8 @@ def portal_withdraw(
             pass
     if out["receipt_id"] is None:
         out["decode_error"] = (
-            "no PORTAL_TOKEN_WITHDRAW event in the receipt; lens_portal "
-            "lists the account's pending withdrawals")
+            "no PORTAL_TOKEN_WITHDRAW event in the receipt; lens_receipts "
+            "lists the account's pending receipts")
     return out
 
 
@@ -8888,7 +9006,8 @@ def portal_claim(receipt_id: str, account: str = "main") -> dict:
     in this transaction.
 
     Args:
-        receipt_id: From portal_withdraw, decimal or 0x-hex string.
+        receipt_id: From portal_withdraw, or lens_receipts (with its
+            claimable time); decimal or 0x-hex string.
     """
     acct = _get_account(account)
     rid = _parse_commit_id(receipt_id)
@@ -8937,7 +9056,8 @@ def portal_cancel(receipt_id: str, account: str = "main") -> dict:
     signer's key held.
 
     Args:
-        receipt_id: From portal_withdraw, decimal or 0x-hex string.
+        receipt_id: From portal_withdraw or lens_receipts; decimal or
+            0x-hex string.
     """
     rid = _parse_commit_id(receipt_id)
     rec = _portal_receipt(rid)
@@ -13084,8 +13204,8 @@ _PERCEIVE_TOOLS = {
     "lens_config", "lens_feed", "lens_inventory", "lens_item",
     "lens_items", "lens_kami", "lens_killers", "lens_leaderboard",
     "lens_market", "lens_merchant", "lens_node", "lens_party",
-    "lens_phase", "lens_portal", "lens_quests", "lens_room",
-    "lens_roster", "lens_skills",
+    "lens_phase", "lens_pool_history", "lens_portal", "lens_quests",
+    "lens_receipts", "lens_room", "lens_roster", "lens_skills",
     "lens_status", "lens_trades", "lens_transfers",
     # native holdouts (see EXPOSURE.md for serving path + migration note)
     "check_quest_completable", "get_expected_objective",
@@ -13129,6 +13249,20 @@ _LENS_SERVING_SENTENCE = (
 _NONCE_LANE_SENTENCE = (
     "An account has ONE nonce lane per key: any other sender on the same "
     "key (another server, a game client) must be sequential with this one."
+)
+# lens 1.0.0: the act -> verify primitive, and the incomplete-row rule.
+_LENS_VERIFY_SENTENCE = (
+    "To see your own transaction in a lens read, pass the `block` of its "
+    "result as at_least_block (lens_kami, lens_party, lens_roster, "
+    "lens_account, lens_node, lens_inventory, lens_receipts): the read "
+    "waits up to 5 s for the mirror to apply that block. NOT_APPLIED means "
+    "the mirror is still behind: retry the read; the transaction did not "
+    "fail."
+)
+_LENS_INCOMPLETE_SENTENCE = (
+    "An `incomplete: true` row or an INCOMPLETE error means the mirror "
+    "could not complete that kami right now: re-read it; a missing vitals "
+    "block is never zero HP."
 )
 
 
@@ -13233,6 +13367,7 @@ TOOLS_HASH = compute_tools_hash()
 # be stated, or the harness half of a deployment is unrecordable.
 STANDING_TEXT = " ".join((
     _UNTRUSTED_STANDING_SENTENCE, _LENS_SERVING_SENTENCE,
+    _LENS_VERIFY_SENTENCE, _LENS_INCOMPLETE_SENTENCE,
     _NONCE_LANE_SENTENCE, _time_box_sentence(),
 ))
 mcp._mcp_server.instructions = (
