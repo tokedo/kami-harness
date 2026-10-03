@@ -170,8 +170,7 @@ never return an empty result in its place. ACT and META
 tools do not depend on it.
 
 This server version is built against kami-lens release **1.0.0**,
-declared in [`SPEC.md`](SPEC.md) D1 — the one place the compatible
-release and its commit are stated. Several 4.0.0 parameters
+commit `0ffc8a7`, as declared in [`SPEC.md`](SPEC.md) D1. Several 4.0.0 parameters
 (`at_least_block`, `equipment`, the node and feed selectors) and two
 tools (`lens_receipts`, `lens_pool_history`) need 1.0.0: an older daemon
 refuses them with an error, so upgrade the daemon first. kami-lens is
@@ -181,7 +180,7 @@ repository:
 ```bash
 git clone https://github.com/tokedo/kami-lens
 cd kami-lens
-git checkout <commit>       # the 1.0.0 release commit named in SPEC.md D1
+git checkout 0ffc8a7        # kami-lens 1.0.0, the pin this server version is built against
 npm install && npm run build
 node dist/cli.js daemon      # long-running: sync daemon + query socket
 ```
@@ -213,8 +212,12 @@ platform default:
 | Linux | `${XDG_DATA_HOME:-~/.local/share}/kami-lens/kami-lens.sock` |
 | Windows | `%LOCALAPPDATA%\kami-lens\kami-lens.sock` |
 
-A daemon started with the defaults needs no configuration here. If you
-moved its data directory (`--data-dir`) or run it in Docker — where the
+A daemon started with the defaults needs no configuration here. Keep
+the lens data directory's path short: an AF_UNIX socket path is capped
+by the OS (103 bytes on macOS, 107 on Linux), the daemon refuses a
+longer one with `SOCKET_PATH_TOO_LONG`, and this server reports the same
+cause as `LensUnavailableError: socket error: AF_UNIX path too long`. If
+you moved its data directory (`--data-dir`) or run it in Docker — where the
 socket lives on the container's `/data` volume and must be bind-mounted
 out to the host — set the path explicitly in
 `~/.blocklife-keys/.env` (keys documented in
@@ -350,7 +353,9 @@ looking at the wrong socket. Confirm the daemon is LIVE
 created matches what the server expects — the platform default in the
 table above, or whatever `KAMI_LENS_SOCKET` is set to in
 `~/.blocklife-keys/.env`. A daemon in Docker needs its `/data` socket
-bind-mounted to a host path and `KAMI_LENS_SOCKET` pointed there.
+bind-mounted to a host path and `KAMI_LENS_SOCKET` pointed there. An
+error reading `AF_UNIX path too long` means the socket path itself is
+over the OS limit: move the lens data directory to a shorter path.
 
 ### A lens read answers, but `meta.stale` is `true`
 The daemon is degraded or still catching up and is serving from

@@ -35,8 +35,8 @@ MAJOR. **100 tools** (ACT 59 / PERCEIVE 34 / META 7; the OUTSOURCE class
 is gone), registry mass **69,265** against the unchanged 73,000 budget
 (Python 3.13), `tools_hash`
 `3cd1c08c7d9a8a3f26c88049c9cb66a8cdd042fc22fe56e17087838328304315`.
-`SCHEMA_VERSION` **4.0.0**. Built against **kami-lens 1.0.0**: deploy
-the lens first (SPEC D1). Two parts: the send path and concurrency
+`SCHEMA_VERSION` **4.0.0**. Built against **kami-lens 1.0.0**
+(`0ffc8a7`): deploy the lens first (SPEC D1). Two parts: the send path and concurrency
 (part 1, no surface change of its own), then the surface (part 2).
 
 ### Migration note (consumers of 3.7.0)
@@ -167,9 +167,14 @@ Changed semantics and return shapes:
   `lens_pool_history` serves the client's pool chart. No ACT tool reads
   the lens — every read-back is a chain read — so no write result
   depends on the daemon, and nothing here derives lag from `status`.
-  Built against `lens-100` (leg A at `802993a`) and the agreed contract
-  for leg B; the live read-only integration check against a 1.0.0
-  daemon is a separate step.
+  Built against kami-lens 1.0.0 (`0ffc8a7`), and checked read-only
+  against a live 1.0.0 daemon: `lens_status`, `lens_kami(equipment)`,
+  `lens_node` with target and occupant-account selectors (`targetsAbsent`
+  served), `lens_pool_history(1, 103)`, `at_least_block` at the applied
+  mark, `NOT_APPLIED` for a block ahead of it, and `receipts` by
+  address. Lens 1.0.0 also refuses a socket path the OS would truncate
+  (`SOCKET_PATH_TOO_LONG`; 103 bytes on macOS, 107 on Linux) — keep its
+  data directory short (SETUP).
 - **Small**: the sweep reserve floor (the fee actually deducted could
   not be derived read-only — the public RPC has pruned the failed
   sweeps' blocks and its eth_call ignores fees — so 0.0002 ETH is an
