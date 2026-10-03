@@ -21,19 +21,19 @@ this registry says *what holds*, not *how it is built*.
 
 ### P1 — MCP tool surface
 
-- The registry advertises exactly **104 tools**.
+- The registry advertises exactly **98 tools**.
 - Every registered tool carries exactly one class tag in
-  `server.TOOL_CLASSES`; the tag set is `{ACT, PERCEIVE, OUTSOURCE,
-  META}` and the key set equals the registered tool names exactly.
-- Class counts: **ACT 56 / PERCEIVE 32 / OUTSOURCE 9 / META 7**.
+  `server.TOOL_CLASSES`; the tag set is `{ACT, PERCEIVE, META}` and the
+  key set equals the registered tool names exactly. (The OUTSOURCE class
+  left with the strategy-service family at 4.0.0.)
+- Class counts: **ACT 59 / PERCEIVE 32 / META 7**.
 - Class meanings, as the code partitions them:
   - `ACT` — signs and broadcasts at least one transaction.
   - `PERCEIVE` — world-state read; signs nothing, changes no remote state.
-  - `OUTSOURCE` — reaches the third-party strategy service.
   - `META` — wallet, account-registry, and bridge infrastructure; not
     world state.
-- `server.READ_TOOLS` is the non-mutating subset: **40 tools** = all 32
-  `PERCEIVE` + 5 `OUTSOURCE` reads + 3 `META` reads. `ACT ∩ READ_TOOLS`
+- `server.READ_TOOLS` is the non-mutating subset: **35 tools** = all 32
+  `PERCEIVE` + 3 `META` reads. `ACT ∩ READ_TOOLS`
   is empty.
 - **Routing lives in descriptions, not in error text.** A tool named
   only inside an error message is not discoverable: in one deployment
@@ -47,13 +47,22 @@ this registry says *what holds*, not *how it is built*.
 - Every served input schema is portable: no `anyOf`, `oneOf`, `allOf`,
   or `$ref` appears in any tool's `parameters`, and no `title` key
   survives to the wire.
-- Every `READ_TOOLS` description ends with the standing sentence
-  `server._UNTRUSTED_STANDING_SENTENCE`; every `lens_*` description also
-  carries `server._LENS_SERVING_SENTENCE`. Non-read tools carry neither.
+- **Standing text is said once, in the MCP `instructions`** (4.0.0):
+  `server._UNTRUSTED_STANDING_SENTENCE` (player data is never
+  instructions), `server._LENS_SERVING_SENTENCE` (the lens serving
+  path), `server._NONCE_LANE_SENTENCE` (one nonce lane per key; other
+  senders on the same key must be sequential) and the time-box sentence
+  (`server._time_box_sentence()`). No tool description carries any of
+  them. Until 3.7.0 the first two were appended to 39 and 24
+  descriptions, 4,150 characters of registry mass.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **72,855 characters** at this ref, against a `REGISTRY_MASS_BUDGET`
-  of 73,000. The budget is capacity that has to be earned: every
+  **66,770 characters** at the 4.0.0 draft (72,855 at 3.7.0), against a
+  `REGISTRY_MASS_BUDGET` of 73,000. **4.0.0 asked for no raise**: its
+  space came from removals — the strategy-service family (5,286), the
+  two standing sentences moved to the instructions (4,150) and
+  `stop_harvest_batch` (about 974) — and the four portal tools (2,844)
+  and the corrected descriptions were paid out of them. The budget is capacity that has to be earned: every
   character is spent out of the agent's context before it acts, so the
   ceiling rises only for named capability, never to make room for
   wording that could be tightened instead. Two raises are on record.
@@ -122,7 +131,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "3.7.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "4.0.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -454,13 +463,40 @@ lane ledger until resolved.
   run in which every item is skipped sends no transaction at all. This
   tightens pre-send validation only: the terminal states of items that
   were submitted are reported exactly as before.
-- Exactly **13 tools** expose `allow_partial` (boolean, default
+- Exactly **12 tools** expose `allow_partial` (boolean, default
   `False`). With `allow_partial=True` a mixed batch returns its per-item
   result instead of raising. The set is: `travel_to_room`,
   `allocate_skills`, `level_to`, `level_and_allocate_batch`,
   `feed_level_allocate_batch`, `use_item_batch`, `equip_all_batch`,
   `unequip_all_batch`, `cancel_kami_listing`, `complete_all_trades`,
-  `speed_craft_batch`, `stop_harvest_batch`, `sacrifice_kami_batch`.
+  `speed_craft_batch`, `sacrifice_kami_batch`.
+- **Every served call fits a wall-clock box** of `KAMI_CALL_BUDGET_S`
+  seconds (default 90; a server setting, never a tool parameter). A loop
+  tool checks it at every transaction boundary once one transaction has
+  landed, stops while 15 s remain, and returns what it did with
+  `time_boxed: true` and `remaining` (what it did not attempt); receipt
+  waits are clipped to the box. A single-transaction tool is never cut.
+- **Loops report the chain, not their count.** After a level/skill/feed
+  loop the kami's level, XP and unspent skill points are read back from
+  chain (`chain`), `reached_level` / `leveled.to` are that read-back,
+  and item uses report the inventory before and after.
+- **Harvest batches take at most 10 kamis** (`server._HARVEST_MAX_KAMIS`:
+  the measured admission of the node, below the lane arithmetic),
+  refused before signing; `act_sequence` harvest steps too. A
+  multi-kami dry-run failure is re-run kami by kami and the refusal
+  says whether the batch SIZE or one kami (ITEM, with its own reason)
+  failed — never a bare `Reverted`. `harvest_start` takes `dry_run`.
+- **The token portal** (`portal_withdraw`, `portal_claim`,
+  `portal_cancel`, `portal_deposit`) validates before signing: portal
+  enabled, item registered, the operator lane for the item
+  (`to="operator"`), item or token balance, tax below the amount, and
+  for a receipt: pending, this account's, not paused, the delay ended
+  (claim) and a payee set. `portal_withdraw(dry_run=True)` follows the
+  dry-run rule above (no `status`, no hash) and states the tax (flat +
+  basis points, in items), the net token amount and `claimable_at`.
+  Results are receipts: the receipt id is decoded from the
+  `PORTAL_TOKEN_WITHDRAW` world event of the transaction itself; a claim
+  reports the payee and the amount from the token's own Transfer log.
 - A batch transaction that lands but whose intended effect did not take
   hold is a failure, not a success: it raises by default and is
   reported per-item under `allow_partial`.
@@ -545,7 +581,7 @@ softened, and the pre-snippet text is unchanged.
 
 ### P7 — EXPOSURE.md as the exposure-precedent registry
 
-- `EXPOSURE.md` holds one row per READ tool on the live registry — **39
+- `EXPOSURE.md` holds one row per READ tool on the live registry — **35
   served rows** at this ref — with columns: Tool, Class, Exposure,
   Precedent, Serving path, Admitted.
 - It additionally holds *deferred* rows (reads deliberately not served
@@ -662,42 +698,14 @@ softened, and the pre-snippet text is unchanged.
   read that would require any of those is deferred with a visible
   EXPOSURE row until the daemon serves it.
 
-### D2 — Kamibots / Asphodel API
+### D2 — (retired) the third-party strategy service
 
-- **Base:** `https://api.kamibots.xyz`. Auth: per-account `X-Agent-Key`
-  header from `{LABEL}_KAMIBOTS_API_KEY`.
-- **No version pin is available or asserted.** The dependency is pinned
-  by endpoint path and response shape only; there is no upstream version
-  string to record.
-- **Declared (OUTSOURCE class, 9 tools)** via `_strategy_api`:
-  `/api/agent/register`, `/api/agent/operator-key`, `/api/agent/tier`,
-  `/api/agent/strategies`, `/api/strategies/status/all`, plus per-kami
-  status, logs, start, and stop.
-- **Internal read paths (not OUTSOURCE-classed)** via `_api_get`:
-  - `get_scavenge_droptable` (PERCEIVE) — `GET /api/playwright/nodes`
-    for node metadata; the droptable weights themselves come from chain
-    component reads.
-- **Blast radius:** an outage of this third party therefore reaches **0
-  ACT tools and 1 PERCEIVE tool** in addition to the 9 OUTSOURCE tools.
-  `travel_to_room` left this set at 3.0.0: it now reads room and stamina
-  from `system.getter.getAccount` and SP+ balances from chain inventory.
-  `level_to`, `level_and_allocate_batch` and `feed_level_allocate_batch`
-  left it at 3.2.0: they read the kami's current level from the chain's
-  Level component (`server._kami_level`), the same source
-  `level_up_kami` has validated against since 3.0.0, so an account that
-  never registered with this service can now use them. No ACT tool
-  reaches this dependency. See deviation X2.
-- **Delegation outlives the session.** A strategy started through this
-  service keeps signing with the escrowed operator key after the MCP
-  session that started it has ended — observed continuing ~23 hours on a
-  ~10-minute cycle — with no known enrolment expiry and no enumeration
-  API; `stop_strategy` is the only revocation path.
-- **Assumptions:** the account and kami response shapes stay stable;
-  `/api/accounts/` remains ~15s-cached upstream; HTTP 5xx and connection
-  failures are transport-level, not semantic.
-- **Migration risk:** this API may move into Asphodel core UX. Endpoint
-  identity is not guaranteed across that migration; path stability is an
-  assumption, not a contract.
+- **Removed at 4.0.0.** No tool, read path, credential or environment
+  key reaches the strategy service any more: the nine OUTSOURCE tools
+  left the surface (one of them sent the operator private key to it),
+  and the one internal read, `get_scavenge_droptable`'s node metadata,
+  is served from chain (D3). The server holds no third-party API key and
+  transmits no private key anywhere.
 
 ### D3 — chain RPC endpoints (two chains)
 
@@ -764,7 +772,7 @@ writer; no other module opens the keys file or the Keychain.
   (`MissingSecretError`, naming only names). `ALLOW_ENV_SECRETS=1` lets
   it fall back to the keys file / process environment, warned on stderr.
 - **Read:** `{LABEL}_OPERATOR_KEY` and `{LABEL}_OWNER_KEY` (label
-  uppercased), plus `{LABEL}_KAMIBOTS_API_KEY` and `{LABEL}_PRIVY_ID`.
+  uppercased), and nothing else per account (the strategy-service credentials are no longer read since 4.0.0).
   A label present with only `{LABEL}_OWNER_KEY` loads as an owner-only
   account — it is visible in `list_accounts` and `get_gas_balance`, and
   every operator path raises a factual no-operator-wallet error.
@@ -773,9 +781,8 @@ writer; no other module opens the keys file or the Keychain.
   suite's synthetic accounts, load identically to a keys-file entry.
 - **Written back by the server** through the store:
   `{LABEL}_OPERATOR_KEY` (by `create_operator_wallet`, which generates
-  the keypair in-process), `{LABEL}_KAMIBOTS_API_KEY` and
-  `{LABEL}_PRIVY_ID` (by `register_kamibots`). Each lands wherever its
-  name resolves — keys file, or Keychain when protected.
+  the keypair in-process). It lands wherever its name resolves — keys
+  file, or Keychain when protected.
 - **Non-secret config** from the keys file (`RPC_URL`,
   `MAINNET_RPC_URL`, the capability flags) IS exported to `os.environ`,
   by `setdefault`, so an existing process value wins. Secret-shaped
@@ -854,14 +861,11 @@ writer; no other module opens the keys file or the Keychain.
 | Every gate type in `catalogs/room-gates.csv` has an evaluator, and every gated edge exists in the routing graph | `test_rooms_graph.py::test_gate_rows_are_well_formed`, `::test_every_gated_edge_exists_in_the_graph` (a fourth gate type fails the suite rather than routing an account into a revert) |
 | A kami at 0 stored HP is refused pre-send by both `harvest_stop` and `harvest_collect`, with one wording, and an unreadable HP refuses nothing | `test_h340_families.py::TestStarvingGate` |
 | `NOT_READY` is its own error class and never reads as a missing entity | `test_h340_families.py::TestLens052Passthroughs::test_not_ready_is_its_own_error_class`, `::test_not_ready_never_reads_as_a_missing_entity` |
-| The registry advertises exactly 102 tools | `test_tool_surface.py::test_tool_surface_count` |
-| Every registered tool is class-tagged, and no tag names an absent tool | `test_tool_surface.py::test_taxonomy_covers_registry_exactly` (also pins ACT 55 / PERCEIVE 31 / OUTSOURCE 9 / META 7) |
+| The registry advertises exactly 98 tools | `test_tool_surface.py::test_tool_surface_count` |
+| Every registered tool is class-tagged, and no tag names an absent tool | `test_tool_surface.py::test_taxonomy_covers_registry_exactly` (also pins ACT 59 / PERCEIVE 32 / META 7 and 35 READ tools) |
 | Tools removed at this version stay absent | `test_tool_surface.py::test_removed_tools_absent` |
 | Every READ tool has an EXPOSURE.md row; no row names a non-READ or absent tool | `test_tool_surface.py::test_exposure_rows` |
 | Named deferred reads and unserved ACT rows stay present in EXPOSURE.md | `test_tool_surface.py::test_exposure_rows` |
-| Operator keys are only ever escrowed; an owner private key never crosses the wire | `test_outsource.py::TestEnableStrategies::test_owner_key_never_in_request` — asserted on a split account whose owner and operator keys differ, so it cannot pass by key coincidence |
-| The escrow request body is exactly `{"operatorKey": <operator key>}` and the service echoes the matching address or the call raises | `test_outsource.py::TestEnableStrategies::test_posts_operator_key_exactly`, `::test_address_echo_mismatch_raises` |
-| An account with no operator wallet has nothing to escrow and issues no request | `test_outsource.py::TestEnableStrategies::test_owner_only_account_refuses` |
 | `tools_hash` is 64 lowercase hex chars, recomputes identically, and is the first field of the handshake `instructions`, which also carries `schema_version` and `error_snippets`; `serverInfo.version` equals `SCHEMA_VERSION` | `test_tool_surface.py::test_tools_hash_present_and_deterministic`, `test_v300_families.py::TestHandshakeProvenance` |
 | Tool count, registry mass, `tools_hash` and every (name, description, parameters) triple are identical across capability-flag settings | `test_tool_surface.py::test_surface_identical_across_capability_flags` — imports the module in 8 subprocesses over `KAMI_ERROR_SNIPPETS` × `KAMI_CHAT_ENABLED` × `PRESENTATION_MODE`, and asserts each child observed the flags it was given, so it cannot pass on a flag that never took effect |
 | With `KAMI_ERROR_SNIPPETS` off, error text is what 2.1.0 produced | the pre-existing error-format suite passes unedited with the flag off (`test_validation.py::TestErrorFormat`, `::TestHarvestValidation`, `test_h3_act.py`), and `test_error_snippets.py::TestFlagOff` asserts the exact messages and an empty `mechanics` |
@@ -870,7 +874,7 @@ writer; no other module opens the keys file or the Keychain.
 | A snippet states no advice, never lengthens past its bound, never hides a subject silently, reports only facts it read, and never introduces the `-32000` marker retry routes on | `test_error_snippets.py::TestSnippetGuards`, `::TestSnippetBehaviour` |
 | The three snippets an agent sees are the pinned wordings | `test_error_snippets.py::TestSnippetExamples` (harvest_start on a HARVESTING kami, harvest_collect on a RESTING kami, a dry-run revert — asserted verbatim) |
 | An `allow_partial` return keeps its documented shape with the flag on | `test_error_snippets.py::TestSnippetBehaviour::test_batch_error_leaves_the_returned_payload_untouched` |
-| `SCHEMA_VERSION == "3.1.0"` | `test_tool_surface.py::test_schema_version` |
+| `SCHEMA_VERSION == "4.0.0"` | `test_tool_surface.py::test_schema_version` |
 | The default secrets backend is `envfile`, and no code path reaches the Keychain under it — not load, not get, not put, not with a manifest present | `test_secrets_store.py::TestEnvfileIsTheDefault` (the Keychain helpers are replaced with raisers) |
 | An unrecognised `KAMI_SECRETS_BACKEND` fails loudly instead of resolving to a backend | `test_secrets_store.py::TestEnvfileIsTheDefault::test_unknown_backend_fails_loudly` |
 | The protected-names manifest is the keys file's name with a trailing `.env` removed plus `.secrets.names`, alongside it; an absent manifest protects nothing | `test_secrets_store.py::TestManifestPath` |
@@ -881,19 +885,16 @@ writer; no other module opens the keys file or the Keychain.
 | `_load_accounts` writes nothing to stdout — the stdio JSON-RPC transport carries protocol only | `test_owner_only.py::TestOwnerOnlyLoad` (asserts the registry report on stderr and an empty stdout) |
 | Docstrings are mechanism-only: no advisory or endorsement language in either direction | **partially enforced** — `test_tool_surface.py::test_h3_docstrings_stay_mechanical` covers 8 ACT tools against a banned-phrase list; `::test_enable_strategies_docstring_facts` covers 1 tool against a second list. The remaining 92 tools are **unenforced** |
 | No deployment-context references in agent-visible tool descriptions | **unenforced** — no scrub scan exists in this repository. Verified by hand at this ref: all 101 descriptions are clean |
-| Every READ description carries the untrusted-data sentence; every lens description names its serving path; non-read tools carry neither | `test_tool_surface.py::test_read_descriptions_carry_standing_sentence` |
+| The standing text (untrusted data, lens serving path, the nonce lane, the time box) is in the MCP instructions and on no description | `test_tool_surface.py::test_standing_text_is_said_once_in_the_instructions` |
 | Served schemas are portable (no `anyOf`/`oneOf`/`allOf`/`$ref`) and carry no `title` noise | `test_tool_surface.py::test_all_schemas_portable`, `::test_schema_titles_stripped` |
-| `allow_partial` appears on exactly the 13 batch tools, boolean, default `False` | `test_tool_surface.py::test_allow_partial_surface` |
+| `allow_partial` appears on exactly the 12 batch tools, boolean, default `False` | `test_tool_surface.py::test_allow_partial_surface` |
 | A submitted transaction's terminal states are never conflated; a confirmed revert, a proven non-execution and an unconfirmed tx each raise their own type | `test_reporting_fidelity.py::TestSenderTerminalStates` |
 | A revert reason is replayed at the landed block, and stated as unavailable rather than invented when the replay does not revert | `test_reporting_fidelity.py::TestSenderTerminalStates::test_revert_reason_replayed_at_landed_block`, `::test_revert_reason_unavailable_stated` |
 | Retry never resubmits a confirmed revert or an unconfirmed transaction | `test_reporting_fidelity.py::TestNoBlindRetry` |
 | No tool returns normally when a submitted, non-`allow_partial` transaction reverted | `test_reporting_fidelity.py::TestRevertInvariant` (drives every batch tool with a reverting sender) |
-| A batch item that landed but took no effect raises by default and is itemized under `allow_partial` — never counted as done | `test_reporting_fidelity.py::TestStopHarvestBatch::test_silent_skip_raises_by_default`, `::test_silent_skip_allow_partial_returns` |
 | An unreachable, starting, or unresponsive lens daemon raises `LensUnavailableError` and never reads as an empty result | `test_lens_wrappers.py::TestLensUnavailable` |
 | Lens query errors surface with the daemon's own code, unmapped | `test_lens_wrappers.py::TestQueryErrors` |
 | Lens envelopes pass through untouched, stale flags included | `test_lens_wrappers.py::TestEnvelopePassThrough` |
-| Strategy-service connection failures and 5xx raise `OutsourceUnavailableError` on **every** strategy-service tool | `test_outsource.py::TestOutsourceDegradation` |
-| A missing operator key at the strategy service raises an error naming the exact onboarding step; other 4xx pass through unembellished | `test_outsource.py::TestStartStrategyMissingKey` |
 | An account with no operator wallet raises a factual error — never a crash, a swallowed message, a wrapped dry-run revert, or a silent skip | `test_owner_only.py::TestNoOperatorErrors`, `test_owner_only.py::TestOwnerOnlyLoad` |
 | Chat tools stay in the registry when disabled, answer `CHAT_DISABLED`, and contact nothing | `test_lens_wrappers.py::TestChatFlag::test_disabled_by_default_no_socket_contact`, `test_h3_act.py::TestChatSend` |
 | A declared-but-unimplemented presentation mode fails at startup rather than silently serving `envelope`; an unknown mode fails too | `test_lens_wrappers.py::TestPresentationMode::test_mode_validation` |
@@ -901,18 +902,16 @@ writer; no other module opens the keys file or the Keychain.
 | ACT + PERCEIVE alone suffice to reach every documented game mechanic and to complete every quest | **manual audit, CI-pinned only in its conclusions.** The sufficiency sweep is run by hand against an upstream game-source pin (recorded in `EXPOSURE.md` § "ACT coverage" and in `CHANGELOG.md`); at this ref it covers all 26 quest objective types and all quest requirement chains. CI (`test_tool_surface.py::test_exposure_rows`) asserts only that the recorded gap rows remain present. **The sweep itself is not re-run by CI and does not re-run on an upstream bump** |
 | Every leg a multi-transaction tool landed is reported with its hash, on failure as well as success; a failure that never reached the chain adds no row | `test_v300_families.py::TestFailedLegsCarryTheirHash`, `test_reporting_fidelity.py::TestUseItemBatchMatrix::test_mixed_allow_partial_returns`, `::TestSequentialLoopsMatrix::test_level_to_mixed_allow_partial_returns` |
 | Receipt fields are structured, never inside a truncated reason string | `test_v300_families.py::TestFailedLegsCarryTheirHash::test_hash_fields_never_overwrite_a_documented_item_status` |
-| A batch item that would revert is skipped by its own dry-run before batching, and an all-skip run sends no transaction | `test_reporting_fidelity.py::TestStopHarvestBatch::test_doomed_item_is_skipped_before_the_batch`, `::test_all_skipped_sends_no_transaction` |
 | Revealed droptable loot is decoded from the reveal's own receipt, and an unrecognised payload yields nothing rather than a guess | `test_v300_families.py::TestRevealedLootDecode` |
 | Pool availability is read from the pool entity's `IsDisabled` component; no world-config pool flag is read anywhere (no such field exists on-chain, and reading one would return the same 0 an absent field returns) | `test_v300_families.py::TestPoolDisabled` |
 | The travel planner reads room, stamina and SP+ balances from chain state per call, spends no item without a computed deficit, and never reports a state-read failure with an empty reason | `test_v300_families.py::TestTravelReadsChainState` |
 | The unreachable-room refusal keeps its snippet and names its adjacency source | `test_v300_families.py::TestUnreachableRoomSnippet` |
 | A call that reads a precondition drops it from the unread list; `level_up_kami` states level and XP and states no XP requirement | `test_v300_families.py::TestLevelUpReportsXp`, `::TestHarvestGatesReportedTogether` |
 | An unaffordable whole-lot take fails before signing, naming cost and holding; an unreadable precondition does not block the call | `test_v300_families.py::TestWholeLotTake`, `::TestAuctionHoldings` |
-| `get_all_strategy_statuses` summarizes to the calling account's kamis from an on-chain ownership read, and passes an unrecognised or unreadable case through whole | `test_v300_families.py::TestStrategyStatusSummary` |
-| `lens_roster` is a 1:1 wrapper, PERCEIVE, carrying both standing sentences | `test_v300_families.py::TestLensRoster` |
+| `lens_roster` is a 1:1 wrapper, PERCEIVE; the standing sentences are in the instructions, not its description | `test_v300_families.py::TestLensRoster` |
 | A refused `eth_call` is retried once and never reported as a revert; a stale account sequence is in the retry class and no snippet can introduce a retry marker | `test_v300_families.py::TestTransientRpcClasses` |
 | All five send paths read their nonce at the `pending` block, asserted at the site, so a stale `latest` sequence from a lagging load-balanced node cannot invite a retry of a non-idempotent transfer | `test_validation.py::TestPendingNonce`, `test_reporting_fidelity.py::TestSenderTerminalStates::test_send_eth_reads_pending_nonce`, `test_bridge.py::TestBroadcastIsFireAndForget::test_mainnet_nonce_read_at_pending` |
-| The three batch level tools read the current level from the chain's Level component and make no Kamibots call: they work on an account with no API key, and an unreadable level refuses the call naming its cause rather than defaulting | `test_batch_wrappers.py::TestLevelPathNeedsNoKamibotsKey` |
+| The three batch level tools read the current level from the chain's Level component and make no third-party call, and an unreadable level refuses the call naming its cause rather than defaulting | `test_batch_wrappers.py::TestLevelPathNeedsNoKamibotsKey` |
 | `SPEC.md` exists, is well-formed, and its `describes:` names a ref that resolves in this repository | `test_spec.py::test_spec_frontmatter`, `::test_describes_resolves` |
 
 ---
@@ -932,44 +931,19 @@ EXPOSURE row carrying serving path and migration note:
 | `check_quest_completable` | chain `staticCall` | act-guard: answers "would quest-complete revert right now" |
 | `quest_state` | chain component reads | act-guard: discriminates the on-chain quest state |
 | `get_scavenge_points` | chain component reads | no lens scavenge query at pin `8b74007` |
-| `get_scavenge_droptable` | Kamibots node metadata + chain weights | no lens scavenge query at pin `8b74007` |
+| `get_scavenge_droptable` | chain only (since 4.0.0): the scavenge registry's anchored droptable rewards, their keys and weights | no lens scavenge query at pin `8b74007` |
 | `get_item_orderbook` | chain event-scan + component reads | per-item book exceeds `lens_trades` at this pin |
 | `get_gas_balance` | Yominet + mainnet RPC | wallet infrastructure |
 | `list_accounts` | local roster / env | local configuration |
 | `bridge_status` | Initia router API + RPC | cross-chain transport state |
 
-**X2 — `third-party-reach-into-PERCEIVE`.** One internal Kamibots read
-remains, inside the PERCEIVE tool `get_scavenge_droptable`: `GET
-/api/playwright/nodes` supplies the entity IDs of a node's
-`ITEM_DROPTABLE` rewards, which are then the entities for the on-chain
-weight reads. No ACT tool reaches this dependency any more, and the
-deviation no longer touches action paths.
-
-Its remaining half is not trivially replaceable. The node's name and
-tier cost are already available on-chain (`component.value.safeGet` of
-`_scavenge_registry_id(node_index)`, as `get_scavenge_points` reads
-them) and in `catalogs/nodes.csv`; the reward entity IDs are not — no
-helper in this module derives them, and doing so needs an upstream ID
-scheme this module does not hold. The tool's `account` parameter is
-also described as an API auth header, so replacing the read moves a
-description and therefore the surface hash. It is deferred to a
-hash-moving release, with the EXPOSURE row already carrying the lens
-deferral at pin `8b74007`. 3.3.0 and 3.4.0 are both hash-moving
-releases and neither takes it: the reward entity IDs still have no
-on-chain derivation in this module, so the deferral is about the
-missing derivation, not about the hash.
-
-Two tools were removed from this deviation by doing exactly what it
-prescribes — an on-chain read, not a fallback. `travel_to_room` was the
-first, at 3.0.0, and is the worked example: its third-party read was
-~15s-cached upstream and reached the planner through a field-name
-search and a hand-rolled stamina-regeneration estimate, which planned
-on a stamina of 3 against a real ~100 and on rooms the account had
-already left. The three batch level tools were the second, at 3.2.0:
-the chain read they needed (`component.level`) had been sitting in the
-module since 3.0.0, used by `level_up_kami` — the single-transaction
-twin of the same on-chain path, which is why that tool worked on
-accounts where the batch tools raised a missing-API-key error.
+**X2 — `third-party-reach-into-PERCEIVE`.** Retired at 4.0.0.
+`get_scavenge_droptable` took the entity ids of a node's droptable
+rewards from the strategy service; it now derives them on chain — the
+node's scavenge registry anchors its rewards at
+`keccak256("scavenge.reward", registryID)` on `component.id.anchor`
+(upstream LibScavenge) — and no tool reaches a third party for world
+state.
 
 **X3 — `internal-only-read-helpers`.** `get_kami_market_listings` and
 `get_account_trades` left the tool registry but remain as module
@@ -1046,8 +1020,9 @@ the wording ("tools whose harness state gate accepts X") says so.
   two hops. The constraint matches the world rather than narrowing it:
   six live pools, all MUSU-paired. Revisit only if lens pool discovery
   shows a non-MUSU pool.
-- **No owner-key escrow, ever.** Only operator keys are escrowed, and
-  only to the declared strategy service.
+- **No key escrow, ever.** No private key leaves the server process
+  (the only path that sent one, the operator-key escrow to the strategy
+  service, left at 4.0.0).
 - **Not a completeness guarantee over the game.** Reads and actions not
   served at this version are enumerated in EXPOSURE.md; that list is the
   scope boundary, not an oversight.

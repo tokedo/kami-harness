@@ -29,13 +29,132 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
-## [Unreleased — 4.0.0, part 1] — one send path, and reads never wait behind writes
+## [4.0.0] — DRAFT (final hash, mass and SPEC header follow the lens 1.0.0 passthroughs)
 
-Internal to the tool surface: **no tool, parameter, schema or
-description changes** — 104 tools, registry mass **72,855**, `tools_hash`
-`87dc7481...1c1b` (Python 3.13), unchanged and asserted at import. The
-semantics and result shapes below change; `SCHEMA_VERSION` moves with
-the surface release this is part of.
+MAJOR. **98 tools** (ACT 59 / PERCEIVE 32 / META 7; the OUTSOURCE class
+is gone), registry mass **66,770** against the unchanged 73,000 budget
+(draft, Python 3.13), `tools_hash` `c586ba83...e28f` at this draft.
+`SCHEMA_VERSION` **4.0.0**. Two parts: the send path and concurrency
+(part 1, no surface change of its own), then the surface (part 2).
+
+### Migration note (consumers of 3.7.0)
+
+Removed tools, and what replaces them:
+
+| removed | replacement |
+|---|---|
+| `register_kamibots`, `kamibots_enable_strategies`, `start_strategy`, `stop_strategy`, `get_tier`, `get_all_strategies`, `get_all_strategy_statuses`, `get_strategy_status`, `get_strategy_logs` | none on this server: the third-party strategy service is no longer a dependency. **A strategy already started there keeps signing with the escrowed operator key after the upgrade** — stop it with 3.7.0's `stop_strategy` before upgrading, or through the service itself |
+| `stop_harvest_batch(kami_ids, allow_partial)` | `harvest_stop(kami_ids)` — one atomic transaction of up to 10 kamis; a kami that would fail fails the dry-run, which names it (ITEM) |
+
+Changed parameters: `get_scavenge_droptable(node_index)` — `account`
+removed (no third-party read left). New optional: `harvest_start(...,
+dry_run)`. New tools: `portal_withdraw`, `portal_claim`, `portal_cancel`,
+`portal_deposit`.
+
+Changed semantics and return shapes:
+
+- **Standing text** is said once in the MCP `instructions` (after the
+  `tools_hash=... schema_version=... error_snippets=...` line), not on
+  any description: the untrusted-data rule, the lens serving path, one
+  nonce lane per key, the call time box.
+- **Terminal states**: a transaction proven not executed raises
+  `TxNonceCollisionError` (nonce consumed by another, named hash) or
+  `TxDroppedError`; per-leg rows carry `status: "dropped"` (+
+  `consumed_by`). `LaneBlockedError` (an earlier call's transactions
+  armed behind a gap that cannot be filled) and `CallCancelledError`
+  are new. A single send waits 60 s for its receipt (was 120 s / 180 s).
+- **`notice`** is the first key of any result that drained an earlier
+  call's armed transactions, and of an `act_sequence` result that
+  dropped or filled a step.
+- **`act_sequence`**: a refused step is re-offered as the same signed
+  bytes (never re-signed); a gap below an accepted step is filled with
+  a zero-value self-transfer (`filled`, and `nonce_filled_by` on the
+  row); a silent nonce is re-offered and keeps `broadcast_error`;
+  `not_sent` rows may carry `consumed_by` / `signed_by_harness`;
+  receipts are batched on a 30 s + 0.5 s/step budget.
+- **Read-backs**: `level_to.reached_level` and `leveled.to` are read
+  from chain (`leveled.landed` is the count); results carry `chain`
+  (level, XP, unspent skill points); `use_item_batch.inventory` and
+  `fed.inventory_before/after/consumed` read the item balance.
+- **Time box**: every loop tool may return `time_boxed: true` and
+  `remaining` (`KAMI_CALL_BUDGET_S`, default 90 s). A client cancel stops
+  a loop at its next transaction.
+- **Harvest**: start/stop/collect refuse more than 10 kamis; a refused
+  batch says SIZE or ITEM.
+- **Scavenge**: `scavenge_claim_and_reveal` reveals until drained —
+  `reveals` (count), `reveal` (the last), `rolls_before`,
+  `rolls_remaining`, `notice`, `already_revealed`; `revealed_items`
+  sums every reveal. `droptable_reveal` adds `rolls_remaining`.
+- **Travel**: a failed state read or an unplannable route RAISES
+  (`PreTxValidationError`) instead of returning `{"error": ...}`;
+  stamina is clamped to 100 in plan and result.
+- **Equipment**: `equip_all_batch` skips an occupied slot
+  (`equipped_item`), rows carry `slot_item_after`; `equip_item` refuses
+  an occupied slot.
+- **`withdraw_operator`** keeps max(estimate x2, 0.0002 ETH); an explicit
+  amount must leave it.
+- **`list_accounts`** no longer has `kamibots_registered`.
+- A dry-run that fails twice on infrastructure says "not performed",
+  never "reverted".
+- Configuration: `KAMI_LANE_DIR` (nonce ledger), `KAMI_CALL_BUDGET_S`;
+  `{LABEL}_KAMIBOTS_API_KEY` / `{LABEL}_PRIVY_ID` are no longer read.
+
+### Part 2 — the surface
+
+- **The strategy-service family left** (one of its tools posted the
+  operator private key); `get_scavenge_droptable` reads its droptable
+  rewards from chain (the scavenge registry anchors them), verified
+  read-only on nodes 1 and 53 against the catalog.
+- **Standing sentences → `instructions`** (4,150 characters of mass).
+- **`stop_harvest_batch` left** (`harvest_stop` does it in one
+  transaction).
+- **The token portal**: `portal_withdraw` (owner lane, or the operator
+  lane for items on it; `dry_run` with tax, net token amount and
+  `claimable_at`; the receipt id decoded from the transaction's own
+  `PORTAL_TOKEN_WITHDRAW` event), `portal_claim` (payee and amount from
+  the token Transfer log), `portal_cancel` (items back, export tax not),
+  `portal_deposit` (approves the portal's token spender when the
+  allowance is short). Chain state verified read-only on 2026-10-03:
+  portal enabled; Onyx Shard 100 (scale 2, not on the operator lane) and
+  Ether Shard 103 (scale 5, on it); import and export tax 1 item + 50
+  bps; delay 43,200 s. Item 103 added to `catalogs/items.csv`. The pool
+  docstrings no longer say MUSU cannot become gas: MUSU<->103 is a live
+  pool (reserves 9,282,178 / 15,346, fee 30 bps, read-only).
+- **Harvest caps of 10** (measured; collect derived conservatively from
+  the stricter measured number), the SIZE/ITEM diagnosis, and
+  `harvest_start(dry_run)`.
+- **The call time box** (`KAMI_CALL_BUDGET_S`, default 90 s).
+- **Small**: the sweep reserve floor (the fee actually deducted could
+  not be derived read-only — the public RPC has pruned the failed
+  sweeps' blocks and its eth_call ignores fees — so 0.0002 ETH is an
+  empirical floor); `register_account` names `Account: Operator is an
+  account owner`; `systems/state-reading.md` and the getter comment now
+  agree with upstream (the getter adds regeneration without the cap).
+
+Registry mass by family (Python 3.13):
+
+| family | 3.7.0 tools | 3.7.0 mass | 4.0.0 draft tools | 4.0.0 draft mass |
+|---|--:|--:|--:|--:|
+| strategy service (OUTSOURCE) | 9 | 5,286 | 0 | 0 |
+| loop/batch tools | 12 | 11,344 | 11 | 10,530 |
+| harvest | 3 | 1,903 | 3 | 2,387 |
+| act_sequence | 1 | 1,443 | 1 | 1,608 |
+| scavenge | 5 | 3,240 | 5 | 3,283 |
+| travel | 2 | 1,884 | 2 | 2,010 |
+| lens wrappers | 25 | 13,877 | 25 | 10,498 |
+| token portal | 0 | 0 | 4 | 2,844 |
+| meta (wallet/bridge) | 7 | 4,346 | 7 | 4,221 |
+| everything else | 40 | 29,532 | 40 | 29,389 |
+| **total** | **104** | **72,855** | **98** | **66,770** |
+
+The two standing sentences were 4,150 of the 3.7.0 total, spread over
+the read families above.
+
+### Part 1 — one send path, and reads never wait behind writes
+
+Internal to the tool surface: no tool, parameter, schema or description
+changed in this part (`tools_hash` stayed `87dc7481...1c1b`, asserted at
+import).
 
 ### The per-signer nonce lane
 
