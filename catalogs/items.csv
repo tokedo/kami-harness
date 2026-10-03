@@ -19,6 +19,7 @@ Index,Name,Type,Rarity,For,Flags,Effects,Requirements,Status,Description
 32,Kamigotchi World Passport (1-bit Green),NFT,Legendary,Passport_slot,,,,"In Game","Your ticket to great fortunes. In 1-bit green."
 33,Kamigotchi World Passport (1-bit Black and White),NFT,Legendary,Passport_slot,,,,"In Game","Your ticket to great fortunes. In 1-bit black."
 100,Onyx Shard,ERC20,Uncommon,,,,,"In Game","Kamigotchi World's premium game currency. You want this. You want this so bad."
+103,Ether Shard,ERC20,Uncommon,,,,,"In Game","Crystallized gas. Not the kind you breathe."
 1001,Wooden Stick,Material,Common,,,,,"In Game","Wood in its unprocessed form. Grows on trees."
 1002,Stone,Material,Common,,,,,"In Game","It's just a stone. Can be used to get Stone."
 1003,Plastic Bottle,Material,Uncommon,,,,,"In Game","Can be reprocessed into valuable raw Microplastics."

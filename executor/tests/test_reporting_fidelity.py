@@ -502,89 +502,6 @@ class TestCancelKamiListingMatrix:
         assert r["cancelled"] == 1 and r["failed"] == 1
 
 
-class TestStopHarvestBatch:
-    """The on-chain allow-failure batch: silent per-item skips must not
-    read as success, and the whole-tx revert/timeout paths are the
-    sender-layer terminal states."""
-
-    def _install(self, txchain, states: dict[int, str], skip: tuple = ()):
-        """`skip` names kamis whose per-item dry-run reverts, which is
-        how a cooldown reaches the gate now instead of becoming a
-        gas-spending silent skip inside the batch."""
-        skip_hids = {server._harvest_entity_id(k) for k in skip}
-
-        def typed(hid):
-            if hid in skip_hids:
-                raise Exception("execution reverted: kami on cooldown")
-            return b""
-
-        txchain.registry["system.harvest.stop"] = FakeTxContract({
-            "executeBatchedAllowFailure": lambda ids: b"",
-            "executeTyped": typed,
-        })
-        by_hid = {
-            server._harvest_entity_id(k): v for k, v in states.items()
-        }
-        txchain.registry["component.state"] = FakeContract(
-            {"safeGet": lambda hid: by_hid[hid]}
-        )
-
-    def test_all_stopped_returns(self, accounts, txchain):
-        self._install(txchain, {45: "INACTIVE", 46: "INACTIVE"})
-        r = server.stop_harvest_batch([45, 46], account="testa")
-        assert r["status"] == "success"
-        assert r["stopped_count"] == 2 and r["failed_count"] == 0
-
-    def test_silent_skip_raises_by_default(self, accounts, txchain):
-        self._install(txchain, {45: "INACTIVE", 46: "ACTIVE"})
-        with pytest.raises(server.BatchTxError) as ei:
-            server.stop_harvest_batch([45, 46], account="testa")
-        msg = str(ei.value)
-        assert "1 of 2 submitted harvest stops did not take effect" in msg
-        assert "gas was spent" in msg
-        assert "ACTIVE" in msg  # per-kami outcome present
-
-    def test_silent_skip_allow_partial_returns(self, accounts, txchain):
-        self._install(txchain, {45: "INACTIVE", 46: "ACTIVE"})
-        r = server.stop_harvest_batch(
-            [45, 46], account="testa", allow_partial=True
-        )
-        assert r["stopped_count"] == 1 and r["failed_count"] == 1
-        assert r["per_kami"][46]["stopped"] is False
-        # The landed hash is a structured field, not error prose.
-        assert r["tx_hash"]
-
-    def test_doomed_item_is_skipped_before_the_batch(self, accounts, txchain):
-        """A per-item dry-run failure is a free skip, not a gas-spending
-        silent skip inside the allow-failure batch."""
-        self._install(txchain, {45: "INACTIVE"}, skip=(46,))
-        r = server.stop_harvest_batch([45, 46], account="testa")
-        assert r["skipped_count"] == 1
-        assert r["per_kami"][46]["status"] == "skipped"
-        assert "cooldown" in r["per_kami"][46]["reason"]
-        # The skipped kami was never in the batch, so it is not a failure
-        # (SPEC X6) and the call returns normally.
-        assert r["stopped_count"] == 1 and r["failed_count"] == 0
-        assert r["tx_hash"]
-
-    def test_all_skipped_sends_no_transaction(self, accounts, txchain):
-        self._install(txchain, {}, skip=(45, 46))
-        r = server.stop_harvest_batch([45, 46], account="testa")
-        assert r["skipped_count"] == 2
-        assert r["tx_hash"] is None
-        assert txchain.broadcasts == []
-
-    def test_whole_batch_revert_raises(self, accounts, txchain):
-        self._install(txchain, {45: "ACTIVE"})
-        _revert_receipt(txchain)
-        with pytest.raises(server.OnChainRevertError):
-            server.stop_harvest_batch([45], account="testa")
-
-    def test_receipt_timeout_raises_unconfirmed(self, accounts, txchain):
-        self._install(txchain, {45: "ACTIVE"})
-        txchain.wait_error = TimeExhausted("timeout")
-        with pytest.raises(server.TxUnconfirmedError):
-            server.stop_harvest_batch([45], account="testa")
 
 
 class TestSequentialLoopsMatrix:
@@ -831,8 +748,7 @@ class TestRevertInvariant:
 
     def _batch_calls(self):
         """One default-arg (allow_partial unset) invocation per
-        allow_partial tool except stop_harvest_batch, whose inline send
-        path is covered in TestStopHarvestBatch."""
+        allow_partial tool."""
         return {
             "travel_to_room": lambda **kw: asyncio.run(
                 server.travel_to_room(2, account="testa", **kw)),

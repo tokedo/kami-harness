@@ -578,70 +578,6 @@ class TestHarvestGatesReportedTogether:
 # Family E — surface true-ups
 # ---------------------------------------------------------------------------
 
-class TestStrategyStatusSummary:
-    """E2: the endpoint answers globally. 23 of 23 calls were capped by
-    the client last run, so the agent never saw a complete answer."""
-
-    PAYLOAD = {"statuses": [
-        {"kami_id": 45, "status": "running", "state": "healthy",
-         "health": "ok", "container_id": "c1", "uptime": 900},
-        {"kami_id": 46, "status": "stopped", "state": "exited",
-         "health": "bad", "container_id": "c2", "uptime": 0},
-        {"kami_id": 999, "status": "running", "state": "healthy",
-         "health": "ok", "container_id": "c3", "uptime": 5},
-    ]}
-
-    def _setup(self, monkeypatch, payload=None):
-        async def api(*a, **k):
-            return payload if payload is not None else self.PAYLOAD
-
-        monkeypatch.setattr(server, "_strategy_api", api)
-        monkeypatch.setattr(server, "_account_entity_id", lambda a: FAKE_ACCOUNT_ID)
-        monkeypatch.setattr(
-            server, "_owned_kami_indices", lambda aid: {45, 46}
-        )
-
-    def test_default_is_one_row_per_owned_kami(self, monkeypatch):
-        self._setup(monkeypatch)
-        r = asyncio.run(server.get_all_strategy_statuses(account="testa"))
-        assert r["shown"] == 2 and r["upstream_rows"] == 3
-        assert r["strategies"] == [
-            {"kami_id": 45, "status": "running", "state": "healthy",
-             "health": "ok"},
-            {"kami_id": 46, "status": "stopped", "state": "exited",
-             "health": "bad"},
-        ]
-
-    def test_full_returns_the_upstream_answer_verbatim(self, monkeypatch):
-        self._setup(monkeypatch)
-        r = asyncio.run(
-            server.get_all_strategy_statuses(account="testa", full=True)
-        )
-        assert r == self.PAYLOAD
-
-    def test_an_unrecognised_shape_is_passed_through_whole(self, monkeypatch):
-        odd = {"totally": "different"}
-        self._setup(monkeypatch, odd)
-        assert asyncio.run(
-            server.get_all_strategy_statuses(account="testa")
-        ) == odd
-
-    def test_an_unreadable_ownership_read_passes_through(self, monkeypatch):
-        self._setup(monkeypatch)
-
-        def boom(aid):
-            raise RuntimeError("rpc down")
-
-        monkeypatch.setattr(server, "_owned_kami_indices", boom)
-        assert asyncio.run(
-            server.get_all_strategy_statuses(account="testa")
-        ) == self.PAYLOAD
-
-    def test_the_docstring_no_longer_claims_the_endpoint_is_scoped(self):
-        tools = {t.name: t for t in server.mcp._tool_manager.list_tools()}
-        d = tools["get_all_strategy_statuses"].description
-        assert "GLOBAL" in d
-        assert "every Kamibots strategy on this account" not in d
 
 
 class TestLensRoster:
@@ -661,13 +597,17 @@ class TestLensRoster:
         server.lens_roster()
         assert seen["a"] == []
 
-    def test_is_registered_perceive_with_both_standing_sentences(self):
+    def test_is_registered_perceive_and_the_standing_text_is_in_instructions(
+        self,
+    ):
+        # 4.0.0: the two standing sentences are said once, in the MCP
+        # instructions, instead of on every description.
         tools = {t.name: t for t in server.mcp._tool_manager.list_tools()}
         d = tools["lens_roster"].description
         assert server.TOOL_CLASSES["lens_roster"] == "PERCEIVE"
         assert "lens_roster" in server.READ_TOOLS
-        assert server._LENS_SERVING_SENTENCE in d
-        assert server._UNTRUSTED_STANDING_SENTENCE in d
+        assert server._LENS_SERVING_SENTENCE not in d
+        assert server._LENS_SERVING_SENTENCE in server.mcp._mcp_server.instructions
 
 
 class TestTransientRpcClasses:

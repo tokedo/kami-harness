@@ -603,7 +603,8 @@ def test_lens_skills_passes_the_index_through(monkeypatch):
 
 def test_surface_at_350():
     tools = {t.name for t in server.mcp._tool_manager.list_tools()}
-    assert len(tools) == 104
+    # 104 at 3.5.0-3.7.0; 98 at 4.0.0 (test_tool_surface pins the count).
+    assert len(tools) == 98
     assert {"act_sequence", "lens_skills"} <= tools
     assert server.TOOL_CLASSES["act_sequence"] == "ACT"
     assert server.TOOL_CLASSES["lens_skills"] == "PERCEIVE"

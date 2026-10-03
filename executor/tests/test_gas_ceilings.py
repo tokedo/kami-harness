@@ -239,19 +239,21 @@ class TestHarvestCeilings:
                     f"{key} at n={n} provisions {ratio:.2f}x p95"
                 )
 
-    def test_docstring_caps_match_the_arithmetic(self):
-        """Each batch docstring states a per-call maximum; it must be the
-        number the lane cap and the constants actually produce."""
+    def test_docstring_caps_match_the_measured_admission(self):
+        """4.0.0: each harvest docstring states the MEASURED per-call
+        maximum (10), which is enforced before signing and sits inside
+        the lane arithmetic — the lane cap stays the hard upper bound."""
         tools = {t.name: t for t in server.mcp._tool_manager.list_tools()}
-        for key, tool in (
-            ("harvest_start", "harvest_start"),
-            ("harvest_stop", "harvest_stop"),
-            ("harvest_collect", "harvest_collect"),
-        ):
+        for key in ("harvest_start", "harvest_stop", "harvest_collect"):
+            cap = server._HARVEST_MAX_KAMIS[key]
+            assert cap == 10
+            assert f"(at most {cap})" in (tools[key].description or ""), (
+                f"{key} does not state its enforced per-call maximum {cap}")
+            assert cap <= server._harvest_max_per_call(key)
+            assert server._harvest_gas(key, cap) <= server.MAX_TX_GAS
+            server._harvest_cap(key, [0] * cap)
+            with pytest.raises(server.PreTxValidationError, match="at most 10"):
+                server._harvest_cap(key, [0] * (cap + 1))
             fits = server._harvest_max_per_call(key)
-            assert f"(at most {fits})" in (tools[tool].description or ""), (
-                f"{tool} does not state its real per-call maximum {fits}"
-            )
-            assert server._harvest_gas(key, fits) <= server.MAX_TX_GAS
             with pytest.raises(server.PreTxValidationError):
                 server._harvest_gas(key, fits + 1)

@@ -519,12 +519,6 @@ class TestHarvestValidation:
         assert r["status"] == "success"
         assert sent[-1]["system"] == "system.harvest.stop"
 
-    def test_stop_harvest_batch_empty(self, accounts, sent):
-        with pytest.raises(
-            server.PreTxValidationError, match="stop_harvest_batch"
-        ):
-            server.stop_harvest_batch([], account="testa")
-        assert sent == []
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,10 @@
-"""Tool-contract surface checks for the 3.0.0 interface.
+"""Tool-contract surface checks for the 4.0.0 interface.
 
-Verifies the advertised tool count (104 = 84 at v1.5.1 − 17 removed
-reads + 25 kami-lens wrappers + kamibots_enable_strategies + 9 ACT
-additions + the 2 pool swap tools), the surface taxonomy (ACT/PERCEIVE/OUTSOURCE/META), the
-EXPOSURE.md row coverage for READ tools (with the deferred rows), the
-shared standing sentences on READ descriptions, schema portability
+Verifies the advertised tool count (98: 3.7.0's 104 less the nine
+strategy-service tools and stop_harvest_batch, plus the four token-portal
+tools), the surface taxonomy (ACT/PERCEIVE/META), the EXPOSURE.md row
+coverage for READ tools (with the deferred rows), the standing text in
+the MCP instructions (not on descriptions), schema portability
 (SPEC §5.1: no anyOf/oneOf/allOf/$ref), the registry-mass budget, the
 tools_hash, and the earlier per-release schema pins.
 """
@@ -30,7 +30,7 @@ V150_TOOLS = {
     "sacrifice_reveal",
 }
 
-# The 13 tools that submit multiple transactions (or an on-chain
+# The 12 tools that submit multiple transactions (or an on-chain
 # allow-failure batch) and expose the explicit allow_partial escape
 # hatch from fail-on-any-revert reporting (2.0.0-dev H1).
 ALLOW_PARTIAL_TOOLS = {
@@ -45,7 +45,6 @@ ALLOW_PARTIAL_TOOLS = {
     "cancel_kami_listing",
     "complete_all_trades",
     "speed_craft_batch",
-    "stop_harvest_batch",
     "sacrifice_kami_batch",
 }
 
@@ -79,7 +78,16 @@ REMOVED_TOOLS = {
     # 2.0.0 budget trim (pre-approved): superseded by lens_quests /
     # quest_state
     "get_active_quests", "get_quest_status",
+    # 4.0.0: the strategy-service family left the surface, and
+    # stop_harvest_batch (harvest_stop does the same in one transaction)
+    "register_kamibots", "kamibots_enable_strategies", "start_strategy",
+    "stop_strategy", "get_tier", "get_all_strategies",
+    "get_all_strategy_statuses", "get_strategy_status",
+    "get_strategy_logs", "stop_harvest_batch",
 }
+
+PORTAL_TOOLS = {"portal_withdraw", "portal_claim", "portal_cancel",
+                "portal_deposit"}
 
 
 def _tools():
@@ -87,7 +95,7 @@ def _tools():
 
 
 def test_schema_version():
-    assert SCHEMA_VERSION == "3.7.0"
+    assert SCHEMA_VERSION == "4.0.0"
 
 
 def test_readme_current_version_matches_schema_version():
@@ -106,7 +114,8 @@ def test_tool_surface_count():
     assert V150_TOOLS <= names
     assert H3_ACT_TOOLS <= names
     assert "store_operator_key" not in names
-    assert len(names) == 104
+    assert PORTAL_TOOLS <= names
+    assert len(names) == 98
 
 
 def test_removed_tools_absent():
@@ -127,7 +136,8 @@ def test_taxonomy_covers_registry_exactly():
     counts = {}
     for cls in server.TOOL_CLASSES.values():
         counts[cls] = counts.get(cls, 0) + 1
-    assert counts == {"ACT": 56, "PERCEIVE": 32, "OUTSOURCE": 9, "META": 7}
+    assert counts == {"ACT": 59, "PERCEIVE": 32, "META": 7}
+    assert len(server.READ_TOOLS) == 35
     assert server.READ_TOOLS <= names
     # every lens wrapper is PERCEIVE
     for n in LENS_TOOLS:
@@ -136,22 +146,20 @@ def test_taxonomy_covers_registry_exactly():
         assert server.TOOL_CLASSES[n] == "ACT"
 
 
-def test_read_descriptions_carry_standing_sentence():
-    tools = _tools()
-    for name in server.READ_TOOLS:
-        assert server._UNTRUSTED_STANDING_SENTENCE in (
-            tools[name].description or ""
-        ), name
-    # and lens wrappers name their serving path
-    for name in LENS_TOOLS:
-        assert server._LENS_SERVING_SENTENCE in (
-            tools[name].description or ""
-        ), name
-    # non-READ tools do not carry it (spot checks)
-    for name in ("harvest_start", "start_strategy", "fund_operator"):
-        assert server._UNTRUSTED_STANDING_SENTENCE not in (
-            tools[name].description or ""
-        ), name
+def test_standing_text_is_said_once_in_the_instructions():
+    """4.0.0: the untrusted-data rule, the lens serving path, the nonce
+    lane and the time box are in the MCP instructions — on no tool
+    description."""
+    i = server.mcp._mcp_server.instructions
+    for sentence in (server._UNTRUSTED_STANDING_SENTENCE,
+                     server._LENS_SERVING_SENTENCE,
+                     server._NONCE_LANE_SENTENCE,
+                     server._time_box_sentence()):
+        assert sentence in i
+        for name, t in _tools().items():
+            assert sentence not in (t.description or ""), name
+    assert "ONE nonce lane per key" in i
+    assert f"{server.CALL_BUDGET_S:g} s" in i
 
 
 def test_exposure_rows():
@@ -170,9 +178,10 @@ def test_exposure_rows():
         )
     # H3 sweep: unserved game actions stay visible, never silent.
     # (skill-respec / cast-item / newbie-vendor-buy left this list when
-    # the post-sweep ruling added their tools.)
+    # the post-sweep ruling added their tools; token-portal left it at
+    # 4.0.0, served by the portal_* tools.)
     for action in ("set-operator", "friends", "goals", "npc-sell",
-                   "token-portal", "npc-relationships"):
+                   "npc-relationships"):
         assert re.search(rf"^\| {re.escape(action)} \|", text, re.M), (
             f"ACT-coverage row missing: {action}"
         )
@@ -223,19 +232,6 @@ def test_lens_wrapper_schema_shapes():
     assert account["prose"]["default"] is False
 
 
-def test_enable_strategies_docstring_facts():
-    """The operator-key tool states the grant and the counterparty
-    identity as facts, names the hard line, and carries no endorsement
-    language (neutral framing: facts, no endorsement)."""
-    d = _tools()["kamibots_enable_strategies"].description
-    assert "operator" in d.lower()
-    assert "signs operator-wallet transactions server-side" in d
-    assert "kami transfers" in d
-    assert "Asphodel" in d
-    assert "docs.asphodel.io" in d
-    assert "Owner keys are never sent" in d
-    for banned in ("trusted", "safe", "secure", "reliable"):
-        assert banned not in d.lower(), banned
 
 
 def test_commit_ids_are_string_arrays():
@@ -314,6 +310,7 @@ def test_tools_hash_present_and_deterministic():
     assert server.mcp._mcp_server.instructions == (
         f"tools_hash={h} schema_version={SCHEMA_VERSION} "
         f"error_snippets={'on' if server.ERROR_SNIPPETS else 'off'}"
+        f"\n{server.STANDING_TEXT}"
     )
     assert server.mcp._mcp_server.version == SCHEMA_VERSION
 
@@ -416,7 +413,7 @@ def test_surface_identical_across_capability_flags():
         )
         if baseline is None:
             baseline = payload
-            assert payload["count"] == 104
+            assert payload["count"] == 98
             assert payload["tools_hash"] == server.TOOLS_HASH
             continue
         assert json.dumps(payload, sort_keys=True) == json.dumps(
