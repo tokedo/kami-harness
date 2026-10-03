@@ -452,7 +452,12 @@ _SYSTEMS_COMPONENT_ABI = json.loads(
     '"inputs":[{"name":"v","type":"uint256"}],'
     '"outputs":[{"type":"uint256[]"}],"stateMutability":"view"}]'
 )
-_world = w3.eth.contract(address=WORLD_ADDRESS, abi=_WORLD_ABI)
+def _world():
+    """The World contract on the CURRENT client (not one bound at import:
+    a contract object keeps the client it was made with)."""
+    return w3.eth.contract(address=WORLD_ADDRESS, abi=_WORLD_ABI)
+
+
 _system_cache: dict[str, str] = {}
 
 
@@ -460,7 +465,7 @@ def _resolve_system(system_id: str) -> str:
     """Resolve system ID string to on-chain contract address (cached)."""
     if system_id not in _system_cache:
         h = int.from_bytes(Web3.keccak(text=system_id), "big")
-        sc_addr = _world.functions.systems().call()
+        sc_addr = _world().functions.systems().call()
         sc = w3.eth.contract(address=sc_addr, abi=_SYSTEMS_COMPONENT_ABI)
         entities = sc.functions.getEntitiesWithValue(h).call()
         if not entities:
@@ -3035,7 +3040,7 @@ def _resolve_component(component_id: str) -> str:
     """
     if component_id not in _component_cache:
         h = int.from_bytes(Web3.keccak(text=component_id), "big")
-        cc_addr = _world.functions.components().call()
+        cc_addr = _world().functions.components().call()
         cc = w3.eth.contract(address=cc_addr, abi=_SYSTEMS_COMPONENT_ABI)
         entities = cc.functions.getEntitiesWithValue(h).call()
         if not entities:
@@ -5886,10 +5891,16 @@ async def travel_to_room(
     # Nothing here is cached, guessed, or recomputed.
     view, read_error = _read_account_view(aid)
     if view is None:
-        return {"error": f"failed to read account state: {read_error}"}
+        # An error, not a result: nothing was planned and nothing sent.
+        raise PreTxValidationError(
+            f"failed to read account state: {read_error}")
     current_room = view["room"]
-    stamina = view["stamina"]
     stamina_max = _ACCOUNT_STAMINA_CAP
+    # ONE stamina unit, in the plan and in the result: the 0-100 value
+    # the move system checks. The getter can project regeneration past
+    # the cap (a read of 6,360 against a real 100 planned a 23-hop walk
+    # that stranded the account at hop 21), so it is clamped at read.
+    stamina = min(int(view["stamina"]), stamina_max)
 
     # SP+ balances come from the same chain inventory the use would
     # spend, one deterministic read per catalogued SP+ item.
@@ -5920,13 +5931,10 @@ async def travel_to_room(
             current_room, target_room, aid
         )
     except ValueError as e:
-        return {
-            "error": str(e),
-            "details": {
-                "current_room": current_room,
-                "target_room": target_room,
-            },
-        }
+        raise PreTxValidationError(
+            f"{_err_text(e)} (current room {current_room}, target room "
+            f"{target_room})"
+        ) from e
 
     if path is None:
         refusal = _gate_refusal_text(current_room, target_room, blocking)
@@ -6046,20 +6054,64 @@ async def travel_to_room(
     # that otherwise returns stale values right after execution.
     live_stamina = stamina
 
+    def _live_stamina(fallback: int) -> int:
+        """Stamina as the chain shows it now, clamped; re-read per hop."""
+        v, _err = _read_account_view(aid)
+        if v is None:
+            return fallback
+        return min(int(v["stamina"]), stamina_max)
+
+    def _move(room: int):
+        return _send_tx_retry(
+            account,
+            "system.account.move",
+            _ABI_MOVE,
+            [room],
+            gas_limit=_GAS_CEILINGS["move_to_room"],
+        )
+
     for step in plan:
         if step["type"] == "move":
             try:
-                r = _send_tx_retry(
-                    account,
-                    "system.account.move",
-                    _ABI_MOVE,
-                    [step["room"]],
-                    gas_limit=_GAS_CEILINGS["move_to_room"],
-                )
+                try:
+                    r = _move(step["room"])
+                except PreTxValidationError as first:
+                    # Out of stamina mid-walk with items allowed: use one
+                    # SP+ item, then retry THIS hop once. Only a refusal
+                    # (nothing sent) is retried — a revert spent gas and
+                    # is reported as itself.
+                    if not use_items or "insufficient stamina" not in str(
+                        first
+                    ).lower():
+                        raise
+                    hops_left = sum(
+                        1 for st in plan[plan.index(step):]
+                        if st["type"] == "move")
+                    deficit = 5 * hops_left - live_stamina
+                    balances: dict[int, int] = {}
+                    for item in _sp_item_balances(aid):
+                        if item["itemIndex"] in _SP_ITEM_IDS:
+                            balances[item["itemIndex"]] = (
+                                balances.get(item["itemIndex"], 0)
+                                + item["balance"])
+                    choice = _pick_sp_item(balances, max(deficit, 5))
+                    if choice is None:
+                        raise
+                    u = _send_tx_retry(
+                        account, "system.account.use.item", _ABI_ACCOUNT_USE,
+                        [choice["id"], 1],
+                        gas_limit=_GAS_CEILINGS["travel_use_item"],
+                    )
+                    txs.append({"step": "item", "item_id": choice["id"],
+                                **_receipt_fields(u)})
+                    gas_used += u.get("gas_used", 0)
+                    items_used_counts[choice["id"]] = (
+                        items_used_counts.get(choice["id"], 0) + 1)
+                    r = _move(step["room"])
             except Exception as e:
                 exec_error = (
                     f"hop {moves_executed + 1} to room {step['room']} "
-                    f"failed: {e}"
+                    f"failed: {_err_text(e)}"
                 )
                 # The chain's word for a gate is bare. Name the gate the
                 # catalog holds for exactly this edge, so the failure is
@@ -6087,7 +6139,7 @@ async def travel_to_room(
             gas_used += r.get("gas_used", 0)
             final_room = step["room"]
             moves_executed += 1
-            live_stamina = max(0, live_stamina - 5)
+            live_stamina = _live_stamina(max(0, live_stamina - 5))
         else:  # item
             try:
                 r = _send_tx_retry(
@@ -6098,7 +6150,7 @@ async def travel_to_room(
                     gas_limit=_GAS_CEILINGS["travel_use_item"],
                 )
             except Exception as e:
-                exec_error = f"item {step['id']} use failed: {e}"
+                exec_error = f"item {step['id']} use failed: {_err_text(e)}"
                 txs.append(
                     {"step": "item", "item_id": step["id"],
                      **_failed_tx_fields(e)}
@@ -6111,8 +6163,10 @@ async def travel_to_room(
             items_used_counts[step["id"]] = (
                 items_used_counts.get(step["id"], 0) + 1
             )
-            live_stamina = min(stamina_max, live_stamina + step["sp"])
+            live_stamina = _live_stamina(
+                min(stamina_max, live_stamina + step["sp"]))
 
+    # Read back, on the same 0-100 scale the plan used.
     stamina_after = live_stamina
 
     items_used_list = [
@@ -6459,6 +6513,40 @@ def upgrade_skill(kami_id: int, skill_index: int, account: str = "main") -> dict
     )
 
 
+def _kami_readback(kami_id: int) -> dict:
+    """What the CHAIN shows for a kami after a loop: level, XP, unspent
+    skill points (component.level / component.experience /
+    component.skill.point on the kami entity). A field that cannot be
+    read is absent and `read_error` says why — never a computed stand-in.
+    """
+    out: dict = {}
+    errors = []
+    try:
+        # The single derivation of a kami's level in this module.
+        out["level"] = _kami_level(kami_id)
+    except Exception as e:
+        errors.append(f"level: {_err_text(e)}"[:160])
+    eid = _kami_entity_id(kami_id)
+    for key, comp in (("xp", "component.experience"),
+                      ("skill_points", "component.skill.point")):
+        try:
+            c = w3.eth.contract(address=_resolve_component(comp),
+                                abi=_UINT_VALUE_ABI)
+            out[key] = int(c.functions.safeGet(eid).call())
+        except Exception as e:
+            errors.append(f"{key}: {_err_text(e)}"[:160])
+    if errors:
+        out["read_error"] = "; ".join(errors)
+    return out
+
+
+def _balance_readback(holder_id: int, item_index: int) -> int | None:
+    try:
+        return int(_inventory_balance(holder_id, item_index))
+    except Exception:
+        return None
+
+
 @mcp.tool()
 def allocate_skills(
     kami_id: int, skill_plan: list[dict], account: str = "main",
@@ -6502,9 +6590,10 @@ def allocate_skills(
                     "allocated": done,
                     "failed_at": skill["skill_index"],
                     "total_planned": total_planned,
-                    "error": str(e),
+                    "error": _err_text(e),
                     "txs": txs,
                     **_failed_tx_fields(e),
+                    "chain": _kami_readback(kami_id),
                 }
                 if allow_partial:
                     return outcome
@@ -6523,6 +6612,9 @@ def allocate_skills(
         "total_planned": total_planned,
         "success": True,
         "txs": txs,
+        # Read back after the loop: what the chain shows, beside what
+        # was attempted.
+        "chain": _kami_readback(kami_id),
     }
 
 
@@ -6569,15 +6661,19 @@ async def level_to(
             )
         except Exception as e:
             _record_failed_leg(txs, e)
+            chain = _kami_readback(kami_id)
             outcome = {
                 "kami_id": kami_id,
                 "from_level": current,
-                "reached_level": current + done,
+                # Read back, never arithmetic: a landed level the loop
+                # did not count, or one it counted twice, shows here.
+                "reached_level": chain.get("level"),
                 "target_level": target_level,
                 "levels_gained": done,
-                "error": str(e),
+                "error": _err_text(e),
                 "txs": txs,
                 **_failed_tx_fields(e),
+                "chain": chain,
             }
             if allow_partial:
                 return outcome
@@ -6590,14 +6686,16 @@ async def level_to(
             )
         done += 1
         txs.append(_receipt_fields(r))
+    chain = _kami_readback(kami_id)
     return {
         "kami_id": kami_id,
         "from_level": current,
-        "reached_level": current + done,
+        "reached_level": chain.get("level"),
         "target_level": target_level,
         "levels_gained": done,
         "success": True,
         "txs": txs,
+        "chain": chain,
     }
 
 
@@ -6649,21 +6747,23 @@ async def level_and_allocate_batch(
                 levels_needed = max(0, target_level - current)
                 entity_id = _kami_entity_id(kid)
                 done = 0
+                row["leveled"] = {"from": current, "target": target_level,
+                                  "landed": 0}
                 for _ in range(levels_needed):
                     r = _send_tx_retry(
                         account, "system.kami.level", _ABI_LEVEL, [entity_id],
                     )
                     row_txs.append(_receipt_fields(r))
                     done += 1
-                row["leveled"] = {
-                    "from": current,
-                    "to": current + done,
-                    "target": target_level,
-                }
+                    row["leveled"]["landed"] = done
+                row["leveled"]["to"] = _kami_readback(kid).get("level")
             except Exception as e:
                 _record_failed_leg(row_txs, e, phase="level")
-                row["error"] = f"level: {e}"
+                row["error"] = f"level: {_err_text(e)}"
                 row.update(_failed_tx_fields(e))
+                if "leveled" in row:
+                    row["leveled"]["to"] = _kami_readback(kid).get("level")
+                row["chain"] = _kami_readback(kid)
                 row["txs"] = row_txs
                 results.append(row)
                 continue
@@ -6685,9 +6785,12 @@ async def level_and_allocate_batch(
                 row["allocated"] = {"done": allocated, "planned": total_planned}
             except Exception as e:
                 _record_failed_leg(row_txs, e, phase="skill")
-                row["error"] = f"skill: {e}"
+                row["error"] = f"skill: {_err_text(e)}"
                 row.update(_failed_tx_fields(e))
 
+        # Read back after the plan: what the chain shows for this kami,
+        # beside what was attempted.
+        row["chain"] = _kami_readback(kid)
         row["txs"] = row_txs
         results.append(row)
 
@@ -6732,7 +6835,7 @@ async def feed_level_allocate_batch(
             "targets is empty; feed_level_allocate_batch requires at "
             "least one per-kami plan"
         )
-    _require_registered_operator(account)
+    aid = _require_registered_operator(account)
     results = []
     for t in targets:
         kid = t.get("kami_id")
@@ -6748,6 +6851,7 @@ async def feed_level_allocate_batch(
         feed_count = t.get("feed_count") or 0
         if feed_item and feed_count:
             fed = 0
+            held_before = _balance_readback(aid, feed_item)
             try:
                 for _ in range(feed_count):
                     r = _send_tx_retry(
@@ -6760,9 +6864,15 @@ async def feed_level_allocate_batch(
             except Exception as e:
                 row["fed"] = {"done": fed, "planned": feed_count}
                 _record_failed_leg(row_txs, e, phase="feed")
-                row["error"] = f"feed: {e}"
+                row["error"] = f"feed: {_err_text(e)}"
                 row.update(_failed_tx_fields(e))
+            held_after = _balance_readback(aid, feed_item)
+            row["fed"]["inventory_before"] = held_before
+            row["fed"]["inventory_after"] = held_after
+            if held_before is not None and held_after is not None:
+                row["fed"]["consumed"] = held_before - held_after
             if "error" in row:
+                row["chain"] = _kami_readback(kid)
                 row["txs"] = row_txs
                 results.append(row)
                 continue
@@ -6779,19 +6889,23 @@ async def feed_level_allocate_batch(
                     )
                 levels_needed = max(0, target_level - current)
                 done = 0
+                row["leveled"] = {"from": current, "target": target_level,
+                                  "landed": 0}
                 for _ in range(levels_needed):
                     r = _send_tx_retry(
                         account, "system.kami.level", _ABI_LEVEL, [entity_id],
                     )
                     row_txs.append(_receipt_fields(r))
                     done += 1
-                row["leveled"] = {
-                    "from": current, "to": current + done, "target": target_level
-                }
+                    row["leveled"]["landed"] = done
+                row["leveled"]["to"] = _kami_readback(kid).get("level")
             except Exception as e:
                 _record_failed_leg(row_txs, e, phase="level")
-                row["error"] = f"level: {e}"
+                row["error"] = f"level: {_err_text(e)}"
                 row.update(_failed_tx_fields(e))
+                if "leveled" in row:
+                    row["leveled"]["to"] = _kami_readback(kid).get("level")
+                row["chain"] = _kami_readback(kid)
                 row["txs"] = row_txs
                 results.append(row)
                 continue
@@ -6813,9 +6927,10 @@ async def feed_level_allocate_batch(
                 row["allocated"] = {"done": allocated, "planned": total_planned}
             except Exception as e:
                 _record_failed_leg(row_txs, e, phase="skill")
-                row["error"] = f"skill: {e}"
+                row["error"] = f"skill: {_err_text(e)}"
                 row.update(_failed_tx_fields(e))
 
+        row["chain"] = _kami_readback(kid)
         row["txs"] = row_txs
         results.append(row)
 
@@ -6859,6 +6974,15 @@ def use_item_batch(
     entity_id = _kami_entity_id(kami_id)
     done = 0
     txs: list[dict] = []
+    held_before = _balance_readback(aid, item_id)
+
+    def _inventory() -> dict:
+        after = _balance_readback(aid, item_id)
+        out = {"before": held_before, "after": after}
+        if held_before is not None and after is not None:
+            out["consumed"] = held_before - after
+        return out
+
     for _ in range(count):
         try:
             r = _send_tx_retry(
@@ -6872,9 +6996,11 @@ def use_item_batch(
                 "item_id": item_id,
                 "used": done,
                 "planned": count,
-                "error": str(e),
+                "error": _err_text(e),
                 "txs": txs,
                 **_failed_tx_fields(e),
+                "inventory": _inventory(),
+                "chain": _kami_readback(kami_id),
             }
             if allow_partial:
                 return outcome
@@ -6893,6 +7019,10 @@ def use_item_batch(
         "planned": count,
         "success": True,
         "txs": txs,
+        # Read back after the loop: the chain's inventory delta and the
+        # kami's level / XP, beside the count attempted.
+        "inventory": _inventory(),
+        "chain": _kami_readback(kami_id),
     }
 
 
@@ -7038,7 +7168,7 @@ def equip_all_batch(
                     "kami_id": ki,
                     "item_index": item_index,
                     "status": "skipped",
-                    "reason": str(e)[:120],
+                    "reason": _err_text(e)[:120],
                 }
             )
             skipped += 1
@@ -7060,7 +7190,7 @@ def equip_all_batch(
                     "item_index": item_index,
                     **_failed_tx_hash_fields(e),
                     "status": "error",
-                    "reason": str(e)[:300],
+                    "reason": _err_text(e)[:300],
                 }
             )
             errors += 1
@@ -7160,7 +7290,7 @@ def unequip_all_batch(
         except Exception as e:
             results.append({
                 "kami_id": ki, **_failed_tx_hash_fields(e),
-                "status": "error", "reason": str(e)[:300],
+                "status": "error", "reason": _err_text(e)[:300],
             })
             errors += 1
             continue
@@ -7501,7 +7631,7 @@ def cancel_kami_listing(
             )
             entry.update(_receipt_fields(tx))
         except Exception as e:
-            entry.update({"error": str(e), **_failed_tx_fields(e)})
+            entry.update({"error": _err_text(e), **_failed_tx_fields(e)})
         results.append(entry)
 
     ok = sum(1 for r in results if r["status"] == "success")
@@ -8479,7 +8609,7 @@ def transfer_kami(
             st = state_comp.functions.safeGet(eid).call()
         except Exception as e:
             st = None
-            info["state_read_error"] = str(e)[:120]
+            info["state_read_error"] = _err_text(e)[:120]
         info["state"] = st
         if st is not None and st not in _SENDABLE_STATES:
             blocked.append(
@@ -8497,7 +8627,7 @@ def transfer_kami(
                         f"kami {k} is not owned by source account '{account}'"
                     )
             except Exception as e:
-                info["owner_read_error"] = str(e)[:120]
+                info["owner_read_error"] = _err_text(e)[:120]
         per_kami.append(info)
 
     if blocked:
@@ -8751,7 +8881,7 @@ def complete_all_trades(
                 "trade_id": t["trade_id_hex"],
                 **_failed_tx_hash_fields(e),
                 "status": "error",
-                "error": str(e),
+                "error": _err_text(e),
             })
 
     succeeded = sum(1 for r in results if r.get("status") == "success")
@@ -9086,7 +9216,7 @@ def check_quest_completable(quest_index: int, account: str = "main") -> dict:
         return {
             "quest_index": quest_index,
             "completable": False,
-            "reason": str(e),
+            "reason": _err_text(e),
         }
 
 
@@ -9420,7 +9550,7 @@ def speed_craft_batch(
             stamina_used += 1
         except Exception as e:
             _record_failed_leg(txs, e, step="stamina-use")
-            last_error = f"stamina-use failed at cycle {i + 1}/{count}: {str(e)[:300]}"
+            last_error = f"stamina-use failed at cycle {i + 1}/{count}: {_err_text(e)[:300]}"
             break
         # 2) Craft one unit.
         try:
@@ -9433,7 +9563,7 @@ def speed_craft_batch(
             )
         except Exception as e:
             _record_failed_leg(txs, e, step="craft")
-            last_error = f"craft failed at cycle {i + 1}/{count}: {str(e)[:300]}"
+            last_error = f"craft failed at cycle {i + 1}/{count}: {_err_text(e)[:300]}"
             break
         txs.append({"step": "craft", **_receipt_fields(r)})
         crafted += 1
@@ -9873,29 +10003,69 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
         if w3.eth.block_number > claim_block:
             break
 
-    # Step 3: Reveal, retrying inside the 256-block window. A failed
-    # preflight raises before anything is sent; a reveal that passed
-    # the preflight can still revert on-chain. Either way the attempt
-    # failed and is retried; an unconfirmed reveal (receipt timeout) is
-    # NOT retried — it may still land, and a blind resend could reveal
-    # twice — so it propagates as itself.
-    reveal_result = None
+    # Step 3: Reveal UNTIL EVERY COMMIT IS DRAINED. A reveal processes at
+    # most _REVEAL_ROLLS_PER_TX rolls per transaction across all the
+    # commits it names (upstream LibDroptable.MAX_ROLLS_PER_REVEAL); a
+    # bigger commit keeps the rest on its own component.value, under the
+    # same 256-block clock. 3.7.0 sent ONE reveal and returned `success`
+    # with the remainder stranded. Each reveal is followed by a read of
+    # every commit's remaining rolls, and the loop ends at zero.
+    #
+    # Within one reveal, a failed preflight raises before anything is
+    # sent and a reveal that passed it can still revert on chain: both
+    # are retried (3 attempts). An unconfirmed reveal is NOT retried — it
+    # may still land — and propagates as itself.
+    remaining = _commit_rolls(ids)
+    before = dict(remaining)
+    reveals: list[dict] = []
+    items: dict[int, dict] = {}
     last_failure = None
-    for attempt in range(3):
-        if attempt:
-            time.sleep(3)
-        try:
-            reveal_result = _send_reveal_tx(account, ids)
+    notice = None
+    if remaining and all(v == 0 for v in remaining.values()):
+        notice = (
+            "no reveal was sent: every commit already reads 0 rolls "
+            "remaining, so it was revealed elsewhere (another client or "
+            "service on this account) between the claim and this reveal; "
+            "its items are in the account inventory, not in this result."
+        )
+    max_reveals = 1 + max(
+        (math.ceil(v / _REVEAL_ROLLS_PER_TX) for v in remaining.values()
+         if v), default=1)
+    while notice is None and len(reveals) < max_reveals:
+        live = [c for c in ids if remaining.get(c, 1) != 0]
+        if not live:
             break
-        except (PreTxValidationError, OnChainRevertError) as e:
-            last_failure = str(e)
-            # A reveal attempt that landed and reverted spent gas and has
-            # a hash. Each attempt is recorded as its own leg.
-            fields = _failed_tx_fields(e)
-            if fields.get("tx_hash"):
-                txs.append({"step": "reveal", **fields})
+        reveal_result = None
+        for attempt in range(3):
+            if attempt:
+                time.sleep(3)
+            try:
+                reveal_result = _send_reveal_tx(account, live)
+                break
+            except (PreTxValidationError, OnChainRevertError) as e:
+                last_failure = _err_text(e)
+                # A reveal attempt that landed and reverted spent gas and
+                # has a hash. Each attempt is recorded as its own leg.
+                fields = _failed_tx_fields(e)
+                if fields.get("tx_hash"):
+                    txs.append({"step": "reveal", **fields})
+        if reveal_result is None:
+            break
+        reveals.append(reveal_result)
+        txs.append({"step": "reveal", **_receipt_fields(reveal_result)})
+        for it in reveal_result.get("revealed_items", []):
+            slot = items.setdefault(it["item_index"], dict(it, amount=0))
+            slot["amount"] += it["amount"]
+        prior = dict(remaining)
+        remaining = _commit_rolls(ids)
+        if not remaining:
+            break                       # unreadable: cannot loop safely
+        if remaining == prior and all(v for v in remaining.values()):
+            break                       # no progress: do not spin
 
-    if reveal_result is None:
+    revealed_items = list(items.values())
+    left = {str(c): v for c, v in remaining.items() if v}
+    if not reveals and notice is None:
         raise BatchTxError(
             "scavenge_claim_and_reveal",
             f"the claim landed and succeeded, but the reveal failed "
@@ -9912,17 +10082,70 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
                 "txs": txs,
             },
         )
-    txs.append({"step": "reveal", **_receipt_fields(reveal_result)})
-    return {
+    if reveals and not revealed_items and notice is None:
+        notice = (
+            "the reveal succeeded but revealed nothing: its receipt carries "
+            "no droptable event, so the commits were already drained — "
+            "revealed elsewhere (another client or service on this "
+            "account) between the claim and this reveal. Their items are "
+            "in the account inventory, not in this result."
+        )
+    if left:
+        stranded = (
+            f"{sum(left.values())} rolls are still unrevealed on "
+            f"{len(left)} commit(s) after {len(reveals)} reveal(s)"
+            + (f" (last failure: {last_failure})" if last_failure else "")
+            + f"; they expire 256 blocks after claim block {claim_block}. "
+            f"droptable_reveal with the same commit_ids reveals the rest."
+        )
+        notice = stranded if notice is None else f"{notice} {stranded}"
+        if not reveals or last_failure:
+            raise BatchTxError(
+                "scavenge_claim_and_reveal", stranded,
+                {
+                    "claim": claim_result, "commit_ids": commit_ids,
+                    "revealed_items": revealed_items,
+                    "rolls_remaining": left, "txs": txs,
+                    "tx_hash": claim_result.get("tx_hash"),
+                },
+            )
+    out: dict = {}
+    if notice:
+        out["notice"] = notice
+    out.update({
         "claim": claim_result,
-        "reveal": reveal_result,
+        "reveal": reveals[-1] if reveals else None,
+        "reveals": len(reveals),
         "commit_ids": commit_ids,
-        "revealed_items": reveal_result.get("revealed_items", []),
+        "rolls_before": {str(c): v for c, v in before.items()},
+        "rolls_remaining": left,
+        "revealed_items": revealed_items,
         "txs": txs,
         # The last hash this call landed, for consumers that key on a
         # single tx_hash field. `txs` is the complete record.
-        "tx_hash": reveal_result.get("tx_hash"),
-    }
+        "tx_hash": (reveals[-1] if reveals else claim_result).get("tx_hash"),
+    })
+    if notice and not revealed_items:
+        out["already_revealed"] = True
+    return out
+
+
+# Upstream LibDroptable.MAX_ROLLS_PER_REVEAL (chunked reveal, upstream
+# 7b0c5a8b, 2026-07-16): the most rolls one reveal transaction processes,
+# summed over every commit it names.
+_REVEAL_ROLLS_PER_TX = 5_000
+
+
+def _commit_rolls(ids: list[int]) -> dict[int, int]:
+    """Remaining rolls per commit: component.value on the commit entity
+    (0 once drained — the commit is deleted). {} when unreadable."""
+    try:
+        comp = w3.eth.contract(
+            address=_resolve_component("component.value"), abi=_UINT_VALUE_ABI
+        )
+        return {c: int(comp.functions.safeGet(c).call()) for c in ids}
+    except Exception:
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -10107,7 +10330,7 @@ def sacrifice_kami_batch(
         try:
             commit_contract.functions.executeTyped(ki).call({"from": op_addr})
         except Exception as e:
-            results.append({"kami_id": ki, "status": "skipped", "reason": str(e)[:140]})
+            results.append({"kami_id": ki, "status": "skipped", "reason": _err_text(e)[:140]})
             skipped += 1
             continue
         try:
@@ -10121,7 +10344,7 @@ def sacrifice_kami_batch(
         except Exception as e:
             results.append({
                 "kami_id": ki, **_failed_tx_hash_fields(e),
-                "status": "error", "reason": str(e)[:300],
+                "status": "error", "reason": _err_text(e)[:300],
             })
             errors += 1
             continue
@@ -11065,7 +11288,7 @@ _SEQ_BATCH_TIMEOUT_FLOOR_S = 30
 # when a transport failure left part of a chunk held and part not.
 _SEQ_RECONCILE_SETTLE_S = 1.0
 
-_seq_batch_providers: dict[float, object] = {}
+_seq_batch_providers: dict[tuple, object] = {}
 
 
 def _seq_batch_timeout(items: int) -> float:
@@ -11093,14 +11316,17 @@ def _seq_batch_provider(timeout_s: float | None):
     provider = w3.provider
     if timeout_s is None or not isinstance(provider, Web3.HTTPProvider):
         return provider
-    key = float(timeout_s)
-    if key not in _seq_batch_providers:
-        _seq_batch_providers[key] = Web3.HTTPProvider(
-            RPC_URL,
-            request_kwargs={"timeout": key},
-            exception_retry_configuration=None,
-        )
-    return _seq_batch_providers[key]
+    # Keyed by the client's OWN endpoint as well as the timeout: the
+    # dedicated provider always talks to the node `w3` talks to.
+    key = (provider.endpoint_uri, float(timeout_s))
+    with _BATCH_LOCK:
+        if key not in _seq_batch_providers:
+            _seq_batch_providers[key] = Web3.HTTPProvider(
+                provider.endpoint_uri,
+                request_kwargs={"timeout": float(timeout_s)},
+                exception_retry_configuration=None,
+            )
+        return _seq_batch_providers[key]
 
 
 # Every JSON-RPC batch borrows its provider's request-id counter (the

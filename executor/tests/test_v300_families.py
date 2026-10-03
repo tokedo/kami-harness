@@ -308,8 +308,11 @@ class TestTravelReadsChainState:
 
         monkeypatch.setattr(server, "_account_view", blank)
         monkeypatch.setattr(server.time, "sleep", lambda s: None)
-        r = asyncio.run(server.travel_to_room(3, account="testa"))
-        assert r["error"] == (
+        # 4.0.0: a failed read is an ERROR (nothing planned, nothing
+        # sent), no longer a normal result carrying an "error" key.
+        with pytest.raises(server.PreTxValidationError) as ei:
+            asyncio.run(server.travel_to_room(3, account="testa"))
+        assert str(ei.value).endswith(
             "failed to read account state: ConnectionError"
         )
 

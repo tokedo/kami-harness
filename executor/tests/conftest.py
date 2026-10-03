@@ -23,6 +23,26 @@ import secrets_store  # noqa: E402
 import server  # noqa: E402
 
 
+# A loopback port nothing listens on: refused at once, never a network.
+OFFLINE_RPC = "http://127.0.0.1:9/offline-test"
+
+
+@pytest.fixture(autouse=True)
+def _offline_rpc(monkeypatch):
+    """The offline suite never reaches a network.
+
+    The module's client is built at import on the public endpoint. A
+    test that needs chain answers installs its own fake; anything it did
+    not fake now fails at once against a dead loopback port instead of
+    silently querying the public endpoint. It is still an HTTPProvider,
+    so the production client's configuration can be asserted on it.
+    """
+    from web3 import Web3
+    monkeypatch.setattr(server, "w3", Web3(Web3.HTTPProvider(
+        OFFLINE_RPC, exception_retry_configuration=None)))
+    monkeypatch.setattr(server, "_seq_batch_providers", {})
+
+
 @pytest.fixture(autouse=True)
 def _isolated_lanes(tmp_path, monkeypatch):
     """Every test gets its own lane state directory and lane registry.

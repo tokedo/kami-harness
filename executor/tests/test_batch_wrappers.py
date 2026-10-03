@@ -17,6 +17,10 @@ import server
 class TestFeedLevelAllocateBatch:
     def test_happy_all_phases(self, accounts, validation_ok, sent, monkeypatch):
         monkeypatch.setattr(server, "_read_kami_level", lambda k: (3, ""))
+        # 4.0.0 reads the level BACK from chain after the loop; the fake
+        # chain's level rises with every level-up the stub sender landed.
+        monkeypatch.setattr(server, "_kami_level", lambda k: 3 + sum(
+            1 for c in sent if c["system"] == "system.kami.level"))
         r = asyncio.run(
             server.feed_level_allocate_batch(
                 [
@@ -33,9 +37,13 @@ class TestFeedLevelAllocateBatch:
         )
         assert r["ok"] == 1 and r["count"] == 1
         row = r["results"][0]
-        assert row["fed"] == {"done": 2, "planned": 2}
-        assert row["leveled"] == {"from": 3, "to": 5, "target": 5}
+        assert row["fed"]["done"] == 2 and row["fed"]["planned"] == 2
+        # The inventory is read back too (the stub spends nothing).
+        assert row["fed"]["consumed"] == 0
+        assert row["leveled"] == {"from": 3, "to": 5, "target": 5,
+                                  "landed": 2}
         assert row["allocated"] == {"done": 2, "planned": 2}
+        assert row["chain"]["level"] == 5
         # 2 feeds + 2 levels + 2 skill points = 6 txs
         assert len(sent) == 6
         systems = [c["system"] for c in sent]
@@ -269,7 +277,9 @@ class TestLevelPathNeedsNoKamibotsKey:
     ):
         assert accounts["noown"].api_key is None
         self._forbid_api(monkeypatch)
-        monkeypatch.setattr(server, "_kami_level", lambda k: 3)
+        # The level read before the loop is 3; read back after it, the
+        # chain shows the two level-ups the stub sender landed.
+        monkeypatch.setattr(server, "_kami_level", lambda k: 3 + len(sent))
         r = asyncio.run(server.level_to(5, 5, account="noown"))
         assert r["from_level"] == 3 and r["reached_level"] == 5
         assert len(sent) == 2
@@ -278,23 +288,26 @@ class TestLevelPathNeedsNoKamibotsKey:
         self, accounts, validation_ok, sent, monkeypatch
     ):
         self._forbid_api(monkeypatch)
-        monkeypatch.setattr(server, "_kami_level", lambda k: 1)
+        monkeypatch.setattr(server, "_kami_level", lambda k: 1 + len(sent))
         r = asyncio.run(server.level_and_allocate_batch(
             [{"kami_id": 5, "target_level": 3}], account="noown"
         ))
         assert r["ok"] == 1
-        assert r["results"][0]["leveled"] == {"from": 1, "to": 3, "target": 3}
+        # `to` is read back from chain (4.0.0), beside `landed`.
+        assert r["results"][0]["leveled"] == {
+            "from": 1, "to": 3, "target": 3, "landed": 2}
 
     def test_feed_level_allocate_batch_keyless(
         self, accounts, validation_ok, sent, monkeypatch
     ):
         self._forbid_api(monkeypatch)
-        monkeypatch.setattr(server, "_kami_level", lambda k: 4)
+        monkeypatch.setattr(server, "_kami_level", lambda k: 4 + len(sent))
         r = asyncio.run(server.feed_level_allocate_batch(
             [{"kami_id": 5, "target_level": 6}], account="noown"
         ))
         assert r["ok"] == 1
-        assert r["results"][0]["leveled"] == {"from": 4, "to": 6, "target": 6}
+        assert r["results"][0]["leveled"] == {
+            "from": 4, "to": 6, "target": 6, "landed": 2}
 
     def test_unreadable_level_refuses_and_names_the_cause(
         self, accounts, validation_ok, sent, monkeypatch

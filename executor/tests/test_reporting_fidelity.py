@@ -605,9 +605,13 @@ class TestSequentialLoopsMatrix:
         self, accounts, validation_ok, monkeypatch
     ):
         monkeypatch.setattr(server, "_read_kami_level", lambda k: (3, ""))
+        calls: list = []
         monkeypatch.setattr(
-            server, "_send_tx_retry", _failing_sender({2}, [])
+            server, "_send_tx_retry", _failing_sender({2}, calls)
         )
+        # Read back from chain (4.0.0): the one level-up that landed.
+        monkeypatch.setattr(server, "_kami_level", lambda k: 3 + sum(
+            1 for n in range(1, len(calls) + 1) if n != 2))
         r = asyncio.run(
             server.level_to(45, 5, account="testa", allow_partial=True)
         )
