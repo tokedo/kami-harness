@@ -171,3 +171,15 @@ def test_pool_swap_is_tabled_as_upstream_swap():
     assert rows == [{"tool": "pool_swap", "target": "system.pool",
                      "signature": "swap(uint32,uint32,uint256,uint256)",
                      "selector": "0x4a4f0718", "signer": "operator"}]
+
+
+def test_eth_is_sent_only_to_payable_functions(model, doc):
+    """A value-bearing send to a nonpayable function reverts; the two
+    that carry ETH go to payable functions upstream."""
+    valued = sorted({(b.target, b.func) for b in model.bindings if b.value})
+    assert valued == [("system.kamimarket.buy", "buy_kami"),
+                      ("system.newbievendor.buy", "newbie_vendor_buy")]
+    flipped = et.Model(abis=model.abis, consts=model.consts, bindings=[
+        et.Binding(b.target, b.abi, b.func, b.line, b.fns, b.signer, b.via, True)
+        for b in model.bindings if b.target == "system.auction.buy"])
+    assert any("nonpayable upstream" in p for p in et.check(flipped, doc))

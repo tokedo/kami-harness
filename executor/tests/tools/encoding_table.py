@@ -147,6 +147,7 @@ class Binding:
     fns: set | None = None      # function names called; None = every one
     signer: str = "read"
     via: str = ""
+    value: bool = False          # the call sends ETH with it
 
 
 @dataclass
@@ -275,8 +276,13 @@ def _bind_in(func, m: Model) -> None:
                 uo = kw.get("use_owner")
                 if isinstance(uo, ast.Constant) and uo.value is True:
                     signer = "owner"
+            vnode = kw.get("value_wei") or (
+                args[5] if n.func.id == "_send_tx_owner" and len(args) > 5 else None)
+            sends_value = vnode is not None and not (
+                isinstance(vnode, ast.Constant) and not vnode.value)
             m.bindings.append(Binding(tgt, abi, func.name, n.lineno,
-                                      {fn} if fn else None, signer, n.func.id))
+                                      {fn} if fn else None, signer, n.func.id,
+                                      sends_value))
         elif isinstance(n, ast.Tuple):
             elts = n.elts
             tg = [_target(e, consts) for e in elts]
@@ -401,6 +407,10 @@ def check(m: Model, doc: dict) -> list[str]:
                     f"{b.func}:{b.line}: {b.abi} encodes {sig} ({sel(sig)}) "
                     f"for {b.target}, which upstream does not have")
                 continue
+            if b.value and up[sig][2] != "payable":
+                problems.append(
+                    f"{b.func}:{b.line}: sends ETH to {sig} on {b.target}, "
+                    f"which is {up[sig][2]} upstream")
             ours = norm_outputs([_type(o) for o in fn.get("outputs", [])])
             theirs = norm_outputs(up[sig][1])
             if ours != theirs:
