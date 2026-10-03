@@ -5215,7 +5215,10 @@ def _diagnose_batch(system_id, abi, kami_ids, single_args, account, first):
         try:
             contract.functions.executeTyped(*args).call({"from": addr})
         except Exception as e:
-            failed.append(f"kami #{k}: {_revert_text(e)[:160]}")
+            data = _extract_revert_data(e)
+            reason = (_decode_revert_data(data) if data else None) or (
+                getattr(e, "message", None) or _revert_text(e))
+            failed.append(f"kami #{k}: {str(reason)[:160]}")
     if failed:
         raise PreTxValidationError(
             f"the {len(kami_ids)}-kami dry-run failed on an ITEM: "

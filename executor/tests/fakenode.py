@@ -370,7 +370,8 @@ class FakeNode:
             self._eth_getTransactionByHash(t.hash) if full else t.hash
             for t in self.blocks.get(n, [])
         ]
-        return {"number": hex(n), "hash": _bh(n), "transactions": txs}
+        return {"number": hex(n), "hash": _bh(n), "transactions": txs,
+                "timestamp": hex(int(self._now()))}
 
     def _eth_getTransactionReceipt(self, h):
         return self.receipts.get(h.lower())
