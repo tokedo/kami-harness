@@ -182,10 +182,23 @@ address has one lane, because a chain account has one nonce sequence.
   attributed. On a filesystem that does not survive a restart the
   ledger starts empty: the floor falls back to `pending`, and the lane
   cannot attribute or drain what a previous process left behind.
-- **Proof.** "Gone" needs two null lookups (receipt AND transaction),
-  each on a fresh HTTP session, one second apart — never one, because
-  this endpoint answers null for mined transactions on some requests.
-  `pending` alone is never proof.
+- **Proof.** Any verdict that releases a nonce or labels a transaction
+  not executed is confirmed by TWO lookups, each on a fresh HTTP session,
+  one second apart — never one, because this endpoint answers null for
+  mined and held transactions on some requests. Each lookup is ONE batch
+  on one session (receipt, transaction, the sender's latest count, the
+  head), so its answers come from one replica. Positive evidence wins at
+  once (a fresh lookup that finds the transaction held keeps it — and
+  treats it as armed if it sits above `pending`; one that finds it mined
+  resolves it and ends a receipt wait with that receipt). "Consumed by
+  another hash" needs both replicas to count the nonce as used; "absent"
+  needs both to count it unused and neither to be behind the highest
+  block this process has seen. `pending` alone is never proof. Limits:
+  the rule is sound for replicas that answer coherently (head, count and
+  receipts from one state); "absent with the nonce unused" can never be
+  proven outright, because a mempool is local to a replica, so it is
+  used only to re-offer the same bytes or to supersede AT THE SAME
+  NONCE, and a released entry's tombstone attributes a late mining.
 - **Re-offer and re-sign.** The SAME signed bytes are re-offered (up to
   3 times, 1 s apart) on an ambiguous answer — the replica readiness
   class, a transport failure, no response — and only within the call
@@ -801,6 +814,7 @@ writer; no other module opens the keys file or the Keychain.
 | A scavenge commit is revealed until every commit is drained; a commit already drained is not revealed again and is flagged, as is a reveal that reveals nothing; droptable_reveal reports the rolls left | `test_h400_send_path.py::test_a_commit_above_the_per_reveal_cap_is_drained_to_zero`, `::test_an_already_revealed_commit_is_flagged_not_an_empty_success`, `test_h400_lane.py::test_a_commit_drained_before_the_reveal_is_not_revealed_again`, `::test_a_reveal_that_reveals_nothing_is_flagged`, `::test_droptable_reveal_reports_the_rolls_left` |
 | travel plans and reports on the clamped 0-100 stamina, uses an item and retries a hop refused for stamina when allowed, and raises an unplannable route | `test_h400_lane.py::test_travel_plans_on_the_clamped_stamina`, `::test_an_out_of_stamina_hop_uses_an_item_and_is_retried`, `::test_an_unplannable_route_is_an_error_not_a_result`, `test_v300_families.py::TestTravelReadsChainState::test_a_read_failure_names_its_cause` |
 | An occupied equipment slot is never swapped: the batch skips it naming the item, equip_item refuses | `test_h400_lane.py::test_an_occupied_slot_is_skipped_and_its_item_named`, `::test_equip_item_refuses_an_occupied_slot` |
+| "Proven" is two lookups on fresh sessions, spaced, each answered by one replica: a waiting session that cannot see a held or mined hash never releases it, the pre-send path acts on what the fresh lookup found, and a null from a replica behind the seen head is not evidence | `test_h400_proof.py` (6 tests) |
 | The offline suite reaches no network: the module's client is a dead loopback port unless a test installs its own fake | `conftest.py::_offline_rpc` (autouse) |
 | A sequence reports one terminal state per step and never conflates two: a success, a revert and a timeout in one call come back as themselves, each with its own receipt evidence | `test_h350_families.py::test_terminal_states_are_never_conflated` |
 | A reverted step does not stop the sequence and is never resent | `test_h350_families.py::test_a_reverted_step_does_not_stop_the_sequence`, `::test_a_reverted_step_is_never_resent` |

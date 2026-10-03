@@ -163,6 +163,9 @@ def _fresh_provider(provider):
             request_kwargs={"timeout": 30},
             exception_retry_configuration=None,
         )
+    fresh = getattr(provider, "fresh_session", None)
+    if callable(fresh):
+        return fresh()
     return provider
 
 
@@ -1207,7 +1210,10 @@ def _await_receipt(
         except TimeExhausted:
             if i == slices - 1:
                 break
-            _check_inflight(tx_hash)
+            found = _check_inflight(tx_hash)
+            if found:
+                receipt = _format_receipt(found)
+                break
     if receipt is None:
         raise TxUnconfirmedError(_hex_hash(tx_hash), timeout)
     return _receipt_outcome(receipt, built, account, ceiling_key)
@@ -1215,6 +1221,7 @@ def _await_receipt(
 
 def _receipt_outcome(receipt, built, account=None, ceiling_key=None):
     """A receipt's terminal state: return it on success, raise on revert."""
+    _see_head(getattr(receipt, "blockNumber", None))
     if receipt.status != 1:
         # Receipt arithmetic first: it is deterministic, needs no archive
         # state, and identifies the one revert class a replay cannot.
@@ -2249,17 +2256,140 @@ def _tx_status(tx_hash: str, fresh: bool = False) -> str:
     return "absent"
 
 
-def _proven_absent(tx_hash: str) -> bool:
-    """Two null lookups on fresh sessions, _GONE_SPACING_S apart."""
+# The highest block this process has seen on any answer. A null lookup
+# from a replica whose head is below it comes from a replica that is
+# behind, and is not evidence of anything.
+_HEAD_SEEN = [0]
+
+
+def _see_head(block) -> None:
+    try:
+        b = int(block)
+    except (TypeError, ValueError):
+        return
+    if b > _HEAD_SEEN[0]:
+        _HEAD_SEEN[0] = b
+
+
+def _session_lookup(provider, tx_hash: str, addr: str) -> dict:
+    """One lookup on ONE session: receipt, transaction, the sender's
+    latest count and the head, in a single batch where the endpoint
+    serves one — so all four answers come from the same replica.
+
+    Returns {"status": mined|held|absent, "receipt", "count", "head"};
+    raises _RpcUnavailable when the receipt and transaction cannot both
+    be read.
+    """
+    reqs = [
+        ("eth_getTransactionReceipt", [tx_hash]),
+        ("eth_getTransactionByHash", [tx_hash]),
+        ("eth_getTransactionCount", [addr, "latest"]),
+        ("eth_blockNumber", []),
+    ]
+    answers: dict[int, object] = {}
+    try:
+        saved = provider.request_counter
+        provider.request_counter = itertools.count(0)
+        try:
+            responses = provider.make_batch_request(reqs)
+        finally:
+            provider.request_counter = saved
+        if not isinstance(responses, list):
+            raise TypeError("not a batch answer")
+        for r in responses:
+            if isinstance(r, dict) and isinstance(r.get("id"), int):
+                answers[r["id"]] = r
+    except Exception:
+        answers = {}
+        for i, (method, params) in enumerate(reqs):
+            try:
+                answers[i] = provider.make_request(method, params)
+            except Exception:
+                pass
+
+    def result(i):
+        r = answers.get(i)
+        if not isinstance(r, dict) or r.get("error") is not None:
+            raise _RpcUnavailable(str(r)[:200])
+        return r.get("result")
+
+    receipt = result(0)
+    tx = result(1)
+
+    def as_int(i):
+        try:
+            v = result(i)
+            return int(v, 16) if isinstance(v, str) else int(v)
+        except Exception:
+            return None
+
+    count, head = as_int(2), as_int(3)
+    if receipt:
+        _see_head(int(str(receipt.get("blockNumber", "0x0")), 16))
+        return {"status": "mined", "receipt": receipt, "count": count,
+                "head": head}
+    if tx:
+        status = "mined" if tx.get("blockNumber") else "held"
+        return {"status": status, "receipt": None, "count": count,
+                "head": head}
+    return {"status": "absent", "receipt": None, "count": count,
+            "head": head}
+
+
+def _confirm(tx_hash: str, addr: str, nonce: int) -> tuple:
+    """A hash's fate, confirmed: (verdict, raw receipt or None).
+
+    TWO lookups, each on a FRESH session (a new connection, which the
+    load balancer may route to another replica), _GONE_SPACING_S apart.
+    One null is never proof: this endpoint answers null for a mined or
+    held transaction on some requests. Positive evidence wins at once:
+
+      "mined"    — a lookup found a receipt (or a mined transaction);
+      "held"     — a lookup found the transaction, not yet mined;
+      "consumed" — BOTH found neither, and on BOTH the same replica that
+                   answered counts the nonce as used: another hash took
+                   it (no reorgs on this chain, so ours can never mine);
+      "absent"   — both found neither and the nonce unused, each from a
+                   replica no further behind than the highest block this
+                   process has seen;
+      None       — anything else (an unreadable lookup, a replica that
+                   is behind, two lookups that disagree): unproven.
+
+    "absent" with the nonce unused is the weakest of these — a mempool
+    is local to a replica — so its only use is a re-offer of the same
+    bytes or a supersede AT THE SAME NONCE, both of which are exclusive
+    with the original; a released entry stays a tombstone, so a late
+    mining is still attributed.
+    """
+    found = []
     for i in range(2):
         if i:
             time.sleep(_GONE_SPACING_S)
         try:
-            if _tx_status(tx_hash, fresh=True) != "absent":
-                return False
-        except _RpcUnavailable:
-            return False
-    return True
+            look = _session_lookup(_fresh_provider(_provider()), tx_hash, addr)
+        except (_RpcUnavailable, AttributeError):
+            return None, None
+        if look["status"] in ("mined", "held"):
+            return look["status"], look["receipt"]
+        found.append(look)
+    heads_ok = all(
+        look["head"] is not None and look["head"] >= _HEAD_SEEN[0]
+        for look in found)
+    counts = [look["count"] for look in found]
+    if any(c is None for c in counts):
+        return None, None
+    if all(c > nonce for c in counts):
+        return "consumed", None
+    if all(c <= nonce for c in counts) and heads_ok:
+        return "absent", None
+    return None, None
+
+
+def _provider():
+    provider = getattr(w3, "provider", None)
+    if provider is None or not callable(getattr(provider, "make_request", None)):
+        raise _RpcUnavailable("no JSON-RPC provider")
+    return provider
 
 
 def _count(addr: str, block: str) -> int | None:
@@ -2307,7 +2437,8 @@ class _BroadcastRefused(RuntimeError):
     The message is the node's own words, verbatim."""
 
 
-def _offer(raw: bytes, entry_hash: str) -> tuple[str, str]:
+def _offer(raw: bytes, entry_hash: str, addr: str = "",
+           nonce: int = -1) -> tuple[str, str]:
     """Offer ONE signed transaction; re-offer the SAME bytes if ambiguous.
 
     Returns (verdict, payload):
@@ -2337,12 +2468,21 @@ def _offer(raw: bytes, entry_hash: str) -> tuple[str, str]:
             return "accepted", entry_hash
         if cls in ("stale", "taken"):
             # C1: a NEW nonce only once this one is proven consumed by a
-            # different hash — the node's word plus our hash proven
-            # absent. Without that proof nothing is re-signed.
-            if st == "absent" and _proven_absent(entry_hash):
+            # different hash — confirmed on two fresh sessions whose own
+            # replica counts the nonce as used. Without that, nothing is
+            # re-signed.
+            verdict, _r = _confirm(entry_hash, addr, nonce)
+            if verdict in ("mined", "held"):
+                return "accepted", entry_hash
+            if verdict == "consumed":
                 return "consumed", last
             return "unknown", last
-    if _proven_absent(entry_hash):
+    verdict, _r = _confirm(entry_hash, addr, nonce)
+    if verdict in ("mined", "held"):
+        return "accepted", entry_hash
+    if verdict == "consumed":
+        return "consumed", last
+    if verdict == "absent":
         return "refused", last
     return "unknown", last
 
@@ -2408,45 +2548,50 @@ def _lane_consumer(lane: lanes.Lane, nonce: int, exclude: str):
     return _scan_consumer(lane.address, nonce), False, ""
 
 
-def _check_inflight(tx_hash) -> None:
-    """Between receipt slices: raise if the ledger PROVES it cannot mine."""
+def _check_inflight(tx_hash):
+    """Between receipt slices: what the ledger can PROVE about a hash.
+
+    Returns a raw receipt when a fresh-session lookup found the
+    transaction mined (the waiting session may be on a replica that has
+    not seen it); raises TxNonceCollisionError / TxDroppedError only on
+    a confirmed verdict; otherwise returns None and the wait goes on.
+    """
     ref = _INFLIGHT.get(_hex_hash(tx_hash).lower())
     if ref is None:
-        return
+        return None
     lane, eh = ref
     entry = lane.entries.get(eh)
     if entry is None or entry.state == lanes.RELEASED:
-        return
+        return None
     try:
         if _tx_status(eh) in ("mined", "held"):
-            return
+            return None
     except _RpcUnavailable:
-        return
-    latest = _count(lane.address, "latest")
-    if latest is None:
-        return
-    if entry.nonce < latest:
-        if not _proven_absent(eh):
-            return
+        return None
+    verdict, receipt = _confirm(eh, lane.address, entry.nonce)
+    if verdict == "mined":
+        return receipt
+    if verdict != "consumed" and verdict != "absent":
+        return None                     # held, or unproven: keep waiting
+    if verdict == "consumed":
         who, ours, origin = _lane_consumer(lane, entry.nonce, exclude=eh)
         with lane.critical():
             lane.release(entry, f"nonce {entry.nonce} consumed by {who}")
         raise TxNonceCollisionError(
             _hex_hash(tx_hash), entry.nonce, who, ours, origin)
-    if not _proven_absent(eh):
-        return
     if entry.raw and eh not in _REOFFERED:
         # Same call, same bytes: re-offering is idempotent (C1).
         _REOFFERED.add(eh)
-        verdict, _payload = _offer(bytes.fromhex(entry.raw[2:]), eh)
-        if verdict in ("accepted", "unknown"):
-            return
+        v, _payload = _offer(bytes.fromhex(entry.raw[2:]), eh, lane.address,
+                             entry.nonce)
+        if v in ("accepted", "unknown"):
+            return None
     with lane.critical():
         lane.release(entry, "not held by the node (two fresh lookups)")
     raise TxDroppedError(
         _hex_hash(tx_hash), entry.nonce,
         "two lookups on fresh sessions found neither the transaction nor "
-        "a receipt",
+        "a receipt, and the nonce unused",
     )
 
 
@@ -2471,7 +2616,7 @@ def _lane_fill(lane: lanes.Lane, addr: str, key: str, nonce: int,
     h = _seq_tx_hash(raw)
     entry = lane.add(nonce, h, raw, ctl.id, ctl.tool, None, kind="fill")
     lane.save()
-    verdict, payload = _offer(raw, h)
+    verdict, payload = _offer(raw, h, addr, nonce)
     if verdict in ("accepted", "unknown"):
         lane.offered(entry)
         _INFLIGHT[payload.lower() if verdict == "accepted" else h] = (lane, h)
@@ -2586,28 +2731,32 @@ def _lane_prepare(lane: lanes.Lane, addr: str, key: str,
             st = _tx_status(e.hash)
         except _RpcUnavailable:
             continue                      # unknowable now: keep it
+        if st == "absent":
+            # One null is never proof: confirm on two fresh sessions, and
+            # act on what THEY found.
+            st, _r = _confirm(e.hash, addr, e.nonce)
         if st == "mined":
             if e.call != ctl.id and e.kind == "action":
                 ctl.notice(
                     f"an earlier call's transaction {e.hash} "
                     f"({_origin(e)}) has since mined at nonce {e.nonce}")
-            lane.mined(e.hash)
+            lane.mined(e.hash, e.nonce)
             continue
         if st == "held":
             held.append(e)
             continue
-        if latest is not None and e.nonce < latest:
-            if _proven_absent(e.hash):
-                who, ours, origin = _lane_consumer(lane, e.nonce, e.hash)
-                lane.release(e, f"nonce {e.nonce} consumed by {who}")
-                if e.call != ctl.id:
-                    ctl.notice(
-                        f"an earlier call's transaction {e.hash} "
-                        f"({_origin(e)}) was NOT executed: its nonce "
-                        f"{e.nonce} was consumed by {who or 'another hash'}"
-                        f"{' (signed by this harness, ' + origin + ')' if ours else ''}")
-        elif _proven_absent(e.hash):
+        if st == "consumed":
+            who, ours, origin = _lane_consumer(lane, e.nonce, e.hash)
+            lane.release(e, f"nonce {e.nonce} consumed by {who}")
+            if e.call != ctl.id:
+                ctl.notice(
+                    f"an earlier call's transaction {e.hash} "
+                    f"({_origin(e)}) was NOT executed: its nonce "
+                    f"{e.nonce} was consumed by {who or 'another hash'}"
+                    f"{' (signed by this harness, ' + origin + ')' if ours else ''}")
+        elif st == "absent":
             lane.release(e, "not held by the node (two fresh lookups)")
+        # None: unproven — kept, and it holds the floor up.
     for t in tombs:
         if latest is not None and t.nonce < latest:
             try:
@@ -2665,7 +2814,7 @@ def _lane_send(
                 continue
             entry = lane.add(nonce, h, raw, ctl.id, ctl.tool, step)
             lane.save()
-            verdict, payload = _offer(raw, h)
+            verdict, payload = _offer(raw, h, signer_addr, nonce)
             if verdict in ("accepted", "unknown"):
                 lane.offered(entry)
                 if verdict == "unknown":
@@ -11857,10 +12006,7 @@ def _seq_reoffer(rows, offered, nonce_by_step, hash_by_step, raw_by_step,
             if _classify_send_error(payload) != "stale":
                 continue
             n = nonce_by_step[j]
-            latest = _count(addr, "latest")
-            if latest is not None and n < latest and _proven_absent(
-                hash_by_step[j]
-            ):
+            if _confirm(hash_by_step[j], addr, n)[0] == "consumed":
                 # Not a gap: the nonce is used, by another hash.
                 who, ours, _origin_text = _lane_consumer(
                     lane, n, hash_by_step[j])
@@ -12194,24 +12340,25 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
             st = _tx_status(h)
         except _RpcUnavailable:
             st = None
+        raw = None
+        n = nonce_by_step[i]
+        if st == "absent":
+            st, raw = _confirm(h, addr, n)
         if st == "mined":
-            try:
-                raw = _rpc("eth_getTransactionReceipt", [h])
-            except _RpcUnavailable:
-                raw = None
+            if raw is None:
+                try:
+                    raw = _rpc("eth_getTransactionReceipt", [h])
+                except _RpcUnavailable:
+                    raw = None
             if raw:
                 _row_from_receipt(i, _format_receipt(raw))
             continue
-        if st != "absent":
-            continue
-        latest = _count(addr, "latest")
-        n = nonce_by_step[i]
-        if latest is not None and n < latest and _proven_absent(h):
+        if st == "consumed":
             who, ours, origin = _lane_consumer(lane, n, h)
             _seq_not_executed(rows[i], TxNonceCollisionError(
                 hashes[i], n, who, ours, origin))
             _lane_release(lane, entries[i], f"nonce {n} consumed by {who}")
-        elif _proven_absent(h):
+        elif st == "absent":
             _seq_not_executed(rows[i], TxDroppedError(
                 hashes[i], n, "accepted at broadcast, no longer held"))
             _lane_release(lane, entries[i], "no longer held by the node")

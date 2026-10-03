@@ -200,6 +200,7 @@ def chain_env(monkeypatch, accounts):
     # The production client construction (servers before 4.0.0 lack it).
     w3 = getattr(server, "_install_read_retry", lambda w: w)(make_w3(node))
     clock = VirtualClock()
+    node.clock = clock
     # One block per virtual second, never backwards.
     t0, b0 = clock.now, node.block
     clock.on_sleep.append(lambda now: setattr(

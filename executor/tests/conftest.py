@@ -56,6 +56,7 @@ def _isolated_lanes(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "_LANES", {})
     monkeypatch.setattr(server, "_INFLIGHT", {})
     monkeypatch.setattr(server, "_REOFFERED", set())
+    monkeypatch.setattr(server, "_HEAD_SEEN", [0])
 
 
 @pytest.fixture()

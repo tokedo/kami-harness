@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -172,6 +173,20 @@ class FakeNode:
         self.sends: list[tuple[str, int, str]] = []  # (sender, nonce, hash) admitted
         self.executed: list[Tx] = []          # mined, in order
         self.blocks: dict[int, list[Tx]] = defaultdict(list)
+        # Replicas behind a load balancer. A SESSION (one connection) is
+        # pinned to one replica. A replica can be BLIND to hashes (it
+        # answers null for their receipt and transaction — the endpoint's
+        # observed inconsistency) and BEHIND (its head and its count lag).
+        self.replicas: dict[str, dict] = {
+            "primary": {"blind": set(), "behind": 0, "count_behind": 0}}
+        self.session_replica: dict[int, str] = {0: "primary"}
+        self.fresh_route = lambda sid: "primary"
+        self.sessions_opened: list[tuple[int, str, float]] = []
+        self.lookups: list[tuple[int, str, str, float]] = []
+        self.clock = None
+        self.hold_mining = False
+        self._sid = itertools.count(1)
+        self._tls = threading.local()
 
     # -- configuration ------------------------------------------------------
 
@@ -222,6 +237,20 @@ class FakeNode:
                 return lg
         return None
 
+    def replica(self, name: str, blind=(), behind: int = 0,
+                count_behind: int = 0, blind_once=(), blind_all=False) -> None:
+        """blind: hashes it never sees; blind_once: hashes it answers null
+        for ONCE (then correctly); blind_all: it sees no hash at all."""
+        self.replicas[name] = {
+            "blind": set(blind), "behind": behind,
+            "count_behind": count_behind,
+            "blind_once": {h.lower(): 1 for h in blind_once},
+            "blind_all": blind_all,
+        }
+
+    def _now(self) -> float:
+        return self.clock.now if self.clock is not None else 0.0
+
     def rpc(self, request: dict) -> dict:
         method = request["method"]
         params = request.get("params") or []
@@ -230,6 +259,25 @@ class FakeNode:
         err = self._fault_for(method, params)
         if err is not None:
             return {"jsonrpc": "2.0", "id": rid, "error": dict(err)}
+        sid = getattr(self._tls, "session", 0)
+        rep = self.replicas[self.session_replica.get(sid, "primary")]
+        if method in ("eth_getTransactionReceipt", "eth_getTransactionByHash"):
+            h = str(params[0]).lower()
+            self.lookups.append((sid, method, h, self._now()))
+            once = rep.get("blind_once", {})
+            if once.get(h, 0) > 0:
+                if method == "eth_getTransactionByHash":
+                    once[h] -= 1          # one null answer for the pair
+                return {"jsonrpc": "2.0", "id": rid, "result": None}
+            if rep.get("blind_all") or h in rep["blind"]:
+                return {"jsonrpc": "2.0", "id": rid, "result": None}
+        if method == "eth_blockNumber" and rep["behind"]:
+            return {"jsonrpc": "2.0", "id": rid,
+                    "result": hex(max(0, self.block - rep["behind"]))}
+        if method == "eth_getTransactionCount" and rep["count_behind"]:
+            real = int(self._eth_getTransactionCount(*params), 16)
+            return {"jsonrpc": "2.0", "id": rid,
+                    "result": hex(max(0, real - rep["count_behind"]))}
         try:
             result = getattr(self, "_" + method)(*params)
         except _RpcError as e:
@@ -345,7 +393,13 @@ class FakeNode:
 
     # -- mining -------------------------------------------------------------
 
+    def release_mining(self) -> None:
+        self.hold_mining = False
+        self._mine()
+
     def _mine(self) -> None:
+        if self.hold_mining:
+            return
         mined_any = False
         for sender in list(self.pool):
             while self.latest[sender] in self.pool[sender]:
@@ -429,20 +483,37 @@ class FakeNodeProvider(JSONBaseProvider):
     as HTTPProvider does, and answers an array.
     """
 
-    def __init__(self, node: FakeNode):
+    def __init__(self, node: FakeNode, session: int = 0, batches=None):
         super().__init__()
         self.node = node
+        self.session = session
         self.request_counter = itertools.count()
-        self.batches: list[list[str]] = []
+        self.batches: list[list[str]] = [] if batches is None else batches
+
+    def fresh_session(self) -> "FakeNodeProvider":
+        """A new connection: the load balancer routes it to a replica."""
+        sid = next(self.node._sid)
+        self.node.session_replica[sid] = self.node.fresh_route(sid)
+        self.node.sessions_opened.append(
+            (sid, self.node.session_replica[sid], self.node._now()))
+        return FakeNodeProvider(self.node, sid, self.batches)
+
+    def _on_session(self, fn):
+        prior = getattr(self.node._tls, "session", 0)
+        self.node._tls.session = self.session
+        try:
+            return fn()
+        finally:
+            self.node._tls.session = prior
 
     def make_request(self, method, params):
         body = json.loads(self.encode_rpc_request(method, params))
-        return self.node.rpc(body)
+        return self._on_session(lambda: self.node.rpc(body))
 
     def make_batch_request(self, requests):
         body = json.loads(self.encode_batch_rpc_request(requests))
         self.batches.append([r["method"] for r in body])
-        return [self.node.rpc(r) for r in body]
+        return self._on_session(lambda: [self.node.rpc(r) for r in body])
 
     def is_connected(self, show_traceback: bool = False) -> bool:
         return True
