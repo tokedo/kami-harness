@@ -372,7 +372,7 @@ missing, you have an incomplete clone — `git pull` to refresh.
 **31,500,000** (its per-transaction lane cap, below the 45,000,000 block
 limit), and that lane alone would admit 31 / 15 / 17 kamis at the
 harness's per-kami gas provision; but in play a start of 22–28 kamis
-and a stop of 12-15 (12 on high-level kamis) failed the node's own
+and a stop of 12-15 (12 on high-level kamis) failed the RPC node's own
 dry-run, while 10 landed for both. The cap is that measured admission, enforced before signing. A
 larger list is refused pre-send, naming the number that fits; split at
 the call site. The harness never splits for you: one tool call is one
