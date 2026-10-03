@@ -800,6 +800,10 @@ class TestRevertInvariant:
         for sysid in ("system.kami.equip", "system.kami.unequip",
                       "system.kami.sacrifice.commit"):
             chain[sysid] = FakeContract({"executeTyped": lambda *a: b""})
+        # 4.0.0: equip reads the slot's occupant before sending (the
+        # chain swaps an occupied slot instead of reverting). Empty here,
+        # so the equip is sent and its revert is what this test drives.
+        chain["component.index.item"] = FakeContract({"safeGet": lambda e: 0})
         self_eid = str(server._account_entity_id("testa"))
         monkeypatch.setattr(
             server, "get_kami_market_listings",

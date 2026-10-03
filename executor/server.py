@@ -7058,6 +7058,53 @@ def use_account_item(
     )
 
 
+# The kami equipment slot (the only one served).
+_EQUIP_SLOT = "Kami_Pet_Slot"
+
+
+def _equipment_instance_id(kami_id: int, slot: str = _EQUIP_SLOT) -> int:
+    """upstream LibEquipment.genID: keccak256(abi.encodePacked(
+    "equipment.instance", holderID, slot))."""
+    return int.from_bytes(
+        Web3.solidity_keccak(
+            ["string", "uint256", "string"],
+            ["equipment.instance", _kami_entity_id(kami_id), slot],
+        ),
+        "big",
+    )
+
+
+def _slot_occupant(kami_id: int, op_addr: str,
+                   slot: str = _EQUIP_SLOT) -> tuple[bool | None, int | None]:
+    """(occupied, item index) for a kami's slot, read before an equip.
+
+    The chain's equip does NOT revert on an occupied slot: it unequips
+    the occupant back to the inventory and equips the new item (upstream
+    LibEquipment.equip). So occupancy is read, never inferred from an
+    equip dry-run: component.index.item on the slot's equipment instance
+    (0 when empty), and, when that read fails, an unequip dry-run — it
+    passes only on an occupied slot (as unequip_all_batch probes).
+    occupied=None means neither could tell.
+    """
+    try:
+        c = w3.eth.contract(address=_resolve_component("component.index.item"),
+                            abi=_UINT32_VALUE_ABI)
+        item = int(c.functions.safeGet(_equipment_instance_id(kami_id, slot)).call())
+        return item != 0, (item or None)
+    except Exception:
+        pass
+    try:
+        un = w3.eth.contract(address=_resolve_system("system.kami.unequip"),
+                             abi=_ABI_UNEQUIP)
+        un.functions.executeTyped(_kami_entity_id(kami_id), slot).call(
+            {"from": op_addr})
+        return True, None
+    except Exception as e:
+        if "slot empty" in str(e).lower():
+            return False, None
+        return None, None
+
+
 @mcp.tool()
 def equip_item(kami_id: int, item_index: int, account: str = "main") -> dict:
     """Equip an inventory item to a kami. Kami must be RESTING.
@@ -7069,6 +7116,16 @@ def equip_item(kami_id: int, item_index: int, account: str = "main") -> dict:
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "equip_item")
     _require_item_balance(account, aid, item_index, 1, "equip_item")
+    occupied, occupant = _slot_occupant(
+        kami_id, _get_account(account).operator_addr)
+    if occupied:
+        raise PreTxValidationError(
+            f"kami #{kami_id}'s {_EQUIP_SLOT} is occupied"
+            + (f" by item {occupant} ({_get_item_name(occupant)})"
+               if occupant else "")
+            + "; equipping would swap it out to the inventory. "
+            "unequip_item clears the slot first."
+        )
     return _send_tx(
         account,
         "system.kami.equip",
@@ -7156,8 +7213,26 @@ def equip_all_batch(
             time.sleep(delay_seconds)
         processed += 1
         eid = _kami_entity_id(ki)
-        # Dry-run gate: skip if equip would revert (slot full, item missing,
-        # not RESTING). No speculative tx.
+        # Occupancy gate: the chain SWAPS an occupied slot instead of
+        # reverting, so "slot full -> skipped" is enforced here, by a
+        # read, before anything is sent.
+        occupied, occupant = _slot_occupant(ki, op_addr)
+        if occupied:
+            results.append({
+                "kami_id": ki,
+                "item_index": item_index,
+                "status": "skipped",
+                "reason": (
+                    f"{_EQUIP_SLOT} occupied"
+                    + (f" by item {occupant}" if occupant else "")
+                    + "; equipping would swap it out"
+                ),
+                "equipped_item": occupant,
+            })
+            skipped += 1
+            continue
+        # Dry-run gate: skip if equip would revert (item missing, not
+        # RESTING). No speculative tx.
         try:
             contract.functions.executeTyped(eid, item_index).call(
                 {"from": op_addr}
@@ -7195,9 +7270,15 @@ def equip_all_batch(
             )
             errors += 1
             continue
-        results.append(
-            {"kami_id": ki, "item_index": item_index, **_receipt_fields(r)}
-        )
+        row = {"kami_id": ki, "item_index": item_index, **_receipt_fields(r)}
+        # Read back: what the slot holds now. Anything displaced was in
+        # the slot between the occupancy read and inclusion.
+        _occ_after, now_item = _slot_occupant(ki, op_addr)
+        if now_item is not None:
+            row["slot_item_after"] = now_item
+        if occupied is None:
+            row["occupancy"] = "unread before send"
+        results.append(row)
         equipped += 1
 
     summary = {
@@ -9958,7 +10039,18 @@ def droptable_reveal(commit_ids: list[str], account: str = "main") -> dict:
         )
     _require_registered_operator(account)
     ids = [_parse_commit_id(c) for c in commit_ids]
-    return _send_reveal_tx(account, ids)
+    result = _send_reveal_tx(account, ids)
+    # Read back: a reveal processes at most _REVEAL_ROLLS_PER_TX rolls in
+    # one transaction, so a large commit can still hold rolls after it.
+    left = {str(c): v for c, v in _commit_rolls(ids).items() if v}
+    result["rolls_remaining"] = left
+    if left:
+        result["notice"] = (
+            f"{sum(left.values())} rolls are still unrevealed on "
+            f"{len(left)} commit(s); reveal the same commit_ids again "
+            f"before the 256-block window closes."
+        )
+    return result
 
 
 @mcp.tool()
