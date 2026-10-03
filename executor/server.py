@@ -1443,11 +1443,13 @@ _ABI_GETTER_ACCOUNT = json.loads(
 
 
 def _account_view(account_id: int) -> dict | None:
-    """Live account view from system.getter.getAccount: name, current
-    stamina, room. The getter view applies stamina regeneration to the
-    current block timestamp, so `stamina` is the current value, not the
-    last-synced snapshot. Returns None when the entity is not a
-    registered account (the getter reverts) or the read fails."""
+    """Live account view from system.getter.getAccount: name, stamina,
+    room. The getter adds regeneration up to the current block to the
+    last-synced value but does NOT cap it (upstream
+    LibAccount.getCurrentStamina); the contract caps at the account
+    maximum when it syncs before a stamina check. Callers that plan on
+    stamina clamp it (travel_to_room). Returns None when the entity is
+    not a registered account (the getter reverts) or the read fails."""
     getter = w3.eth.contract(
         address=_resolve_system("system.getter"), abi=_ABI_GETTER_ACCOUNT
     )
@@ -3983,8 +3985,9 @@ def register_account(name: str, account: str = "main") -> dict:
 
     Operator keypairs come from create_operator_wallet. The call is
     dry-run via eth_call before sending, so common reverts ("exists
-    for Owner/Operator", "name taken") surface without spending gas. A
-    new account starts in Room 1 with 100 stamina.
+    for Owner/Operator", "Operator is an account owner", "name taken")
+    surface without spending gas. A new account starts in Room 1 with
+    100 stamina.
 
     Args:
         name: Display name, 1-15 bytes, unique, no whitespace.
@@ -4022,6 +4025,10 @@ def register_account(name: str, account: str = "main") -> dict:
             hint = " This owner wallet is already registered."
         elif "exists for Operator" in reason:
             hint = " This operator address is bound to another account."
+        elif "Operator is an account owner" in reason:
+            hint = (" This operator address is itself an account's owner "
+                    "wallet, and an owner cannot be another account's "
+                    "operator.")
         elif "name taken" in reason:
             hint = f" The name '{name}' is taken — pick another."
         raise ValueError(f"Registration would revert: {reason}.{hint}")
@@ -4125,15 +4132,28 @@ def fund_operator(amount_eth: str, account: str = "main") -> dict:
     return result
 
 
+# The reserve a full sweep must leave on this chain. The derived reserve
+# (eth_estimateGas x2 at the flat price, about 0.0000009 ETH) landed and
+# REVERTED "insufficient balance for transfer" on every account tried
+# (11 of 11, 2026-09-16, ~112k gas burned each), while leaving 0.0002 ETH
+# landed every time. The fee the chain actually deducts could not be
+# derived read-only: the public RPC has pruned those blocks and its
+# eth_call ignores fees (a full-balance self-transfer passes with gas and
+# fee set). So this is an empirical floor, not a model.
+_SWEEP_RESERVE_FLOOR_WEI = 2 * 10 ** 14
+
+
 @mcp.tool()
 def withdraw_operator(amount_eth: str = "all", account: str = "main") -> dict:
     """Send ETH from the operator wallet to the same account's owner wallet.
 
     Plain value transfer signed by the operator key; the recipient is
-    pinned to this account's owner address. The gas reserve is
-    estimate-based (eth_estimateGas x2; MiniEVM transfer costs vary
-    ~21k-174k); amount_eth="all" sweeps the balance minus the reserve,
-    re-verified before signing. A failed validation broadcasts nothing.
+    pinned to this account's owner address. The gas reserve is the
+    larger of eth_estimateGas x2 at the flat price and 0.0002 ETH (a
+    smaller reserve lands and reverts "insufficient balance for
+    transfer" on this chain); amount_eth="all" sweeps the balance minus
+    the reserve, and an explicit amount must leave it. A failed
+    validation broadcasts nothing.
 
     Args:
         amount_eth: Decimal ETH string, or "all" (default).
@@ -4148,6 +4168,9 @@ def withdraw_operator(amount_eth: str = "all", account: str = "main") -> dict:
     op_addr = acct.operator_addr
     balance = w3.eth.get_balance(op_addr)
     fee = _GAS_PRICE["maxFeePerGas"]
+
+    def _floor(reserve: int) -> int:
+        return max(reserve, _SWEEP_RESERVE_FLOOR_WEI)
 
     def _estimate(value_wei: int) -> int:
         return w3.eth.estimate_gas(
@@ -4168,14 +4191,16 @@ def withdraw_operator(amount_eth: str = "all", account: str = "main") -> dict:
                 f"failed: {_revert_text(e)}"
             )
         gas_limit = probe * 2
-        reserve = gas_limit * fee
+        reserve = _floor(gas_limit * fee)
         value = balance - reserve
         if value <= 0:
             raise PreTxValidationError(
                 f"operator balance {w3.from_wei(balance, 'ether')} ETH "
                 f"is at or below the {w3.from_wei(reserve, 'ether')} ETH "
-                f"gas reserve (estimated {probe} gas x2 safety factor at "
-                f"the flat price); nothing to sweep"
+                f"gas reserve (the larger of estimated {probe} gas x2 at "
+                f"the flat price and the "
+                f"{w3.from_wei(_SWEEP_RESERVE_FLOOR_WEI, 'ether')} ETH "
+                f"floor); nothing to sweep"
             )
         # Verify the exact sweep value clears estimation before signing.
         try:
@@ -4189,7 +4214,7 @@ def withdraw_operator(amount_eth: str = "all", account: str = "main") -> dict:
             )
         if verify > gas_limit:
             gas_limit = verify * 2
-            reserve = gas_limit * fee
+            reserve = _floor(gas_limit * fee)
             value = balance - reserve
             if value <= 0:
                 raise PreTxValidationError(
@@ -4210,14 +4235,17 @@ def withdraw_operator(amount_eth: str = "all", account: str = "main") -> dict:
                 f"eth_estimateGas failed: {_revert_text(e)}"
             )
         gas_limit = est * 2
-        required = value + gas_limit * fee
-        if balance < required:
+        reserve = _floor(gas_limit * fee)
+        if balance < value + reserve:
             raise PreTxValidationError(
                 f"operator balance {w3.from_wei(balance, 'ether')} ETH "
                 f"cannot cover {amount_eth} ETH + the "
-                f"{w3.from_wei(gas_limit * fee, 'ether')} ETH gas "
-                f"provision (estimated {est} gas x2 safety factor at the "
-                f"flat price)"
+                f"{w3.from_wei(reserve, 'ether')} ETH gas reserve (the "
+                f"larger of {w3.from_wei(gas_limit * fee, 'ether')} ETH — "
+                f"estimated {est} gas x2 at the flat price — and the "
+                f"{w3.from_wei(_SWEEP_RESERVE_FLOOR_WEI, 'ether')} ETH "
+                f"floor); send at most "
+                f"{w3.from_wei(max(0, balance - reserve), 'ether')} ETH"
             )
     result = _send_eth(
         acct.operator_key, op_addr, acct.owner_addr, value,
@@ -5690,7 +5718,9 @@ async def travel_to_room(
 
     BFS over the static room graph plans hops (5 stamina each); each hop
     is its own transaction through the standard validation gates. Room,
-    stamina and SP+ holdings are read from chain state per call. Gated
+    stamina (capped at 100, the value moves spend) and SP+ holdings are
+    read from chain, stamina again after every hop; with use_items, a
+    hop refused for stamina uses an item and is retried. Gated
     exits are checked against this account on chain and routed around;
     with no route the call refuses instead of stranding the account
     part-way. A step failure
@@ -6394,9 +6424,10 @@ def allocate_skills(
 ) -> dict:
     """Allocate multiple skill points in one call. Executes sequentially on-chain.
 
-    One transaction per point with nonce-retry. A mid-plan failure
-    raises with the upgrades already landed (final on-chain);
-    allow_partial=true returns that partial result instead.
+    One transaction per point. A mid-plan failure raises with the
+    upgrades already landed (final on-chain); allow_partial=true
+    returns that partial result instead. `chain` reads back the kami's
+    level, XP and unspent skill points afterwards.
 
     Validates before signing (no gas spent on failure): skill_plan
     non-empty, account registered, kami owned, then per-tx dry-runs.
@@ -6475,10 +6506,10 @@ async def level_to(
 ) -> dict:
     """Level up a kami repeatedly until it reaches target_level.
 
-    Sends exactly the needed level-ups sequentially with nonce-retry
-    (XP must be banked). A mid-run failure raises with the levels
-    already gained (final on-chain); allow_partial=true returns that
-    partial result instead.
+    Sends exactly the needed level-ups sequentially (XP must be
+    banked). reached_level is read back from chain, not counted. A
+    mid-run failure raises with the levels already gained (final
+    on-chain); allow_partial=true returns that partial result instead.
 
     Validates before signing (no gas spent on failure): account
     registered, kami owned, then per-tx dry-runs.
@@ -6567,8 +6598,9 @@ async def level_and_allocate_batch(
     """Batch level-up and skill allocation across many kamis in one call.
 
     Per target: optionally level the kami to `target_level`, then
-    optionally spend `skill_plan` — one transaction per level/point,
-    with nonce-retry. Failures are captured per kami without aborting
+    optionally spend `skill_plan` — one transaction per level/point;
+    leveled.to is read back from chain. Failures are captured per
+    kami without aborting
     the rest; if any plan failed, the call raises with every per-kami
     outcome (successes are final on-chain); allow_partial=true returns
     them without the error. Result rows carry per-tx receipts (txs).
@@ -6692,13 +6724,14 @@ async def feed_level_allocate_batch(
 
     Three phases per kami in FEED -> LEVEL -> ALLOCATE order (feeding
     lands XP before levels consume it), one transaction per
-    use/level/point with nonce-retry; kamis must be RESTING. A kami's
+    use/level/point; kamis must be RESTING. A kami's
     failure skips its remaining phases and is captured in its row
     without aborting the rest; if any plan failed, the call raises
     with every per-kami outcome (successes are final on-chain);
     allow_partial=true returns them without the error. Rows carry
-    per-tx receipts. The loop keeps running even if the MCP client
-    call times out.
+    per-tx receipts and a chain read-back (level, XP, skill points,
+    feed inventory). A client cancel stops the loop at the next
+    transaction.
 
     Validates before signing (no gas spent on failure): targets
     non-empty, account registered, then per-tx dry-runs.
@@ -6850,9 +6883,10 @@ def use_item_batch(
 ) -> dict:
     """Use the same item on a kami multiple times. Executes sequentially.
 
-    One transaction per use with nonce-retry; works for any consumable.
-    A mid-run failure raises with the uses already landed (final
-    on-chain); allow_partial=true returns that partial result instead.
+    One transaction per use; works for any consumable. `inventory`
+    reads the item balance back before and after. A mid-run failure
+    raises with the uses already landed (final on-chain);
+    allow_partial=true returns that partial result instead.
 
     Validates before signing (no gas spent on failure): count at least
     1, account registered, kami owned, `count` held, then per-tx
@@ -7015,8 +7049,9 @@ def equip_item(kami_id: int, item_index: int, account: str = "main") -> dict:
     """Equip an inventory item to a kami. Kami must be RESTING.
 
     Validates before signing (no gas spent on failure): account
-    registered, kami owned, item held, then an eth_call dry-run
-    (state, slot occupancy).
+    registered, kami owned, item held, slot empty (the chain would
+    swap an occupied slot's item out, not revert), then an eth_call
+    dry-run (state).
     """
     aid = _require_registered_operator(account)
     _require_kamis_owned([kami_id], account, aid, "equip_item")
@@ -7070,12 +7105,12 @@ def equip_all_batch(
     """Equip an inventory item to many kamis (server-side loop, dry-run gated).
 
     Each entry is {"kami_id": int, "item_index": int}. Per entry: an
-    eth_call dry-run of system.kami.equip — an entry that would revert
-    (slot full, item missing, kami not RESTING) is SKIPPED with the
-    reason, nothing sent; otherwise the equip is submitted with
-    nonce-retry into the Kami_Pet_Slot (the only slot; one item per
-    kami; unequip_all_batch clears occupied slots). Duplicates
-    de-duplicated; the loop survives MCP client timeouts. If any
+    occupied Kami_Pet_Slot (the only slot) is SKIPPED, naming the item
+    in it — the chain would swap it out, not revert; then an eth_call
+    dry-run skips an entry that would revert (item missing, kami not
+    RESTING), nothing sent; otherwise the equip is submitted.
+    unequip_all_batch clears occupied slots. Duplicates de-duplicated;
+    a client cancel stops the loop at the next transaction. If any
     submitted equip fails, the call raises with every per-entry
     outcome (successes are final); allow_partial=true returns them
     without the error. Skips alone do not raise.
@@ -7223,10 +7258,10 @@ def unequip_all_batch(
 
     Per kami: an eth_call dry-run of system.kami.unequip — an EMPTY
     slot is SKIPPED, nothing sent; otherwise the unequip is submitted
-    with nonce-retry and the freed item returns to the inventory.
-    Kamis must be RESTING; duplicates de-duplicated; Kami_Pet_Slot is
-    the only slot, so the default unequips everything. The loop
-    survives MCP client timeouts. If any submitted unequip fails, the
+    and the freed item returns to the inventory. Kamis must be
+    RESTING; duplicates de-duplicated; Kami_Pet_Slot is the only slot,
+    so the default unequips everything. A client cancel stops the loop
+    at the next transaction. If any submitted unequip fails, the
     call raises with every per-kami outcome (successes are final);
     allow_partial=true returns them without the error.
 
@@ -9811,13 +9846,13 @@ def speed_craft_batch(
     """Craft a stamina-gated recipe N times, restoring stamina between crafts.
 
     Per cycle: use ONE stamina_item_id, then craft ONE unit of
-    recipe_index — each its own transaction, sequential with
-    nonce-retry (stamina caps at 100, so recipes costing >50 cannot
+    recipe_index — each its own transaction, sequential (stamina caps
+    at 100, so recipes costing >50 cannot
     craft back-to-back naturally). Consumes `count` stamina items plus
     `count`x the recipe inputs. The loop halts on the first failed
     transaction and raises with the completed cycles (final on-chain);
-    allow_partial=true returns the partial progress instead. The loop
-    keeps running even if the MCP client call times out.
+    allow_partial=true returns the partial progress instead. A client
+    cancel stops the loop at the next transaction.
 
     Validates before signing (no gas spent on failure): count at least
     1, account registered, then per-tx dry-runs.
@@ -10276,7 +10311,8 @@ def droptable_reveal(commit_ids: list[str], account: str = "main") -> dict:
     cannot be revealed by any player action. Gas is estimated per call
     with a 1.5x buffer (cost scales with the roll count).
     `revealed_items` carries what the rolls granted, decoded from this
-    transaction's receipt.
+    transaction's receipt; one reveal processes at most 5,000 rolls,
+    and `rolls_remaining` reads back what is left on each commit.
 
     Validates before signing (no gas spent on failure): commit_ids
     non-empty, account registered, an eth_estimateGas preflight of the
@@ -10311,13 +10347,15 @@ def droptable_reveal(commit_ids: list[str], account: str = "main") -> dict:
 def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
     """Claim scavenge rewards AND reveal droptable items in one call.
 
-    Waits for the next block after the claim, then reveals with
-    estimated gas (3 attempts). Commits expire 256 blocks (~6 min)
-    after the claim block; the call returns normally only when both
-    confirmed. A reveal failure raises with the claim result and
+    Waits for the next block after the claim, then reveals until every
+    commit is drained — a reveal processes at most 5,000 rolls, so a
+    big claim takes several (each with estimated gas, 3 attempts).
+    Commits expire 256 blocks (~6 min) after the claim block. A commit
+    already revealed elsewhere is not revealed again and `notice`
+    says so. A reveal failure raises with the claim result and
     commit_ids for droptable_reveal; the claim is final either way.
-    Both legs' hashes are in `txs` either way; `revealed_items` carries
-    what the rolls granted.
+    `txs` has every hash; `revealed_items` sums what the rolls granted;
+    `rolls_remaining` is read back from chain.
     """
     # Step 1: Claim (scavenge_claim's own validation gates apply; a
     # claim that reverts on-chain raises from scavenge_claim itself).
@@ -10642,11 +10680,11 @@ def sacrifice_kami_batch(
     IRREVERSIBLE — each sacrificed kami is destroyed. Sequential loop
     of single-kami commits (no on-chain batch): per kami, an eth_call
     dry-run gates the commit (a doomed one is skipped with its reason,
-    nothing sent), then the commit is submitted with nonce-retry; each
-    equipment reveal fires automatically on-chain into the inventory.
+    nothing sent), then the commit is submitted; each equipment
+    reveal fires automatically on-chain into the inventory.
     Preconditions per kami (checked by the dry-run): operator in room
-    19, kami owned and RESTING. Duplicates de-duplicated; the loop
-    keeps running even if the MCP client call times out. If any
+    19, kami owned and RESTING. Duplicates de-duplicated; a client
+    cancel stops the loop at the next transaction. If any
     submitted commit fails, the call raises with every per-kami
     outcome (successes are final); allow_partial=true returns them
     without the error. Dry-run skips alone do not raise.
@@ -12197,8 +12235,11 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
     — later steps' preconditions are earlier steps' effects, absent at
     the pending block, so they are the caller's plan and not a checked
     one. A reverted step consumes its nonce and does not stop the
-    sequence. Each step reports its own terminal state (success,
-    reverted, unconfirmed, not_sent) with receipt fields; liquidate rows
+    sequence. A step the node refuses is re-offered; if later steps
+    were accepted its nonce is filled with a zero-value self-transfer
+    so they run now, and `notice` says so first. Each step reports its
+    own terminal state (success, reverted, unconfirmed, not_sent) with
+    receipt fields; liquidate rows
     carry the decoded kill (as liquidate_kami). Raises only if step 1
     fails before anything is broadcast.
 

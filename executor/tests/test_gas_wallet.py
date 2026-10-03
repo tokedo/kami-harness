@@ -26,7 +26,11 @@ FEE = server._PLAIN_TRANSFER_FEE_WEI
 # (the observed plain-transfer burn on Yominet).
 EST = 113_251
 GASPRICE = server._GAS_PRICE["maxFeePerGas"]
-RESERVE = 2 * EST * GASPRICE  # estimate x2 safety factor at the flat price
+# 4.0.0: the sweep reserve is the larger of estimate x2 at the flat price
+# and the chain's empirical 0.0002 ETH floor (the derived reserve landed
+# and reverted "insufficient balance for transfer" on every account).
+EST_RESERVE = 2 * EST * GASPRICE
+RESERVE = max(EST_RESERVE, server._SWEEP_RESERVE_FLOOR_WEI)
 
 
 @pytest.fixture()
@@ -253,7 +257,8 @@ class TestWithdrawOperator:
         r = server.withdraw_operator(account="solo")
         send = gas_env.sends[0]
         assert send["gas_limit"] == 6 * EST
-        assert send["value"] == ETH - 6 * EST * GASPRICE
+        assert send["value"] == ETH - max(6 * EST * GASPRICE,
+                                          server._SWEEP_RESERVE_FLOOR_WEI)
         assert r["gas_limit"] == 6 * EST
 
     def test_explicit_amount(self, gas_env):
@@ -271,6 +276,7 @@ class TestWithdrawOperator:
         msg = str(ei.value)
         assert "0.3" in msg  # balance and requested amount
         assert str(Web3.from_wei(2 * EST * GASPRICE, "ether")) in msg
+        assert "0.0002 ETH floor" in msg
         assert str(EST) in msg  # named estimate
         assert gas_env.sends == []
 

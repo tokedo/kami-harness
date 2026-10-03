@@ -490,3 +490,22 @@ def test_the_droptable_is_read_from_chain(chain_env):
     assert table["keys"] == [1001, 1004, 1007] and table["weights"] == [9, 7, 4]
     probs = [i["probability"] for i in table["items"]]
     assert abs(sum(probs) - 1) < 1e-9 and probs[0] == 512 / (512 + 128 + 16)
+
+
+# ---------------------------------------------------------------------------
+# B8 — register_account names the new revert
+# ---------------------------------------------------------------------------
+
+def test_register_account_names_the_operator_is_owner_revert(
+    accounts, chain, monkeypatch,
+):
+    from conftest import FakeContract
+
+    def refuse(*a):
+        raise ValueError("execution reverted: Account: Operator is an account owner")
+
+    chain["system.account.register"] = FakeContract({"executeTyped": refuse})
+    with pytest.raises(ValueError) as ei:
+        server.register_account("someone", account="testa")
+    assert "Operator is an account owner" in str(ei.value)
+    assert "an owner cannot be another account's operator" in str(ei.value)

@@ -180,15 +180,23 @@ these, `syncHP == actualHP`. The drift grows with elapsed time.
 ```javascript
 const account = await getter.getAccount(accountId);
 account.room         // uint32 — current room index
-account.currStamina  // int32 — last-synced stamina
+account.currStamina  // int32 — synced stamina + regeneration, NOT capped
 ```
 
-**Stamina is lazy-synced** — it regenerates over time on-chain but the
-`currStamina` value only updates on actions (move, craft). Project:
+**Stamina is lazy-synced** — the stored value only updates on actions
+(move, craft). The getter's `currStamina` already adds the regeneration
+since the last action, but it does **not** cap it: an idle account can
+read far above its maximum (6,360 was observed against a cap of 100).
+The contract caps it when it syncs, before any stamina check, so the
+value a move spends from is:
 
 ```
-projectedStamina = min(maxStamina, syncStamina + regenRate * elapsedSeconds)
+usableStamina = min(maxStamina, getter.currStamina)
+             = min(maxStamina, syncStamina + regenRate * elapsedSeconds)
 ```
+
+(Source: upstream `LibAccount.getCurrentStamina` adds recovery without a
+cap; `LibStat.sync` clamps to the total.)
 
 Regen rate and max are on-chain configs (`ACCOUNT_STAMINA`). Each room move
 costs stamina (varies by room).
