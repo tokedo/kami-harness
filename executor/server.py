@@ -877,21 +877,30 @@ class LaneBlockedError(RuntimeError):
     unknown later time."""
 
     def __init__(self, address: str, gap_nonce: int, armed: list[dict],
-                 reason: str):
+                 reason: str, signers: list[str] | None = None,
+                 shared: str = ""):
         self.address = address
         self.gap_nonce = gap_nonce
         self.armed = armed
+        # 4.3.0 (J3): who signed each armed transaction, as the lane
+        # notices say it (_signer); `shared` names the lane directory when
+        # another process's transactions are among them.
+        kinds = list(dict.fromkeys(signers or []))
+        mixed = len(kinds) > 1
         hashes = ", ".join(
             f"{a['tx_hash']} (nonce {a['nonce']}, {a['tool']}"
             + (f" step {a['step']}" if a.get("step") is not None else "")
-            + ")" for a in armed
+            + (f"; {signers[i]}" if mixed else "")
+            + ")" for i, a in enumerate(armed)
         )
+        by = (" and by ".join(kinds) if kinds else "earlier by this harness")
         super().__init__(
             f"lane blocked behind nonce {gap_nonce} for {address}: "
-            f"{len(armed)} transaction(s) signed earlier by this harness "
+            f"{len(armed)} transaction(s) signed by {by} "
             f"are armed behind it and will execute when nonce {gap_nonce} "
             f"is used: {hashes}. The gap could not be filled ({reason}). "
-            f"Nothing was sent by this call."
+            + (f"{shared} " if shared else "")
+            + "Nothing was sent by this call."
         )
 
 
@@ -2831,7 +2840,10 @@ def _lane_drain(lane, addr, key, ctl, pending: int, held: list) -> None:
         sent, reason = _lane_fill(lane, addr, key, n, ctl)
         if sent is None:
             raise LaneBlockedError(
-                addr, n, [e.public() for e in armed], reason)
+                addr, n, [e.public() for e in armed], reason,
+                signers=[_signer(e) for e in armed],
+                shared=("" if all(_signed_here(e) for e in armed)
+                        else _shared_lane(lane)))
         fills.append((n, sent))
     targets = {e.hash.lower(): e for e in armed}
     targets.update({h.lower(): None for _n, h in fills})
@@ -2935,9 +2947,13 @@ def _lane_prepare(lane: lanes.Lane, addr: str, key: str,
         if latest is not None and t.nonce < latest:
             try:
                 if _tx_status(t.hash) == "mined":
+                    # 4.3.0 (J3): who signed it, as the other notices say.
                     ctl.notice(
-                        f"a transaction this harness had released, {t.hash} "
-                        f"({_origin(t)}), mined late at nonce {t.nonce}")
+                        f"{_signer(t)} signed a transaction the lane had "
+                        f"released, {t.hash} ({_origin(t)}); it mined late "
+                        f"at nonce {t.nonce}.")
+                    if not _signed_here(t):
+                        ctl.notice(_shared_lane(lane))
                     lane.mined(t.hash)
                     continue
             except _RpcUnavailable:
@@ -4292,8 +4308,9 @@ def fund_operator(amount_eth: str, account: str = "main") -> dict:
     Plain value transfer signed by the owner key; the recipient is
     pinned to this account's operator address — an arbitrary recipient
     is not expressible. Fails before sending if the owner balance does
-    not cover amount + the gas provision (250k gas at the flat price; a
-    plain transfer burns ~113k on Yominet).
+    not cover amount + the gas provision (the prepayment:
+    250k gas at the flat price + 1 wei; a plain transfer burns ~113k on
+    Yominet).
 
     Args:
         amount_eth: Amount as a decimal string in ETH (e.g. "0.01").
