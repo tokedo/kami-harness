@@ -20,8 +20,9 @@ carries (timestamp, account id, receipt id) only — no payee, no amount
 the Transfer of the token FROM the portal's token holder
 (`component.token.holder`, the only payer in upstream's claim) TO the
 payee computed before signing, and its value must equal the receipt's
-token amount read before signing. Anything else is a `decode_error`,
-never a silently wrong amount.
+token amount read before signing. The claimed token is pinned: a
+Transfer on any other contract is never the payout. Anything else is a
+`decode_error`, never a silently wrong amount.
 
 Synthetic addresses throughout; the values and the log order are the
 live claim's.
@@ -42,6 +43,7 @@ from test_h400_send_path import chain_env  # noqa: F401  (fixture)
 
 FEE_COLLECTOR = "0x" + "fc" * 20          # synthetic
 ELSEWHERE = "0x" + "e1" * 20              # synthetic
+OTHER_TOKEN = "0x" + "de" * 20            # synthetic: not the claimed token
 
 PREPAY_WEI = 4_562_760_000_001
 PAYOUT_WEI = 90_000_000_000_000
@@ -59,8 +61,8 @@ def _word(addr: str) -> str:
     return "0x" + "00" * 12 + addr.lower().removeprefix("0x")
 
 
-def _transfer(src: str, dst: str, value: int):
-    return (ETH_TOKEN.lower(), [TRANSFER, _word(src), _word(dst)],
+def _transfer(src: str, dst: str, value: int, token: str = ETH_TOKEN):
+    return (token.lower(), [TRANSFER, _word(src), _word(dst)],
             eth_abi.encode(["uint256"], [value]))
 
 
@@ -270,4 +272,50 @@ def test_a_payout_that_disagrees_with_the_receipt_amount_names_both(
     assert "amount" not in out
     err = out["decode_error"]
     assert str(short) in err and str(PAYOUT_WEI) in err
+    _assert_tx_fields(node, out)
+
+
+# ---------------------------------------------------------------------------
+# 5 — the claimed token is pinned: a Transfer on another contract is never
+#     the payout, whoever sent it and whatever its value
+# ---------------------------------------------------------------------------
+
+def _decoy(sender, value=PAYOUT_WEI):
+    """The holder paying the payee, with the receipt's exact value, on a
+    contract that is not the claimed token."""
+    return _transfer(addr_for("component.token.holder"), sender, value,
+                     token=OTHER_TOKEN)
+
+
+def test_a_transfer_on_another_token_is_not_the_payout(portal_env):
+    node, game, clock, portal, split = portal_env
+    rid = _receipt(portal_env, "operator")
+    _gas_legged_claim(portal_env,
+                      payout=lambda logs, sender: [_decoy(sender)])
+    out = server.portal_claim(rid, account="split")
+    assert out["payee"] is None
+    assert out["amount_wei"] is None
+    assert "amount" not in out
+    assert "no payout" in out["decode_error"]
+    _assert_tx_fields(node, out)
+
+
+@pytest.mark.parametrize("decoy_value", [PAYOUT_WEI, PAYOUT_WEI + 1])
+@pytest.mark.parametrize("where", ["before", "after"])
+def test_with_a_decoy_on_another_token_the_claimed_tokens_transfer_is_the_payout(
+    portal_env, where, decoy_value,
+):
+    node, game, clock, portal, split = portal_env
+    rid = _receipt(portal_env, "operator")
+
+    def with_decoy(logs, sender):
+        decoy = [_decoy(sender, decoy_value)]
+        return decoy + list(logs) if where == "before" else list(logs) + decoy
+
+    _gas_legged_claim(portal_env, payout=with_decoy)
+    out = server.portal_claim(rid, account="split")
+    assert out["payee"] == split.operator_addr
+    assert out["amount_wei"] == "90000000000000"
+    assert out["amount"] == "0.00009"
+    assert "decode_error" not in out
     _assert_tx_fields(node, out)
