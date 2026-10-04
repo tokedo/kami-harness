@@ -411,7 +411,9 @@ expressible in the tool parameters.
 | `list_accounts()` | List all configured accounts with labels and public addresses. | yes |
 | `withdraw_operator(amount_eth, account)` | Send ETH from the operator wallet to the same account's owner wallet. | — |
 
-`fund_operator` provisions 250k gas. A plain ETH value transfer on
+`fund_operator` provisions 250k gas (its balance check requires the
+prepayment, 250k gas at the flat price + 1 wei). A plain ETH value
+transfer on
 Yominet burns ~113k gas (Initia MiniEVM), not the standard 21k; at the
 flat 0.0025 gwei gas price that is ~0.0000003 ETH per transfer.
 MiniEVM transfer costs vary with the recipient (~21.1k gas to an

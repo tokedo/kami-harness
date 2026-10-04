@@ -136,9 +136,14 @@ many items the balance can deposit now.
 landed fixture receipts — is exactly that, and the balance must cover
 it when the transaction starts, so the bound the gate used until now
 (gas limit x price) passed a wallet the chain found one wei short. The
-one function moves both the gate (every send that passes it) and the
-deposit rule; both refusal texts state the wei. A wallet holding exactly
-amount + gas limit x price is now refused; one wei more is sent.
+one function moves the gate (every send that passes it), the deposit
+rule, and the three balance checks that computed their own provision —
+`fund_operator` (`_PLAIN_TRANSFER_FEE_WEI`), `buy_kami` and
+`newbie_vendor_buy` — so no pre-send prepayment check computes gas limit
+x price by itself; every one of their refusal texts states the wei. A
+wallet holding exactly the value + gas limit x price is now refused; one
+wei more passes. (`withdraw_operator`'s sweep reserve is floored at
+0.0002 ETH, above any possible prepayment, and is unchanged.)
 
 - Allowance covering: the deposit's own limit (dry-run, estimate x 1.5,
   the limit it is then sent with) is checked before anything is signed.
@@ -178,16 +183,19 @@ which it is. Text only; the lane file format is unchanged.
 The two corrections cost 221 characters of registry mass and move
 `tools_hash`.
 
-Tests: `executor/tests/test_h420_families.py` (64), each family failing
+Tests: `executor/tests/test_h420_families.py` (67), each family failing
 first against 4.1.0 (`d56782b`). Review amendments: three attribution
 tests, each red under one mutation of the payout decode that the first
 round's tests let through (an item stated from several written, several
 events for one kami accepted, the write window not starting at the
-previous event), and the one-wei boundary of the gate and the deposit
-rule. One existing exact-shape assertion,
+previous event), and the one-wei boundary of the gate, the deposit rule,
+`fund_operator`, `buy_kami` and `newbie_vendor_buy`. One existing exact-shape assertion,
 `test_v300_families.py::TestFailedLegsCarryTheirHash::test_reverted_leg_is_recorded`,
 gains `fee_wei: None` in its expected reverted leg; no pre-4.2.0 test
-encoded the gas gate's exact boundary. 929 tests, 4 skipped.
+encoded the gas gate's exact boundary, and the existing balance tests of
+the three tools keep their meaning (`test_gas_wallet.py`'s exact
+amount + provision still passes: it reads the provision from
+`_PLAIN_TRANSFER_FEE_WEI`). 932 tests, 4 skipped.
 
 ### Known, not changed
 
@@ -196,11 +204,6 @@ encoded the gas gate's exact boundary. 929 tests, 4 skipped.
   reverts depends on item effects the validator does not model (a drink
   before the kill changes it), and a wrong refusal in the sweep tool
   costs more than a reverted feed.
-- Three balance checks compute their own gas provision as gas limit x
-  price, without the prepayment's wei, rather than through
-  `_gas_fee_bound`: `fund_operator` (`_PLAIN_TRANSFER_FEE_WEI`),
-  `buy_kami` and `newbie_vendor_buy`. The ruling moved the gas gate and
-  the deposit rule; these three keep the one-wei edge.
 - `LaneBlockedError` still says its armed transactions were "signed
   earlier by this harness", and the tombstone notice still says "a
   transaction this harness had released"; neither names the process.
