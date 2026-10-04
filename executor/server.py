@@ -3309,7 +3309,9 @@ def _send_tx_owner(
 # A plain ETH value transfer burns ~113k gas on Yominet (Initia MiniEVM),
 # not the standard 21k — observed 113,251 on tx 0x4dd23420... Provision 2x.
 _PLAIN_TRANSFER_GAS = 250_000
-_PLAIN_TRANSFER_FEE_WEI = _PLAIN_TRANSFER_GAS * _GAS_PRICE["maxFeePerGas"]
+# What a plain transfer at that limit must leave for its prepayment
+# (_gas_fee_bound: gas limit x the flat price + 1 wei).
+_PLAIN_TRANSFER_FEE_WEI = _gas_fee_bound(_PLAIN_TRANSFER_GAS)
 
 
 def _send_eth(
@@ -4291,7 +4293,8 @@ def fund_operator(amount_eth: str, account: str = "main") -> dict:
             f"Owner balance {w3.from_wei(balance, 'ether')} ETH cannot "
             f"cover {amount_eth} ETH + the "
             f"{w3.from_wei(_PLAIN_TRANSFER_FEE_WEI, 'ether')} ETH gas "
-            f"provision ({_PLAIN_TRANSFER_GAS} gas at the flat price)."
+            f"provision ({_PLAIN_TRANSFER_GAS} gas at the flat price + "
+            f"{_PREPAYMENT_EXTRA_WEI} wei, the prepayment)."
         )
     result = _send_eth(acct.owner_key, acct.owner_addr, dest, value)
     result.update({
@@ -7947,14 +7950,15 @@ def buy_kami(
     )
     acct = _get_account(account)
     balance = w3.eth.get_balance(acct.owner_addr)
-    gas_provision = gas_limit * _GAS_PRICE["maxFeePerGas"]
+    gas_provision = _gas_fee_bound(gas_limit)
     if balance < total_wei + gas_provision:
         raise PreTxValidationError(
             f"owner wallet {acct.owner_addr} holds "
             f"{w3.from_wei(balance, 'ether')} ETH; buying kami(s) {ids} "
             f"requires {w3.from_wei(total_wei, 'ether')} ETH (live "
             f"listing total) + {w3.from_wei(gas_provision, 'ether')} ETH "
-            f"gas provision"
+            f"gas provision (gas limit {gas_limit} at the flat price + "
+            f"{_PREPAYMENT_EXTRA_WEI} wei, the prepayment)"
         )
     result = _send_tx_owner(
         account,
@@ -13646,13 +13650,15 @@ def newbie_vendor_buy(
     gas_limit = _GAS_CEILINGS["newbie_vendor_buy"]
     acct = _get_account(account)
     balance = w3.eth.get_balance(acct.owner_addr)
-    gas_provision = gas_limit * _GAS_PRICE["maxFeePerGas"]
+    gas_provision = _gas_fee_bound(gas_limit)
     if balance < price_wei + gas_provision:
         raise PreTxValidationError(
             f"owner wallet {acct.owner_addr} holds "
             f"{w3.from_wei(balance, 'ether')} ETH; this purchase requires "
             f"{w3.from_wei(price_wei, 'ether')} ETH (live vendor price) + "
-            f"{w3.from_wei(gas_provision, 'ether')} ETH gas provision"
+            f"{w3.from_wei(gas_provision, 'ether')} ETH gas provision (gas "
+            f"limit {gas_limit} at the flat price + {_PREPAYMENT_EXTRA_WEI} "
+            f"wei, the prepayment)"
         )
     result = _send_tx_owner(
         account,
