@@ -482,3 +482,29 @@ def test_a_consumed_entry_of_another_process_says_so(chain_env, monkeypatch):  #
     note = out["notice"]
     assert f"{h} (act_sequence step 1" in note and "NOT executed" in note
     assert ANOTHER in note and THIS not in note, note
+
+
+# ---------------------------------------------------------------------------
+# H5 — two descriptions that misled a careful agent
+# ---------------------------------------------------------------------------
+
+def _description(name: str) -> str:
+    return {t.name: t for t in server.mcp._tool_manager.list_tools()}[
+        name].description
+
+
+def test_lens_portal_says_open_withdrawals_are_every_other_accounts():
+    """The lens filters the asked account's own rows out of
+    openWithdrawals (the game client's panel); its own are in `receipts`
+    (pending: lens_receipts). An agent looked for its receipts there."""
+    d = _description("lens_portal")
+    assert "openWithdrawals" in d and "OTHER" in d, d
+    assert "`receipts`" in d and "lens_receipts" in d, d
+
+
+def test_lens_room_says_exits_are_not_de_duplicated():
+    """Special exits, then geometric neighbours, verbatim: a room can be
+    listed twice."""
+    d = _description("lens_room")
+    assert "special exits" in d and "neighbours" in d, d
+    assert "not de-duplicated" in d and "twice" in d, d
