@@ -164,6 +164,96 @@ def test_a_sequence_stop_row_carries_its_payouts(seq_env):  # noqa: F811
         {"kami_id": 11224, "item": 2, "item_name": "VIPP", "amount": 630}]
 
 
+# --- H1, the attribution pinned (review amendment A) -------------------------
+#
+# The window rule against upstream at the pin: HarvestStopSystem /
+# HarvestCollectSystem write an inventory in exactly two places, both in
+# LibHarvest.claim — the harvest's tax recipients (LibInventory.incFor on
+# THEIR holder ids, the node's item) and the account (incFor(toID, item,
+# amtLeft)). Every other write of the action — LibScavenge.incFor,
+# LibScore.incFor, LibData.inc, LibExperience, the bonuses — is on its own
+# entity, never on keccak256("inventory.instance", account, item). So no
+# real stop or collect puts a second item of the account's inside its
+# window; the two rewrites below construct one to prove what happens.
+
+INV_ITEM_2 = server._inventory_entity_id(TEST_ACCOUNT_ID, 2)    # VIPP
+INV_ITEM_1 = server._inventory_entity_id(TEST_ACCOUNT_ID, 1)    # MUSU
+
+
+def _topic(entity: int) -> str:
+    return "0x" + entity.to_bytes(32, "big").hex()
+
+
+def _onto(log: dict, entity: int) -> dict:
+    """The same log, written on another entity (topic 3)."""
+    return {**log, "topics": log["topics"][:3] + [_topic(entity)]}
+
+
+def _two_items_batch() -> dict:
+    """The 2-kami batch of the two 34031872 stops (_batch_of_the_two_872_
+    stops: the first's prepayment and game logs, the second's game logs
+    and refund), with every log of the SECOND stop's segment written on
+    the account's item-2 inventory entity rewritten onto its item-1 (MUSU)
+    inventory entity: kami 11224's claim now credits MUSU, kami 12649's
+    still credits VIPP. Nothing else changes."""
+    raw = _batch_of_the_two_872_stops()
+    a_len = len(_raw("system_harvest_stop_34031872_1ae21191.json")["logs"]) - 1
+    logs = list(raw["logs"])
+    rewritten = 0
+    for i in range(a_len, len(logs)):
+        if logs[i]["topics"][3:4] == [_topic(INV_ITEM_2)]:
+            logs[i] = _onto(logs[i], INV_ITEM_1)
+            rewritten += 1
+    assert rewritten == 1          # the second stop's one inventory write
+    return {**raw, "logs": logs}
+
+
+@pytest.mark.parametrize("ask", [[12649, 11224], [11224, 12649]])
+def test_a_batch_paying_two_different_items_states_each_kamis_own(landed, ask):
+    """Each payout's item is the inventory written in ITS window — after
+    the previous kami's event — not any item written earlier."""
+    landed.append(_receipt(_two_items_batch()))
+    rows = {r["kami_id"]: r for r in
+            server.harvest_stop(ask, account="testa")["payouts"]}
+    assert rows[12649] == {"kami_id": 12649, "item": 2, "item_name": "VIPP",
+                           "amount": 622}, rows
+    assert rows[11224] == {"kami_id": 11224, "item": 1, "item_name": "MUSU",
+                           "amount": 630}, rows
+
+
+def test_two_items_written_before_one_event_state_the_amount_not_the_item(
+    landed,
+):
+    """The 34031314 stop with its inventory write duplicated onto the
+    item-1 inventory entity, right after the original: two catalogued
+    items in one window. The event's amount stands; the item is not
+    guessed."""
+    raw = _raw("system_harvest_stop_34031314_ee431877.json")
+    logs = list(raw["logs"])
+    i = next(i for i, lg in enumerate(logs)
+             if lg["topics"][3:4] == [_topic(INV_ITEM_2)])
+    logs.insert(i + 1, _onto(logs[i], INV_ITEM_1))
+    landed.append(_receipt({**raw, "logs": logs}))
+    (row,) = server.harvest_stop([6058], account="testa")["payouts"]
+    assert row["amount"] == 2, row
+    assert row["item"] is None and row["item_name"] is None, row
+    assert "inventory writes of items [1, 2]" in row["decode_error"], row
+
+
+def test_two_events_for_one_kami_state_no_amount(landed):
+    """The 34031314 stop with its HARVEST_STOP event duplicated right after
+    itself: two events for kami 6058. Neither is taken."""
+    raw = _raw("system_harvest_stop_34031314_ee431877.json")
+    stop = "0x" + server.Web3.keccak(text="HARVEST_STOP").hex().removeprefix("0x")
+    logs = list(raw["logs"])
+    i = next(i for i, lg in enumerate(logs) if lg["topics"][1:2] == [stop])
+    logs.insert(i + 1, dict(logs[i]))
+    landed.append(_receipt({**raw, "logs": logs}))
+    (row,) = server.harvest_stop([6058], account="testa")["payouts"]
+    assert row["amount"] is None and row["item"] is None, row
+    assert "2 HARVEST_STOP events for kami #6058" in row["decode_error"], row
+
+
 # ---------------------------------------------------------------------------
 # H2 — every write result says what it actually cost
 # ---------------------------------------------------------------------------
