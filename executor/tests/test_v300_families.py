@@ -124,9 +124,10 @@ class TestFailedLegsCarryTheirHash:
             server.OnChainRevertError("0xdead", 9, 100, "boom"),
             step="reveal",
         )
+        # 4.2.0: a reverted receipt has no logs, so its fee is null.
         assert txs == [{
             "step": "reveal", "tx_hash": "0xdead", "status": "reverted",
-            "block": 9, "gas_used": 100,
+            "block": 9, "gas_used": 100, "fee_wei": None,
         }]
 
     def test_a_failure_that_never_reached_the_chain_adds_no_row(self):

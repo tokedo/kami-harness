@@ -207,6 +207,10 @@ w3 = _install_read_retry(Web3(Web3.HTTPProvider(RPC_URL)))
 # rises, a send fails loudly as underpriced rather than silently
 # overpaying every transaction, and failing loudly is the safe mode.
 _GAS_PRICE = {"maxFeePerGas": 2_500_000, "maxPriorityFeePerGas": 0}
+# Yominet's gas token: the ERC-20 the chain charges gas in (its native
+# balance IS this token's balanceOf), and the token Ether Shard (item
+# 103) is withdrawn to through the portal.
+_GAS_TOKEN = "0xE1Ff7038eAAAF027031688E1535a055B2Bac2546"
 
 # ---------------------------------------------------------------------------
 # Gas ceilings
@@ -1258,10 +1262,69 @@ def _receipt_outcome(receipt, built, account=None, ceiling_key=None):
     return receipt
 
 
+def _gas_token_transfer(log) -> tuple[str, str, int] | None:
+    """(from, to, value) of a Transfer log of the gas token, else None."""
+    if str(getattr(log, "address", "")).lower() != _GAS_TOKEN.lower():
+        return None
+    topics = [(t.hex() if hasattr(t, "hex") else str(t)).lower()
+              .removeprefix("0x") for t in (getattr(log, "topics", None) or [])]
+    if len(topics) != 3 or topics[0] != _TRANSFER_TOPIC:
+        return None
+    data = log.data if isinstance(log.data, (bytes, bytearray)) else (
+        bytes.fromhex(str(log.data).removeprefix("0x")))
+    if len(data) != 32:
+        return None
+    return ("0x" + topics[1][-40:], "0x" + topics[2][-40:],
+            int.from_bytes(bytes(data), "big"))
+
+
+def _fee_wei(receipt) -> str | None:
+    """The fee this transaction actually paid, in wei, from its own
+    receipt (4.2.0); None when the receipt does not show it. Never raises.
+
+    On Yominet the fee is NOT gas_used x effectiveGasPrice. Gas is charged
+    in the gas token (an ERC-20, _GAS_TOKEN), and every landed receipt
+    carries two Transfers of it besides the game's own logs: at log 0 the
+    PREPAYMENT, the sender to a fee collector (gas limit x price, + 1 wei
+    on every receipt measured), and as the LAST log the REFUND, that fee
+    collector back to the sender. The fee deducted is prepayment - refund:
+    1.05x to 1.18x of gas_used x price across the 2026-10-04 receipts,
+    by transaction type (tests/fixtures/receipts_20261004).
+
+    The legs are identified by position AND counterparty: log 0 is a
+    Transfer of the gas token from the transaction's sender to some X,
+    the last log one from that same X back to the sender. A transaction
+    that moves the gas token for its own reasons (a portal deposit's
+    pull, a claim's payout, a call on the token itself) is therefore
+    never read as a leg. A reverted receipt carries no logs, so its fee
+    is None — never an estimate.
+    """
+    try:
+        logs = list(getattr(receipt, "logs", None) or [])
+        try:
+            sender = receipt["from"]
+        except Exception:
+            sender = None
+        if len(logs) < 2 or not sender:
+            return None
+        sender = str(sender).lower()
+        prepay, refund = _gas_token_transfer(logs[0]), _gas_token_transfer(logs[-1])
+        if prepay is None or refund is None:
+            return None
+        (src, collector, paid), (back_from, back_to, back) = prepay, refund
+        if (src != sender or back_to != sender or back_from != collector
+                or collector == sender or back > paid):
+            return None
+        return str(paid - back)
+    except Exception:
+        return None
+
+
 def _receipt_fields(r: dict) -> dict:
     """Uniform receipt-evidence subset of a tx result."""
     return {
-        k: r[k] for k in ("tx_hash", "status", "block", "gas_used") if k in r
+        k: r[k] for k in ("tx_hash", "status", "block", "gas_used", "fee_wei")
+        if k in r
     }
 
 
@@ -1281,6 +1344,9 @@ def _failed_tx_fields(e: Exception) -> dict:
             "status": "reverted",
             "block": e.block,
             "gas_used": e.gas_used,
+            # A reverted receipt carries no logs, so no fee legs: null,
+            # never an estimate (4.2.0, _fee_wei).
+            "fee_wei": None,
         }
     if isinstance(e, TxUnconfirmedError):
         # Outcome genuinely unknown: it may yet land and spend gas.
@@ -3005,6 +3071,7 @@ def _send_tx(
         "status": "success",
         "block": receipt.blockNumber,
         "gas_used": receipt.gasUsed,
+        "fee_wei": _fee_wei(receipt),
         "account": account,
     }
     if return_receipt:
@@ -3078,6 +3145,7 @@ def _send_batch_tx(
         "status": "success",
         "block": receipt.blockNumber,
         "gas_used": receipt.gasUsed,
+        "fee_wei": _fee_wei(receipt),
     }
     if return_receipt:
         result["_receipt"] = receipt
@@ -3167,6 +3235,7 @@ def _send_tx_owner(
         "status": "success",
         "block": receipt.blockNumber,
         "gas_used": receipt.gasUsed,
+        "fee_wei": _fee_wei(receipt),
         "account": account,
     }
     if return_receipt:
@@ -3203,6 +3272,7 @@ def _send_eth(
         "status": "success",
         "block": receipt.blockNumber,
         "gas_used": receipt.gasUsed,
+        "fee_wei": _fee_wei(receipt),
     }
 
 
@@ -4177,11 +4247,14 @@ def fund_operator(amount_eth: str, account: str = "main") -> dict:
 # (eth_estimateGas x2 at the flat price, about 0.0000009 ETH) landed and
 # REVERTED "insufficient balance for transfer" on every account tried
 # (11 of 11, 2026-09-16, ~112k gas burned each), while leaving 0.0002 ETH
-# landed every time. The fee the chain actually deducts could not be
-# derived read-only: the public RPC has pruned those blocks and its
-# eth_call ignores fees (a full-balance self-transfer passes with gas and
-# fee set). So this is an empirical floor, not a model; a measured fee
-# model is owed to a live write test.
+# landed every time. Since 4.2.0 the fee a transaction actually paid IS
+# read-only: its own receipt carries the gas token's prepayment (log 0)
+# and refund (last log), and every write result states the difference
+# as `fee_wei` (_fee_wei) — 1.05x to 1.18x of gas_used x the flat price
+# across the 2026-10-04 receipts. That did not exist when the floor was
+# set (the public RPC had pruned those blocks and its eth_call ignores
+# fees), and the floor has not been re-derived from it: it stays an
+# empirical floor, not a model.
 _SWEEP_RESERVE_FLOOR_WEI = 2 * 10 ** 14
 
 
@@ -4331,7 +4404,7 @@ if not MAINNET_RPC_URL:
         "environment). There is no default public endpoint."
     )
 MAINNET_CHAIN_ID = 1
-_YOMINET_GAS_DENOM = "evm/E1Ff7038eAAAF027031688E1535a055B2Bac2546"
+_YOMINET_GAS_DENOM = "evm/" + _GAS_TOKEN.removeprefix("0x")
 
 _w3_mainnet_cached: Web3 | None = None
 
@@ -9127,7 +9200,8 @@ def _world_event_logs(receipt, identifier: str) -> list[tuple[int, bytes]]:
 
 def _tx_fields(receipt) -> dict:
     return {"tx_hash": _hex_hash(receipt.transactionHash), "status": "success",
-            "block": receipt.blockNumber, "gas_used": receipt.gasUsed}
+            "block": receipt.blockNumber, "gas_used": receipt.gasUsed,
+            "fee_wei": _fee_wei(receipt)}
 
 
 def _portal_payout(receipt, token: str, holder: str, payee: str,
@@ -12915,6 +12989,7 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
             "tx_hash": _hex_hash(receipt.transactionHash),
             "block": receipt.blockNumber,
             "gas_used": receipt.gasUsed,
+            "fee_wei": _fee_wei(receipt),
         })
 
     for i in sorted(receipts):
@@ -12943,6 +13018,7 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
                 "tx_hash": _hex_hash(receipt.transactionHash),
                 "block": receipt.blockNumber,
                 "gas_used": receipt.gasUsed,
+                "fee_wei": _fee_wei(receipt),
             })
         pend = []
     for i in pend:

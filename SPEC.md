@@ -1107,11 +1107,14 @@ the wording ("tools whose harness state gate accepts X") says so.
 max(eth_estimateGas x 2 at the flat price, 0.0002 ETH). The derived
 reserve (about 0.0000009 ETH) landed and reverted "insufficient balance
 for transfer" on every account tried (11 of 11, 2026-09-16), while
-0.0002 ETH landed every time. The fee the chain actually deducts could
-not be derived read-only: the public RPC has pruned those blocks and its
-`eth_call` ignores fees. So 0.0002 ETH is an empirical floor, not a fee
-model, and the description says so; a measured fee model is owed to a
-live write test.
+0.0002 ETH landed every time. When the floor was set, the fee the chain
+actually deducts could not be derived read-only (the public RPC had
+pruned those blocks and its `eth_call` ignores fees). Since 4.2.0 it can,
+from any landed receipt: the gas token's prepayment at log 0 minus its
+refund at the last log, stated on every write result as `fee_wei` (P4) —
+1.05x to 1.18x of `gas_used` x the flat price across the 2026-10-04
+receipts. The floor has not been re-derived from it: 0.0002 ETH is still
+an empirical floor, not a fee model, and the description says so.
 
 ---
 
