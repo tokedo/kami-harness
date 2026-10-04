@@ -1320,6 +1320,29 @@ def _fee_wei(receipt) -> str | None:
         return None
 
 
+# Legs that spent, or may have spent, gas: a fee total over legs must
+# state each of them. A dropped leg (proven not executed) and a pre-send
+# error (nothing signed) cost nothing.
+_FEE_BEARING = ("success", "reverted", "unconfirmed")
+
+
+def _fee_total(legs: list[dict]) -> str | None:
+    """The sum of the legs' `fee_wei` (4.3.0), or None when any leg that
+    spent or may have spent gas states no fee — a reverted leg (its
+    receipt has no logs), an unconfirmed one, or a landed one whose fee
+    legs were not identified. A partial sum would understate the call's
+    cost as if it were the total; fee_wei is never an estimate."""
+    total = 0
+    for leg in legs:
+        if leg.get("status") not in _FEE_BEARING:
+            continue
+        fee = leg.get("fee_wei")
+        if fee is None:
+            return None
+        total += int(fee)
+    return str(total)
+
+
 def _receipt_fields(r: dict) -> dict:
     """Uniform receipt-evidence subset of a tx result."""
     return {
@@ -6406,6 +6429,7 @@ async def travel_to_room(
             "moves_executed": moves_executed,
             "items_used": items_used_list,
             "gas_used": gas_used,
+            "fee_wei": _fee_total(txs),
             "stamina_remaining": stamina_after,
             "final_room": final_room,
             "txs": txs,
@@ -6430,6 +6454,7 @@ async def travel_to_room(
         "moves_executed": moves_executed,
         "items_used": items_used_list,
         "gas_used": gas_used,
+        "fee_wei": _fee_total(txs),
         "stamina_remaining": stamina_after,
         "remainder": remainder_path,
         "stamina_needed_for_remainder": stamina_needed_for_remainder,
@@ -13148,6 +13173,21 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
     fill_open = [f for f in filled if f.get("tx_hash")]
     receipts: dict[int, object] = {}
     batch_ok = True
+
+    def _fill_landed(f: dict, raw: dict) -> None:
+        # 4.3.0 (J2): a gap fill is a real transaction that cost gas; its
+        # row carries the receipt fields a step row does.
+        ok = int(str(raw.get("status", "0x0")), 16) == 1
+        f["status"] = "success" if ok else "reverted"
+        try:
+            r = _format_receipt(raw)
+            f.update({"block": r.blockNumber, "gas_used": r.gasUsed,
+                      "fee_wei": _fee_wei(r)})
+        except Exception:
+            pass
+        _lane_mined(lane, f["ledger_hash"], f["nonce"])
+        fill_open.remove(f)
+
     while pend or fill_open:
         want = [hashes[i] for i in pend] + [f["tx_hash"] for f in fill_open]
         found = _batch_receipts(want)
@@ -13162,10 +13202,7 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
         for f in list(fill_open):
             raw = found.get(f["tx_hash"].lower())
             if raw:
-                ok = int(str(raw.get("status", "0x0")), 16) == 1
-                f["status"] = "success" if ok else "reverted"
-                _lane_mined(lane, f["ledger_hash"], f["nonce"])
-                fill_open.remove(f)
+                _fill_landed(f, raw)
         if (not pend and not fill_open) or time.monotonic() >= deadline:
             break
         time.sleep(1.0)
@@ -13216,6 +13253,15 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
                 "fee_wei": _fee_wei(receipt),
             })
         pend = []
+        # 4.3.0 (J2): the fills too, one read each (the batched path reads
+        # them with the steps; this fallback never read them before).
+        for f in list(fill_open):
+            try:
+                raw = _rpc("eth_getTransactionReceipt", [f["tx_hash"]])
+            except _RpcUnavailable:
+                raw = None
+            if raw:
+                _fill_landed(f, raw)
     for i in pend:
         # The budget ended. Labels are facts: `unconfirmed` only while the
         # node still holds the hash (or nothing can be proven either way).

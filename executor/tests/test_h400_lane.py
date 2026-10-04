@@ -209,8 +209,14 @@ def test_a_filled_gap_is_the_first_line_of_the_sequence_result(chain_env):
     assert "steps 3-5 ran after it" in out["notice"]
     assert [r["status"] for r in out["steps"]] == [
         "success", "success", "not_sent", "success", "success", "success"]
+    # 4.3.0: a fill row carries its receipt's gas fields (the fake node's
+    # receipts have no gas-token legs, so fee_wei is null).
+    rec = node.receipts[fill.lower()]
     assert out["filled"] == [{"nonce": 502, "tx_hash": fill, "for_step": 2,
-                              "status": "success"}]
+                              "status": "success",
+                              "block": int(rec["blockNumber"], 16),
+                              "gas_used": int(rec["gasUsed"], 16),
+                              "fee_wei": None}]
     assert node.queued(op) == []
 
 
