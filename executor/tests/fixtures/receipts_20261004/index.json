@@ -1,0 +1,40 @@
+{
+ "source": "Yominet eth_getTransactionReceipt, recorded 2026-10-04 during a live test session on the public test account (operator 0x9b95d574d9a134d3ede3509f7f6dd008e7c1f6e5, owner/account 0xb6278e6c4d6f67e721f104db07ccbf1f4e9cfc47). Gas token 0xE1Ff7038eAAAF027031688E1535a055B2Bac2546.",
+ "synthetic": "Two receipts are another account's: system_item_transfer_synthetic (another account sends 5 of item 11301 to the test account) and system_erc20_portal_claim_synthetic (the first live portal claim, 2026-10-04 — the 4.1.0 fix's evidence). In those two the other account's wallet addresses are replaced by 0xac00...01 / 0xac00...02, and the transaction hash, block hash and block number by synthetic values. Every other byte — values, topics, log order — is the chain's.",
+ "harvest_payouts": {
+  "system_harvest_stop_34031314_ee431877.json": {"kami": 6058, "node": 73, "item": 2, "amount": 2, "item_balance_after": 61954},
+  "system_harvest_stop_34031315_4de9feee.json": {"kami": 6245, "node": 73, "item": 2, "amount": 2, "item_balance_after": 61956},
+  "system_harvest_stop_34031315_7e015542.json": {"kami": 6986, "node": 73, "item": 2, "amount": 2, "item_balance_after": 61958},
+  "system_harvest_stop_34031872_1ae21191.json": {"kami": 12649, "node": 83, "item": 2, "amount": 622, "item_balance_after": 62583},
+  "system_harvest_stop_34031872_2f07ff6c.json": {"kami": 11224, "node": 83, "item": 2, "amount": 630, "item_balance_after": 63213},
+  "system_harvest_collect_34031082_94415aa2.json": {"kami": 6058, "node": 73, "item": 2, "amount": 0, "item_balance_after": 61952}
+ },
+ "harvest_payouts_note": "Chain truth read at the blocks: the account's item-2 balance went 61,952 (+2 by the 34031314 stop) -> 61,954; the two 34031315 stops paid 2 each (61,956 / 61,958); the 34031872 stops paid 622 and 630 (62,583 then 63,213) — the killer's spoils of the two liquidations in 34031836/34031837, collected by the stop; the 34031082 collect paid 0.",
+ "fees_wei": {
+  "system_account_move_34031538_9848e107.json": "2362987500001",
+  "system_erc20_portal_34031186_d2a6fa4c.json": "2862372500001",
+  "system_erc20_portal_34031216_5162f646.json": "2421380000001",
+  "system_erc20_portal_34031224_35d9ea1b.json": "2674592500001",
+  "system_erc20_portal_34031234_84643562.json": "3183435000001",
+  "system_erc20_portal_34031247_f8ba5d86.json": "2236192500001",
+  "system_erc20_portal_claim_synthetic.json": "2386192500001",
+  "system_harvest_collect_34031082_94415aa2.json": "5516072500001",
+  "system_harvest_liquidate_34031836_4dd612a8.json": "11858560000001",
+  "system_harvest_liquidate_34031837_dfa2f8f6.json": "11892610000001",
+  "system_harvest_start_34030997_988a9650.json": "5340275000001",
+  "system_harvest_stop_34031314_ee431877.json": "6158160000001",
+  "system_harvest_stop_34031315_4de9feee.json": "6158247500001",
+  "system_harvest_stop_34031315_7e015542.json": "6164040000001",
+  "system_harvest_stop_34031872_1ae21191.json": "6261490000001",
+  "system_harvest_stop_34031872_2f07ff6c.json": "6299612500001",
+  "system_item_transfer_synthetic.json": "1488400000001",
+  "system_kami_use_item_34031032_4782ca2a.json": "3766007500001",
+  "system_kami_use_item_34031032_4b0effa4.json": "3765980000001",
+  "system_kami_use_item_reverted_34031837_885eac81.json": null,
+  "system_listing_buy_34031786_32bd0640.json": "2926145000001",
+  "system_pool_34031148_964346c7.json": "2060707500001",
+  "system_pool_34031160_d41379ca.json": "1738105000001",
+  "token_eth_34031245_f8fa7ad1.json": "365915000001"
+ },
+ "fees_note": "fee = the gas token's Transfer at log 0 (sender -> fee collector, the prepayment, which is gas_limit x 2,500,000 + 1 wei on every receipt here) minus its Transfer at the last log (fee collector -> sender, the refund), computed by hand from the raw JSON. A reverted receipt carries no logs: null. Three receipts move the gas token for their own reasons between the two legs: the deposit (34031247: owner -> the portal's token holder 0x80fc..., 50,000,000,000,000 wei at log 1), the claim (the token holder -> the signer, 90,000,000,000,000 wei at log 9), and the approve (token_eth_34031245: a call on the gas token itself, an Approval at log 1)."
+}
