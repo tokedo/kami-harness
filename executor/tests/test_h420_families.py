@@ -22,6 +22,7 @@ import pytest
 import lanes
 import server
 from test_400_surface import ETH_TOKEN, portal_env  # noqa: F401  (fixture)
+from test_gas_wallet import gas_env  # noqa: F401  (fixture)
 from test_h350_families import FakeChain, seq_env  # noqa: F401  (fixture)
 from test_h400_lane import _sign_feed
 from test_h400_send_path import chain_env  # noqa: F401  (fixture)
@@ -470,6 +471,73 @@ def test_the_gas_gate_moves_by_the_same_wei(monkeypatch, value):
     assert "gas limit 3000000 at the flat price" in str(ei.value)
     balance["wei"] += 1
     server._require_gas_balance("0x" + "11" * 20, gas, value, "operator")
+
+
+# The three balance checks that computed their own provision (review
+# ruling, second round): each refuses exactly gas limit x price + value
+# and passes one wei more, and its own refusal states the wei.
+
+def test_fund_operator_needs_the_prepayment_wei(gas_env):  # noqa: F811
+    """fund_operator: a plain transfer at _PLAIN_TRANSFER_GAS."""
+    owner = gas_env.solo.owner_addr
+    gas_env.balances[owner] = 10 ** 17 + server._PLAIN_TRANSFER_GAS * PRICE
+    with pytest.raises(ValueError) as ei:
+        server.fund_operator("0.1", account="solo")
+    assert "+ 1 wei" in str(ei.value), str(ei.value)
+    assert gas_env.sends == []
+    gas_env.balances[owner] += 1
+    assert server.fund_operator("0.1", account="solo")["operator_eth"] == "0.1"
+
+
+def test_buy_kami_needs_the_prepayment_wei(accounts, monkeypatch, sent):
+    from types import SimpleNamespace
+    from web3 import Web3
+    price = 10 ** 18
+    monkeypatch.setattr(server, "get_kami_market_listings", lambda **kw: {
+        "count": 1, "listings": [{
+            "kami_index": 5, "price_eth": 1.0, "price_wei": price,
+            "order_id_hex": hex(11), "seller_account_id": "999",
+            "expiry": 0, "created_at": 60}]})
+    gas = server._batch_gas(server._GAS_CEILINGS["buy_kami_base"],
+                            server._GAS_CEILINGS["buy_kami_per_item"], 1,
+                            "kami purchases")
+    balance = {"wei": price + gas * PRICE}
+    monkeypatch.setattr(server, "w3", SimpleNamespace(
+        eth=SimpleNamespace(get_balance=lambda a: balance["wei"]),
+        from_wei=Web3.from_wei))
+    with pytest.raises(server.PreTxValidationError) as ei:
+        server.buy_kami([5], "2.0", account="testa")
+    msg = str(ei.value)
+    assert "gas provision" in msg and "+ 1 wei" in msg, msg
+    assert sent == []
+    balance["wei"] += 1
+    server.buy_kami([5], "2.0", account="testa")
+    assert sent[-1]["system"] == "system.kamimarket.buy"
+    assert sent[-1]["value_wei"] == price
+
+
+def test_newbie_vendor_buy_needs_the_prepayment_wei(accounts, monkeypatch,
+                                                    sent):
+    from types import SimpleNamespace
+    from conftest import FakeContract
+    price = 6 * 10 ** 15
+    balance = {"wei": price + server._GAS_CEILINGS["newbie_vendor_buy"] * PRICE}
+    vendor = FakeContract({"calcPrice": lambda: price})
+    monkeypatch.setattr(server, "w3", SimpleNamespace(
+        eth=SimpleNamespace(contract=lambda address=None, abi=None: vendor,
+                            get_balance=lambda a: balance["wei"]),
+        from_wei=server.Web3.from_wei, to_wei=server.Web3.to_wei))
+    monkeypatch.setattr(server, "_resolve_system", lambda sid: sid)
+    monkeypatch.setattr(server, "_require_registered_owner", lambda a: 0x7777)
+    with pytest.raises(server.PreTxValidationError) as ei:
+        server.newbie_vendor_buy(1234, "0.01", account="testa")
+    msg = str(ei.value)
+    assert "gas provision" in msg and "+ 1 wei" in msg, msg
+    assert sent == []
+    balance["wei"] += 1
+    server.newbie_vendor_buy(1234, "0.01", account="testa")
+    assert sent[-1]["system"] == "system.newbievendor.buy"
+    assert sent[-1]["value_wei"] == price
 
 
 def test_a_short_wallet_signs_no_approve_either(portal_env):  # noqa: F811
