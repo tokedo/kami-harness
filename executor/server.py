@@ -2056,6 +2056,16 @@ def _require_item_balance(
     return balance
 
 
+def _gas_fee_bound(gas_limit: int) -> int:
+    """The fee bound the gas gate holds a signer to: gas limit x the flat
+    price. What a transaction pays (_fee_wei) is the prepayment minus the
+    refund of unused gas, and the prepayment is this bound (+ 1 wei on
+    every 2026-10-04 receipt), so the fee never exceeds it but by that
+    wei: 1.05x-1.18x of gas USED x the price was measured, well inside a
+    limit provisioned at 1.5x or more of the use."""
+    return gas_limit * _GAS_PRICE["maxFeePerGas"]
+
+
 def _require_gas_balance(
     addr: str, gas_limit: int | None, value_wei: int, role: str
 ) -> None:
@@ -2068,7 +2078,7 @@ def _require_gas_balance(
     """
     balance = w3.eth.get_balance(addr)
     if gas_limit:
-        required = gas_limit * _GAS_PRICE["maxFeePerGas"] + value_wei
+        required = _gas_fee_bound(gas_limit) + value_wei
         if balance < required:
             detail = (
                 f"{role} wallet {addr} holds "
@@ -9163,13 +9173,57 @@ def _portal_signer(account: str, rec: dict) -> tuple[str, str, str, str]:
         f"operator wallet {acct._operator_addr} is not the current operator)")
 
 
-def _portal_send(fn, addr, key, role, account) -> object:
-    """Dry-run, estimate (x1.5) and send one portal call on the lane."""
+def _portal_gas(fn, addr, account) -> int:
+    """Dry-run one portal call and return the gas limit it is sent with:
+    the estimate x 1.5."""
     _dry_run(fn, addr, account=account)
-    gas = int(fn.estimate_gas({"from": addr}) * 3 // 2)
+    return int(fn.estimate_gas({"from": addr}) * 3 // 2)
+
+
+def _portal_send(fn, addr, key, role, account, gas: int | None = None) -> object:
+    """Dry-run, estimate (x1.5) and send one portal call on the lane;
+    `gas` is a limit _portal_gas already provisioned (dry-run done)."""
+    if gas is None:
+        gas = _portal_gas(fn, addr, account)
     _require_gas_balance(addr, gas, 0, role)
     return _signed_send(fn, addr, key, role, account, gas_limit=gas,
                         revalidate=lambda: _dry_run(fn, addr, account=account))
+
+
+def _require_gas_token_left(addr: str, held: int, item: int, items: int,
+                            wei: int, gas_limit: int, leg: str,
+                            approved: str | None = None) -> None:
+    """H3 (4.2.0): a deposit of the GAS TOKEN must leave the fee.
+
+    The token balance and the gas come out of one balance on this chain,
+    so `held >= wei` and the gas gate (each passing on its own) let
+    through a deposit that lands and reverts. Required: held >= the
+    deposit's token amount + the gas gate's fee bound for `leg`
+    (_gas_fee_bound: gas limit x the flat price)."""
+    bound = _gas_fee_bound(gas_limit)
+    need = wei + bound
+    if held >= need:
+        return
+    lead, tail = "", ""
+    if approved:
+        lead = (f"the approve {approved} landed (its allowance stays, so a "
+                f"later deposit sends no approve); the deposit itself is "
+                f"refused before signing it: ")
+    if leg == "the deposit's":
+        unit = wei // items
+        tail = (f"; at most {max(held - bound, 0) // unit} items can be "
+                f"deposited from this balance now")
+    else:
+        tail = ("; the deposit's own fee bound is checked too, once the "
+                "approve has landed")
+    raise PreTxValidationError(
+        f"{lead}item {item}'s token is the gas token, so the deposit and its "
+        f"gas come out of one balance. Owner wallet {addr} holds {held} wei "
+        f"({_fmt_token(held)} ETH); depositing {items} items takes {wei} wei, "
+        f"and {leg} fee bound is {bound} wei (gas limit {gas_limit} x the "
+        f"flat price {_GAS_PRICE['maxFeePerGas']} wei, the gas gate's bound): "
+        f"{need} wei in all, {need - held} wei short. A deposit that leaves "
+        f"less than its fee lands and reverts{tail}.")
 
 
 def _world_events(receipt, identifier: str) -> list[bytes]:
@@ -9466,16 +9520,34 @@ def portal_deposit(item: int, amount: int, account: str = "main") -> dict:
             f"owner wallet {acct.owner_addr} holds {_fmt_token(held)} of the "
             f"token; {amount} items need {_fmt_token(wei)}")
     spender = _resolve_component("component.token.allowance")
+    # H3 (4.2.0): when the token IS the gas token, every fee of this call
+    # comes out of the balance the deposit needs.
+    gas_token = p["token"].lower() == _GAS_TOKEN.lower()
+    deposit = p["portal"].functions.deposit(item, amount)
+    deposit_gas = None
     txs = []
     if int(token.functions.allowance(acct.owner_addr, spender).call()) < wei:
         approve = token.functions.approve(spender, wei)
         _dry_run(approve, acct.owner_addr, account=account)
         gas = int(approve.estimate_gas({"from": acct.owner_addr}) * 3 // 2)
+        if gas_token:
+            # The deposit cannot be estimated before its allowance exists:
+            # here the amount + the APPROVE's bound; the deposit's own
+            # bound below, before the deposit is signed.
+            _require_gas_token_left(acct.owner_addr, held, item, amount, wei,
+                                    gas, "the approve's")
         r = _signed_send(approve, acct.owner_addr, acct.owner_key, "owner",
                          account, gas_limit=gas)
         txs.append({"step": "approve", **_tx_fields(r)})
-    receipt = _portal_send(p["portal"].functions.deposit(item, amount),
-                           acct.owner_addr, acct.owner_key, "owner", account)
+    if gas_token:
+        deposit_gas = _portal_gas(deposit, acct.owner_addr, account)
+        if txs:   # the approve's fee came out of the same balance
+            held = int(token.functions.balanceOf(acct.owner_addr).call())
+        _require_gas_token_left(acct.owner_addr, held, item, amount, wei,
+                                deposit_gas, "the deposit's",
+                                approved=txs[0]["tx_hash"] if txs else None)
+    receipt = _portal_send(deposit, acct.owner_addr, acct.owner_key, "owner",
+                           account, gas=deposit_gas)
     txs.append({"step": "deposit", **_tx_fields(receipt)})
     return {
         **_tx_fields(receipt), "item": item, "item_name": _get_item_name(item),
