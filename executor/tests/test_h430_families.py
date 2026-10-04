@@ -10,10 +10,15 @@ All hermetic: the fake portal and fake node of the 4.0.0 / 4.2.0 tests.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 import server
+from fakenode import READINESS_ERROR
 from test_400_surface import ETH_TOKEN, ONYX_TOKEN, portal_env  # noqa: F401
+from test_h400_lane import _travel_env
+from test_h400_send_path import _feeds, _refuse_nonce
 from test_h400_send_path import chain_env  # noqa: F401  (fixture)
 
 PRICE = 2_500_000                     # the flat price, wei per gas
@@ -182,3 +187,116 @@ def test_the_three_portal_tools_take_an_optional_dry_run():
         assert props.get("dry_run", {}).get("default") is False, name
         assert "dry_run" not in tools[name].parameters.get("required", [])
         assert "dry_run" in tools[name].description, name
+
+
+# ---------------------------------------------------------------------------
+# J2 — a fee total where a tool sums gas; gas fields on gap-fill rows
+# ---------------------------------------------------------------------------
+
+def _hops(monkeypatch, outcomes):
+    """travel's hop sender: each outcome is a fee string, None (a landed
+    hop whose fee legs were not identified), "revert" or "refuse"."""
+    calls = []
+
+    def send(account, system_id, abi, args, gas_limit=None, **kw):
+        calls.append(args)
+        o = outcomes[len(calls) - 1]
+        if o == "revert":
+            raise server.OnChainRevertError(f"0x{len(calls):02x}", 9,
+                                            70_000, "AccMove: nope")
+        if o == "refuse":
+            raise server.PreTxValidationError("dry-run reverted: nope")
+        return {"tx_hash": f"0x{len(calls):02x}", "status": "success",
+                "block": 9, "gas_used": 1_000, "fee_wei": o}
+
+    monkeypatch.setattr(server, "_send_tx_retry", send)
+
+
+def _travel(**kw):
+    return asyncio.run(server.travel_to_room(4, account="testa", **kw))
+
+
+def test_travel_states_the_fee_total_of_its_hops(accounts, monkeypatch):
+    _travel_env(monkeypatch, 100, [1, 2, 3, 4])
+    _hops(monkeypatch, ["100", "250", "1"])
+    r = _travel()
+    assert r["gas_used"] == 3_000
+    assert r.get("fee_wei") == "351", r
+
+
+def test_travel_fee_total_is_null_when_a_hop_that_spent_gas_states_none(
+    accounts, monkeypatch,
+):
+    """A reverted hop spent gas its receipt cannot show (no logs), and a
+    landed hop may have unidentified legs: either makes any sum an
+    understatement, so the total is null — never an estimate."""
+    _travel_env(monkeypatch, 100, [1, 2, 3, 4])
+    _hops(monkeypatch, ["100", "revert"])
+    r = _travel(allow_partial=True)
+    assert [t["status"] for t in r["txs"]] == ["success", "reverted"]
+    assert "fee_wei" in r and r["fee_wei"] is None, r
+
+    _hops(monkeypatch, ["100", None, "5"])
+    r = _travel()
+    assert "fee_wei" in r and r["fee_wei"] is None, r
+
+
+def test_travel_fee_total_counts_nothing_for_a_hop_never_sent(
+    accounts, monkeypatch,
+):
+    """A refused hop (nothing signed) cost nothing: the total is the
+    landed hops' sum."""
+    _travel_env(monkeypatch, 100, [1, 2, 3, 4])
+    _hops(monkeypatch, ["100", "refuse"])
+    r = _travel(allow_partial=True)
+    assert r["txs"][-1]["status"] == "error"
+    assert r.get("fee_wei") == "100", r
+
+
+def _gas_legged_fills(node):
+    """Every plain (empty-calldata) transaction the fake node mines gets
+    the chain's two gas-token legs: prepayment at log 0, refund last."""
+    fee_collector = "0x" + "fc" * 20
+    original = node._execute
+
+    def execute(tx):
+        original(tx)
+        if tx.data:
+            return
+        rec = node.receipts[tx.hash]
+        prepay = tx.gas * PRICE + 1
+        refund = prepay - 300_000_000_000          # a fee of 3e11 wei
+        word = lambda a: "0x" + "00" * 12 + a.lower().removeprefix("0x")
+        leg = lambda src, dst, v, i: {
+            "address": ETH_TOKEN.lower(),
+            "topics": ["0x" + server._TRANSFER_TOPIC, word(src), word(dst)],
+            "data": "0x" + v.to_bytes(32, "big").hex(),
+            "blockNumber": rec["blockNumber"], "blockHash": rec["blockHash"],
+            "transactionHash": tx.hash, "transactionIndex": "0x0",
+            "logIndex": hex(i), "removed": False}
+        rec["logs"] = [leg(tx.sender, fee_collector, prepay, 0),
+                       leg(fee_collector, tx.sender, refund, 1)]
+
+    node._execute = execute
+
+
+@pytest.mark.parametrize("batched", [True, False])
+def test_a_gap_fill_row_carries_its_gas_fields(chain_env, monkeypatch,  # noqa: F811
+                                               batched):
+    """A gap fill is a real transaction that cost gas: its `filled` row
+    carries block, gas_used and fee_wei from its own receipt — on the
+    batched receipt path and on the one-by-one fallback."""
+    node, game, clock, op = chain_env
+    game.inv[11301] = 50
+    _gas_legged_fills(node)
+    if not batched:
+        monkeypatch.setattr(server, "_batch_receipts", lambda hashes: None)
+    for _ in range(4):                                   # outlast re-offers
+        _refuse_nonce(node, 502, READINESS_ERROR)
+    out = server.act_sequence(_feeds(6), account="testa")
+    (fill,) = out["filled"]
+    rec = node.receipts[fill["tx_hash"].lower()]
+    assert fill["status"] == "success", fill
+    assert fill.get("block") == int(rec["blockNumber"], 16), fill
+    assert fill.get("gas_used") == int(rec["gasUsed"], 16), fill
+    assert fill.get("fee_wei") == "300000000000", fill
