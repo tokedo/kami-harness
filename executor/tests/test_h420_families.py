@@ -158,3 +158,134 @@ def test_a_sequence_stop_row_carries_its_payouts(seq_env):  # noqa: F811
         {"kami_id": 12649, "item": 2, "item_name": "VIPP", "amount": 622}]
     assert rows[1].get("payouts") == [
         {"kami_id": 11224, "item": 2, "item_name": "VIPP", "amount": 630}]
+
+
+# ---------------------------------------------------------------------------
+# H2 — every write result says what it actually cost
+# ---------------------------------------------------------------------------
+
+FEES = INDEX["fees_wei"]
+LANDED = sorted(n for n, fee in FEES.items() if fee is not None)
+GAS_TOKEN = "0xe1ff7038eaaaf027031688e1535a055b2bac2546"
+TRANSFER = "0x" + server._TRANSFER_TOPIC
+
+
+def _word(addr: str) -> str:
+    return "0x" + "00" * 12 + addr.lower().removeprefix("0x")
+
+
+def _gas_leg(src: str, dst: str, value: int, token: str = GAS_TOKEN) -> dict:
+    return {"address": token, "topics": [TRANSFER, _word(src), _word(dst)],
+            "data": "0x" + value.to_bytes(32, "big").hex(),
+            "logIndex": "0x0", "blockNumber": "0x1", "blockHash": "0x" + "00" * 32,
+            "transactionHash": "0x" + "00" * 32, "transactionIndex": "0x0",
+            "removed": False}
+
+
+@pytest.mark.parametrize("name", LANDED)
+def test_fee_wei_is_the_prepayment_minus_the_refund(name):
+    """All 23 landed receipts (21 of the test session, the claim and the
+    other account's item transfer): fee_wei is the gas token's log-0
+    Transfer minus its last-log Transfer, as computed by hand in
+    index.json — 1.05x to 1.18x of gas_used x effectiveGasPrice."""
+    r = _receipt(name)
+    fields = server._tx_fields(r)
+    assert fields.get("fee_wei") == FEES[name], f"{name}: {fields}"
+    ratio = int(FEES[name]) / (r.gasUsed * r.effectiveGasPrice)
+    assert 1.04 < ratio < 1.18
+
+
+@pytest.mark.parametrize("name", [
+    "system_erc20_portal_34031247_f8ba5d86.json",      # deposit: sender -> holder
+    "system_erc20_portal_claim_synthetic.json",         # claim: holder -> signer
+    "token_eth_34031245_f8fa7ad1.json",                 # approve on the gas token
+])
+def test_a_transaction_that_moves_the_gas_token_itself_is_not_misread(name):
+    """The deposit pulls 50,000,000,000,000 wei from the sender at log 1;
+    the claim pays 90,000,000,000,000 wei to the signer at log 9; the
+    approve is a call on the gas token. Neither is a leg."""
+    assert server._tx_fields(_receipt(name)).get("fee_wei") == FEES[name]
+
+
+def test_the_legs_are_identified_by_counterparty_not_by_position():
+    """Position alone would misread each of these; the rule states null."""
+    claim = _raw("system_erc20_portal_claim_synthetic.json")
+    logs = claim["logs"]
+    payout = next(lg for lg in logs[1:-1] if lg["topics"][0] == TRANSFER
+                  and lg["address"] == GAS_TOKEN)
+    # No refund leg, and the claim's payout (holder -> signer) last: its
+    # sender is not the prepayment's recipient.
+    no_refund = {**claim, "logs": [lg for lg in logs[:-1] if lg is not payout]
+                 + [payout]}
+    assert server._tx_fields(_receipt(no_refund))["fee_wei"] is None
+
+    dep = _raw("system_erc20_portal_34031247_f8ba5d86.json")
+    # No prepayment: the first log is the deposit's own pull (sender ->
+    # the token holder), whose recipient is not the refund's sender.
+    no_prepay = {**dep, "logs": dep["logs"][1:]}
+    assert server._tx_fields(_receipt(no_prepay))["fee_wei"] is None
+
+    # Legs of another sender, or on another token: not this fee.
+    other = "0x" + "77" * 20
+    stop = _raw("system_harvest_stop_34031314_ee431877.json")
+    assert server._tx_fields(_receipt({**stop, "from": other}))[
+        "fee_wei"] is None
+    swapped = [_gas_leg(stop["from"], "0x" + "fc" * 20, 10, token=other)]
+    assert server._tx_fields(_receipt(
+        {**stop, "logs": swapped + stop["logs"][1:]}))["fee_wei"] is None
+
+
+def test_a_reverted_transaction_has_a_null_fee():
+    """A reverted receipt carries no logs: null, never an estimate."""
+    name = "system_kami_use_item_reverted_34031837_885eac81.json"
+    r = _receipt(name)
+    assert r.status == 0 and not r.logs
+    assert server._tx_fields(r).get("fee_wei", "absent") is None
+    e = server.OnChainRevertError(server._hex_hash(r.transactionHash),
+                                  r.blockNumber, r.gasUsed, "reverted")
+    assert server._failed_tx_fields(e).get("fee_wei", "absent") is None
+
+
+def test_every_send_path_reports_fee_wei(monkeypatch, accounts):
+    """The five success shapes: _send_tx, _send_batch_tx, _send_tx_owner,
+    _send_eth and _tx_fields (portal tools) — and a leg keeps it."""
+    name = "system_harvest_stop_34031872_1ae21191.json"
+    monkeypatch.setattr(server, "_require_registered_operator", lambda a: 1)
+    monkeypatch.setattr(server, "_require_registered_owner", lambda a: 1)
+    monkeypatch.setattr(server, "_require_gas_balance", lambda *a, **k: None)
+    monkeypatch.setattr(server, "_validated_fn", lambda *a, **k: object())
+    monkeypatch.setattr(server, "_signed_send", lambda *a, **k: _receipt(name))
+    outs = [
+        server._send_tx("testa", "system.harvest.stop", [], [1]),
+        server._send_batch_tx("testa", "system.harvest.stop", [],
+                              "executeBatched", [[1]], 1),
+        server._send_tx_owner("testa", "system.trade.create", [], [1]),
+        server._send_eth("0x01", "0x" + "11" * 20, "0x" + "22" * 20, 0),
+        server._tx_fields(_receipt(name)),
+    ]
+    for out in outs:
+        assert out.get("fee_wei") == FEES[name], out
+    assert server._receipt_fields(outs[0]).get("fee_wei") == FEES[name]
+
+
+def test_sequence_rows_report_fee_wei_and_null_for_a_revert(seq_env):  # noqa: F811
+    """act_sequence: a landed row's fee from its own receipt; a reverted
+    row's is null."""
+    seq_env.setattr(server, "_kami_entity_id", _REAL_KAMI_EID)
+    name = "system_harvest_stop_34031872_1ae21191.json"
+    seq_env.setattr(server, "w3", FakeChain(["ok", "revert"]))
+
+    def await_receipt(h, built, timeout, account=None, ceiling_key=None):
+        if int(h[-2:], 16) == 0:
+            return _receipt(name)
+        raise server.OnChainRevertError(h, 900, 358_803, "kami starving..")
+
+    seq_env.setattr(server, "_await_receipt", await_receipt)
+    out = server.act_sequence([
+        {"op": "harvest_stop", "kami_ids": [12649]},
+        {"op": "feed", "kami_id": 12649, "item_id": 11301},
+    ], account="testa")
+    ok, bad = out["steps"]
+    assert ok["status"] == "success" and ok.get("fee_wei") == FEES[name]
+    assert bad["status"] == "reverted"
+    assert bad.get("fee_wei", "absent") is None
