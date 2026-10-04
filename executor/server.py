@@ -5346,6 +5346,87 @@ def _validate_active_harvests(
         )
 
 
+# ---- What a harvest stop / collect paid (4.2.0) ----
+#
+# The game's own record of both actions is a world event (upstream
+# LibHarvest.emitLog at the pin): HARVEST_STOP / HARVEST_COLLECT, value
+# abi.encode(holderID, kamiID, nodeIndex, output). `output` is what
+# LibHarvest.claim credited the account AFTER the harvest's tax (its
+# amtLeft) — the amount is the event's, never a balance difference. The
+# event does NOT carry the item: a node pays the item its
+# component.index.item names (MUSU, or another — node 73 pays item 2),
+# and claim credits it with LibInventory.incFor, a component.value write
+# on the account's inventory entity keccak256("inventory.instance",
+# holderID, item), written even for 0. The item is therefore the one
+# catalogued item whose inventory entity for the event's holder is
+# written between the previous event of the same action in this receipt
+# and this one: a batch runs each kami's claim and emits its event
+# before the next kami's begins. Each payout is attributed by the event's
+# kami entity, never by position. Anything else is a decode_error with
+# no guess. Proven against the 2026-10-04 receipts
+# (tests/test_h420_families.py, fixtures/receipts_20261004).
+_HARVEST_EVENT_TYPES = ["uint256", "uint256", "uint32", "uint256"]
+
+
+def _harvest_payouts(receipt, kami_ids: list[int], identifier: str) -> list[dict]:
+    """[{kami_id, item, item_name, amount}] per kami, in kami_ids order,
+    from the receipt alone; `decode_error` (and None for what is not
+    stated) where it cannot be decoded. Never raises."""
+    try:
+        events = []
+        for pos, value in _world_event_logs(receipt, identifier):
+            try:
+                events.append((pos, *eth_abi.decode(_HARVEST_EVENT_TYPES,
+                                                    value)))
+            except Exception:
+                continue
+        writes = _component_value_write_logs(receipt)
+        _load_item_catalog()
+        inventories: dict[int, dict[int, int]] = {}
+        found: dict[int, list] = {}
+        prev = -1
+        for pos, holder, kami_eid, _node, output in events:
+            if holder not in inventories:
+                inventories[holder] = {
+                    _inventory_entity_id(holder, i): i for i in _ITEM_NAMES}
+            inv = inventories[holder]
+            items = sorted({inv[e] for p, e, _v in writes
+                            if prev < p < pos and e in inv})
+            found.setdefault(kami_eid, []).append((output, items))
+            prev = pos
+        out = []
+        for k in kami_ids:
+            row = {"kami_id": k, "item": None, "item_name": None,
+                   "amount": None}
+            hits = found.get(_kami_entity_id(k), [])
+            if len(hits) != 1:
+                row["decode_error"] = (
+                    f"no {identifier} event for kami #{k} in the receipt"
+                    if not hits else
+                    f"{len(hits)} {identifier} events for kami #{k} in the "
+                    f"receipt") + "; the payout is not stated"
+            else:
+                output, items = hits[0]
+                row["amount"] = output
+                if len(items) == 1:
+                    row["item"] = items[0]
+                    row["item_name"] = _get_item_name(items[0])
+                else:
+                    row["decode_error"] = (
+                        f"the {identifier} event pays kami #{k}'s account "
+                        f"{output}, and "
+                        + ("no inventory write of a catalogued item"
+                           if not items else
+                           f"inventory writes of items {items}")
+                        + " precede it in the receipt; the item is not stated")
+            out.append(row)
+        return out
+    except Exception as e:  # after broadcast: report, never raise
+        return [{"kami_id": k, "item": None, "item_name": None,
+                 "amount": None, "decode_error": f"payout not decoded: {e}"}
+                for k in kami_ids]
+
+
 def _diagnose_batch(system_id, abi, kami_ids, single_args, account, first):
     """A multi-kami dry-run failed: re-run each kami alone, and say which.
 
@@ -5493,25 +5574,29 @@ def harvest_stop(kami_ids: list[int], account: str = "main") -> dict:
     h_ids = [_harvest_entity_id(k) for k in kami_ids]
     with _starving_revert_named(kami_ids, account, "harvest_stop"):
         if len(h_ids) == 1:
-            return _send_tx(
+            result = _send_tx(
                 account, "system.harvest.stop", _ABI_HARVEST_STOP,
                 [h_ids[0]], gas_limit=_harvest_gas("harvest_stop", 1),
-                ceiling_key="harvest_stop",
+                ceiling_key="harvest_stop", return_receipt=True,
             )
-        try:
-            result = _send_batch_tx(
-                account, "system.harvest.stop", _ABI_HARVEST_STOP,
-                "executeBatched", [h_ids],
-                _GAS_CEILINGS["harvest_stop_per_item"],
-                ceiling_key="harvest_stop",
-                gas_base=_GAS_CEILINGS["harvest_stop_base"],
-            )
-        except PreTxValidationError as be:
-            if "dry-run" not in be.detail:
-                raise
-            _diagnose_batch("system.harvest.stop", _ABI_HARVEST_STOP,
-                            kami_ids, [[h] for h in h_ids], account, be)
-    result["kamis"] = kami_ids
+        else:
+            try:
+                result = _send_batch_tx(
+                    account, "system.harvest.stop", _ABI_HARVEST_STOP,
+                    "executeBatched", [h_ids],
+                    _GAS_CEILINGS["harvest_stop_per_item"],
+                    ceiling_key="harvest_stop",
+                    gas_base=_GAS_CEILINGS["harvest_stop_base"],
+                    return_receipt=True,
+                )
+            except PreTxValidationError as be:
+                if "dry-run" not in be.detail:
+                    raise
+                _diagnose_batch("system.harvest.stop", _ABI_HARVEST_STOP,
+                                kami_ids, [[h] for h in h_ids], account, be)
+            result["kamis"] = kami_ids
+    receipt = result.pop("_receipt", None)
+    result["payouts"] = _harvest_payouts(receipt, kami_ids, "HARVEST_STOP")
     return result
 
 
@@ -5536,25 +5621,31 @@ def harvest_collect(kami_ids: list[int], account: str = "main") -> dict:
     h_ids = [_harvest_entity_id(k) for k in kami_ids]
     with _starving_revert_named(kami_ids, account, "harvest_collect"):
         if len(h_ids) == 1:
-            return _send_tx(
+            result = _send_tx(
                 account, "system.harvest.collect", _ABI_HARVEST_COLLECT,
                 [h_ids[0]], gas_limit=_harvest_gas("harvest_collect", 1),
-                ceiling_key="harvest_collect",
+                ceiling_key="harvest_collect", return_receipt=True,
             )
-        try:
-            result = _send_batch_tx(
-                account, "system.harvest.collect", _ABI_HARVEST_COLLECT,
-                "executeBatched", [h_ids],
-                _GAS_CEILINGS["harvest_collect_per_item"],
-                ceiling_key="harvest_collect",
-                gas_base=_GAS_CEILINGS["harvest_collect_base"],
-            )
-        except PreTxValidationError as be:
-            if "dry-run" not in be.detail:
-                raise
-            _diagnose_batch("system.harvest.collect", _ABI_HARVEST_COLLECT,
-                            kami_ids, [[h] for h in h_ids], account, be)
-    result["kamis"] = kami_ids
+        else:
+            try:
+                result = _send_batch_tx(
+                    account, "system.harvest.collect", _ABI_HARVEST_COLLECT,
+                    "executeBatched", [h_ids],
+                    _GAS_CEILINGS["harvest_collect_per_item"],
+                    ceiling_key="harvest_collect",
+                    gas_base=_GAS_CEILINGS["harvest_collect_base"],
+                    return_receipt=True,
+                )
+            except PreTxValidationError as be:
+                if "dry-run" not in be.detail:
+                    raise
+                _diagnose_batch("system.harvest.collect",
+                                _ABI_HARVEST_COLLECT, kami_ids,
+                                [[h] for h in h_ids], account, be)
+            result["kamis"] = kami_ids
+    receipt = result.pop("_receipt", None)
+    result["payouts"] = _harvest_payouts(receipt, kami_ids,
+                                         "HARVEST_COLLECT")
     return result
 
 
@@ -9010,9 +9101,15 @@ def _portal_send(fn, addr, key, role, account) -> object:
 
 def _world_events(receipt, identifier: str) -> list[bytes]:
     """The `value` payloads of WorldEvent(identifier) logs in a receipt."""
+    return [value for _pos, value in _world_event_logs(receipt, identifier)]
+
+
+def _world_event_logs(receipt, identifier: str) -> list[tuple[int, bytes]]:
+    """(position in the receipt's logs, `value` payload) of every
+    WorldEvent(identifier) log, in log order."""
     want = Web3.keccak(text=identifier).hex().removeprefix("0x")
     out = []
-    for log in getattr(receipt, "logs", []) or []:
+    for pos, log in enumerate(getattr(receipt, "logs", []) or []):
         topics = [t.hex().removeprefix("0x") if hasattr(t, "hex") else str(t)
                   for t in (getattr(log, "topics", None) or [])]
         if len(topics) >= 2 and topics[0] == _WORLD_EVENT_TOPIC and (
@@ -9022,7 +9119,7 @@ def _world_events(receipt, identifier: str) -> list[bytes]:
                 bytes.fromhex(str(log.data).removeprefix("0x")))
             try:
                 _schema, value = eth_abi.decode(["uint8[]", "bytes"], bytes(data))
-                out.append(value)
+                out.append((pos, value))
             except Exception:
                 continue
     return out
@@ -11261,6 +11358,25 @@ def _component_write_words(receipt, component_id: int) -> dict[int, list[bytes]]
     return out
 
 
+def _component_value_write_logs(receipt) -> list[tuple[int, int, int]]:
+    """(position in the receipt's logs, entity id, value written) of every
+    component.value write, in log order — _component_write_words' match,
+    keeping where each write sits (the harvest payout decode needs it)."""
+    out = []
+    for pos, log in enumerate(getattr(receipt, "logs", None) or []):
+        topics = log.topics
+        if (len(topics) < 4
+                or bytes(topics[0]) != _COMPONENT_VALUE_SET_TOPIC0
+                or int.from_bytes(bytes(topics[1]), "big")
+                != _VALUE_COMPONENT_ID):
+            continue
+        word = _component_write_word(bytes(log.data))
+        if word is not None:
+            out.append((pos, int.from_bytes(bytes(topics[3]), "big"),
+                        int.from_bytes(word, "big")))
+    return out
+
+
 def _component_value_writes(receipt) -> dict[int, list[int]]:
     """{entity_id: [values written, in log order]} for component.value."""
     return {
@@ -12881,6 +12997,10 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
                 # before step i-1 landed, which never happened.
                 killer_bounty[killer] = after
             rows[i].update(decoded)
+        if row["status"] == "success" and parsed[i]["op"] == "harvest_stop":
+            # 4.2.0 (H1): from the step's own receipt, as harvest_stop.
+            rows[i]["payouts"] = _harvest_payouts(
+                receipts.get(i), parsed[i]["kami_ids"], "HARVEST_STOP")
 
     landed = sum(1 for r in rows if r["status"] == "success")
     sent = sum(1 for r in rows if r["status"] != "not_sent")
