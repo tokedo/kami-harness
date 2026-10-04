@@ -9419,6 +9419,45 @@ def _require_gas_token_left(addr: str, held: int, item: int, items: int,
         f"less than its fee lands and reverts{tail}.")
 
 
+# J8 (4.3.0): a deposit's gas limit while its allowance is short — it
+# cannot be estimated then (eth_estimateGas reverts on the missing
+# allowance). The recorded live deposit (tests/fixtures/receipts_20261004,
+# system_erc20_portal_34031247: 5 Ether Shards, gas used 803,569) x 1.5,
+# the factor every portal estimate is provisioned with, rounded up. An
+# ESTIMATE: the exact bound is checked again once the approve has landed.
+_DEPOSIT_GAS_ESTIMATE = 1_205_354
+
+
+def _require_gas_token_left_before_approve(addr: str, held: int, item: int,
+                                           items: int, wei: int,
+                                           approve_gas: int) -> None:
+    """J8 (4.3.0): a gas-token deposit whose allowance is short must be
+    able to leave the APPROVE's fee and the DEPOSIT's, checked before the
+    approve is signed: held >= the token amount + the approve's bound +
+    the deposit's bound estimated from _DEPOSIT_GAS_ESTIMATE. Until 4.3.0
+    only the approve's was checked here, so a near-total deposit spent an
+    approve, left a standing allowance and was then refused."""
+    a = _gas_fee_bound(approve_gas)
+    d = _gas_fee_bound(_DEPOSIT_GAS_ESTIMATE)
+    need = wei + a + d
+    if held >= need:
+        return
+    price = _GAS_PRICE["maxFeePerGas"]
+    raise PreTxValidationError(
+        f"item {item}'s token is the gas token, so the deposit, its approve "
+        f"and their gas come out of one balance; nothing was signed. Owner "
+        f"wallet {addr} holds {held} wei ({_fmt_token(held)} ETH); depositing "
+        f"{items} items takes {wei} wei, the approve's fee bound is {a} wei "
+        f"(gas limit {approve_gas} x the flat price {price} wei + "
+        f"{_PREPAYMENT_EXTRA_WEI} wei, the prepayment), and the deposit's is "
+        f"an ESTIMATE, {d} wei (gas limit {_DEPOSIT_GAS_ESTIMATE}: a recorded "
+        f"deposit's gas used x 1.5 — a deposit cannot be estimated before "
+        f"its allowance exists; its exact bound is checked once the approve "
+        f"has landed): {need} wei in all, {need - held} wei short. By that "
+        f"estimate at most {max(held - a - d, 0) // (wei // items)} items can "
+        f"be deposited from this balance now.")
+
+
 def _world_events(receipt, identifier: str) -> list[bytes]:
     """The `value` payloads of WorldEvent(identifier) logs in a receipt."""
     return [value for _pos, value in _world_event_logs(receipt, identifier)]
@@ -9764,10 +9803,11 @@ def portal_deposit(item: int, amount: int, account: str = "main",
             approve.estimate_gas({"from": acct.owner_addr}) * 3 // 2)
         if gas_token:
             # The deposit cannot be estimated before its allowance exists:
-            # here the amount + the APPROVE's bound; the deposit's own
-            # bound below, before the deposit is signed.
-            _require_gas_token_left(acct.owner_addr, held, item, amount, wei,
-                                    approve_gas, "the approve's")
+            # here the amount + the APPROVE's bound + the deposit's bound
+            # ESTIMATED (J8, _DEPOSIT_GAS_ESTIMATE); its exact bound after
+            # the approve has landed, before the deposit is signed.
+            _require_gas_token_left_before_approve(
+                acct.owner_addr, held, item, amount, wei, approve_gas)
     else:
         # Estimable now: the deposit's dry-run and limit (the one it is
         # sent with), and for the gas token its bound, before anything.
@@ -9777,21 +9817,22 @@ def portal_deposit(item: int, amount: int, account: str = "main",
                                     deposit_gas, "the deposit's")
     if dry_run:
         # 4.3.0 (J1): nothing is signed — not even the approve. With the
-        # allowance short the deposit cannot be estimated, so its bound
-        # is null and the verdict says which stage was checked.
+        # allowance short the deposit cannot be estimated, so its bound is
+        # the J8 estimate and says so (deposit_fee_bound_estimated).
         if deposit_gas is not None:
             _require_gas_balance(acct.owner_addr, deposit_gas, 0, "owner")
         rule = ("not the gas token" if not gas_token
                 else "passes" if not approve_needed
-                else "approve stage passes; the deposit's own bound is "
-                     "checked once the approve has landed (it cannot be "
-                     "estimated before its allowance exists)")
+                else "passes, the deposit's bound an estimate (it cannot be "
+                     "estimated before its allowance exists); its exact "
+                     "bound is checked once the approve has landed")
         return {
             "dry_run": True, **quote, "approve_needed": approve_needed,
             "approve_fee_bound_wei": (str(_gas_fee_bound(approve_gas))
                                       if approve_gas else None),
-            "deposit_fee_bound_wei": (str(_gas_fee_bound(deposit_gas))
-                                      if deposit_gas else None),
+            "deposit_fee_bound_wei": str(_gas_fee_bound(
+                deposit_gas if deposit_gas else _DEPOSIT_GAS_ESTIMATE)),
+            "deposit_fee_bound_estimated": deposit_gas is None,
             "gas_token": gas_token, "gas_token_rule": rule,
         }
     txs = []

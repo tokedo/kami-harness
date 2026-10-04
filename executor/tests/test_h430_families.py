@@ -90,19 +90,22 @@ def test_a_deposit_dry_run_with_a_short_allowance_signs_no_approve(
 ):
     """The approve would be needed: the dry run says so, states its bound,
     and signs nothing — not even the approve. The deposit cannot be
-    estimated before its allowance exists, so its bound is null and the
-    verdict says what was checked."""
+    estimated before its allowance exists, so its bound is the J8
+    estimate, marked as one, and the verdict says so."""
     node, game, clock, portal, split = portal_env
-    _fund(portal, split, WEI + APPROVE_BOUND, allowance=0)
+    est = server._DEPOSIT_GAS_ESTIMATE * PRICE + 1
+    _fund(portal, split, WEI + APPROVE_BOUND + est, allowance=0)
     out = server.portal_deposit(103, ITEMS, account="split", dry_run=True)
     _no_terminal_state(out)
     assert not node.sends and not portal.approvals
     assert out["approve_needed"] is True
     assert out["approve_fee_bound_wei"] == str(APPROVE_BOUND)
-    assert out["deposit_fee_bound_wei"] is None
-    assert out["gas_token_rule"].startswith("approve stage passes")
+    assert out["deposit_fee_bound_wei"] == str(est)
+    assert out["deposit_fee_bound_estimated"] is True
+    assert out["gas_token_rule"].startswith("passes, the deposit's bound "
+                                            "an estimate")
 
-    _fund(portal, split, WEI + APPROVE_BOUND - 1, allowance=0)
+    _fund(portal, split, WEI + APPROVE_BOUND + est - 1, allowance=0)
     with pytest.raises(server.PreTxValidationError, match="1 wei short"):
         server.portal_deposit(103, ITEMS, account="split", dry_run=True)
     assert not node.sends and not portal.approvals
