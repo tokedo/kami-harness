@@ -3248,6 +3248,9 @@ def _send_batch_tx(
         "block": receipt.blockNumber,
         "gas_used": receipt.gasUsed,
         "fee_wei": _fee_wei(receipt),
+        # 4.3.0 (J5): the account, as _send_tx and _send_tx_owner state
+        # it, so a tool's batch path and single path share one shape.
+        "account": account,
     }
     if return_receipt:
         result["_receipt"] = receipt
@@ -5804,7 +5807,8 @@ def harvest_stop(kami_ids: list[int], account: str = "main") -> dict:
                     raise
                 _diagnose_batch("system.harvest.stop", _ABI_HARVEST_STOP,
                                 kami_ids, [[h] for h in h_ids], account, be)
-            result["kamis"] = kami_ids
+    # 4.3.0 (J5): `kamis` on the single path too — one shape for both.
+    result["kamis"] = kami_ids
     receipt = result.pop("_receipt", None)
     result["payouts"] = _harvest_payouts(receipt, kami_ids, "HARVEST_STOP")
     return result
@@ -5852,7 +5856,8 @@ def harvest_collect(kami_ids: list[int], account: str = "main") -> dict:
                 _diagnose_batch("system.harvest.collect",
                                 _ABI_HARVEST_COLLECT, kami_ids,
                                 [[h] for h in h_ids], account, be)
-            result["kamis"] = kami_ids
+    # 4.3.0 (J5): `kamis` on the single path too — one shape for both.
+    result["kamis"] = kami_ids
     receipt = result.pop("_receipt", None)
     result["payouts"] = _harvest_payouts(receipt, kami_ids,
                                          "HARVEST_COLLECT")
