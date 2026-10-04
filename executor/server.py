@@ -5724,6 +5724,8 @@ def harvest_start(
 
     Kamis must be in the same room as the node and not already
     harvesting; multiple kamis go in one batch transaction (at most 10).
+    Calls on one key run in turn; act_sequence sends several at once
+    (they can share a block).
     A batch the node's dry-run refuses is re-run kami by kami, and the
     error says whether the batch SIZE or one kami failed. dry_run runs
     every gate and the dry-run, then returns without signing.
@@ -5820,7 +5822,9 @@ def harvest_stop(kami_ids: list[int], account: str = "main") -> dict:
     """Stop active harvests and auto-collect rewards.
 
     Multiple kamis go in one batch transaction (at most 10); rewards +
-    scavenge points are distributed on stop. A batch the node's dry-run
+    scavenge points are distributed on stop.
+    Calls on one key run in turn; act_sequence sends several at once
+    (they can share a block). A batch the node's dry-run
     refuses is re-run kami by kami, and the error says whether the batch
     SIZE or one kami failed.
 
@@ -6672,6 +6676,8 @@ def auction_buy(
 @mcp.tool()
 def feed_kami(kami_id: int, food_item_id: int, account: str = "main") -> dict:
     """Use a food item on a kami to restore HP. Works while harvesting.
+    Calls on one key run in turn; act_sequence sends several at once
+    (they can share a block).
 
     Validates before signing (no gas spent on failure): account
     registered, kami owned, inventory holds the item, then an eth_call
@@ -11993,6 +11999,8 @@ def liquidate_kami(
     accumulated harvest strain), possibly to 0 HP, where it cannot stop
     or collect until fed; the attacker's liquidation cooldown resets,
     and the attacker's account receives 1 Obol (item 1015).
+    Calls on one key run in turn; act_sequence sends several at once
+    (they can share a block).
 
     Returns the decoded kill: victim_gross, spoils, attacker_hp_after,
     cooldown_until, recoil. No salvage — the victim's inventory write is
