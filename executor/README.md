@@ -140,7 +140,7 @@ ever reported as another:
 
 | terminal state | how it is reported |
 |---|---|
-| confirmed-success | the tool returns; result carries `status="success"` with `tx_hash`, `block`, `gas_used` |
+| confirmed-success | the tool returns; result carries `status="success"` with `tx_hash`, `block`, `gas_used`, `fee_wei` |
 | confirmed-revert | **raises** `OnChainRevertError(tx_hash, block, gas_used, reason)` — never returned alongside or as success |
 | not executed (proven) | **raises** `TxNonceCollisionError` (the nonce went to another hash, named) or `TxDroppedError` (the node no longer holds it; nonce unconsumed) — no gas spent by that hash |
 | unconfirmed | **raises** `TxUnconfirmedError(tx_hash, timeout)` — the node still holds it (or nothing could be proven); it may still land |
@@ -151,7 +151,20 @@ of every signed hash until it is mined or proven gone, the same signed
 bytes re-offered on an ambiguous refusal, and a new nonce only once the
 old one is proven consumed by another hash. The ledger is persistent,
 under `KAMI_LANE_DIR` (default `~/.kami-harness/lanes`). Writes on
-different wallets run concurrently; reads never wait behind writes.
+different wallets run concurrently; reads never wait behind writes. A
+`notice` that names a transaction from the ledger says who signed it: an
+earlier call of this server, or another process using this key (a
+second server on it, or this one before a restart), which shares the
+lane directory with it.
+
+`fee_wei` is what the transaction actually paid: on Yominet gas is
+charged in the gas token, and every landed receipt carries its
+prepayment (log 0, the sender to a fee collector) and its refund (the
+last log, that collector back to the sender); `fee_wei` is the
+difference, identified by those counterparties, and `null` for a
+reverted transaction (its receipt has no logs). It is about 1.05x to
+1.18x of `gas_used` x the flat price. Every per-leg `txs` row and every
+`act_sequence` row carries it too.
 
 Every served call fits a wall-clock box, `KAMI_CALL_BUDGET_S` (default
 90 s) — a server setting, not a tool parameter.
@@ -250,7 +263,13 @@ of the node's dry-run, enforced before signing (the per-transaction gas
 lane alone would admit more). A multi-kami batch whose dry-run fails is
 re-run kami by kami, and the error says whether the batch SIZE or one
 kami (ITEM) failed. `harvest_start(dry_run=true)` runs every gate and
-the dry-run, then returns without signing.
+the dry-run, then returns without signing. `harvest_stop`,
+`harvest_collect` and `act_sequence`'s harvest_stop rows return
+`payouts`: per kami, the `item` (and `item_name`) and `amount` the
+transaction paid it — the amount from the game's own `HARVEST_STOP` /
+`HARVEST_COLLECT` event, the item from the inventory write the receipt
+makes for it (a node can pay MUSU or another item). What cannot be
+decoded is a `decode_error`, never a guess.
 
 **Token portal.** `portal_withdraw`, `portal_claim`, `portal_cancel`,
 and `portal_deposit` drive the token portal (`system.erc20.portal`),
@@ -277,10 +296,15 @@ which bridges an ERC-20 into an in-game item and back: Onyx Shard, item
 - `portal_deposit` is owner-signed; when the owner's allowance to the
   portal's token spender is short, it first approves exactly the
   deposit's token amount (a second transaction, listed in `txs`) —
-  never an unlimited allowance.
+  never an unlimited allowance. Ether Shard's token is the gas token, so
+  its deposit is refused before signing unless the owner wallet holds
+  the amount plus the gas gate's fee bound (gas limit x the flat price);
+  with an approve first, that approve's bound is checked before it, and
+  the deposit's own bound once it has landed, before the deposit.
 - `lens_receipts` lists a roster account's pending receipts (id,
   claimable time, lane, payout route and address, state); `lens_portal`
-  reads its settled history.
+  reads its history (`receipts`) — its `openWithdrawals` are every
+  OTHER account's.
 
 ### PERCEIVE — 34 tools
 
@@ -353,10 +377,10 @@ one quote tool — the lens `quote` query is deliberately not wrapped), and
 | `lens_party(account_index, full, stats, at_least_block)` | Party report for an account: kamis with full vitals, first 50 by kami index; kamisTotal/kamisServed count them. |
 | `lens_phase()` | World day/night phase (36-hour cycle): {phase, name, cycleHour, secondsToNext, next, at}. |
 | `lens_pool_history(item_a, item_b, from_ts)` | Pool price history for an item pair (the client's pool chart): {baseIndex, quoteIndex, points: [{bucketTs, price}]}. Needs the Kamiden feed service (KAMIDEN_UNAVAILABLE when it is down). |
-| `lens_portal(account_index)` | Token portal history for an account, plus open withdrawals. |
+| `lens_portal(account_index)` | Token portal history for an account (`receipts`: its withdrawals, then deposits); `openWithdrawals` is every OTHER account's open withdrawals (its own: `receipts`; pending ones: lens_receipts). |
 | `lens_quests(account_index, full)` | Quest registry; with account_index, that account's accepted quests and completion state. |
 | `lens_receipts(account, at_least_block)` | PENDING token-portal withdrawal receipts of a roster account: id, item, itemAmount, tokenAmount, tax, token, endTime, claimableNow, secondsToClaimable, lane OWNER\|OPERATOR, payout {route, address}, state WAITING\|CLAIMABLE\|PAUSED. A claimed or cancelled receipt is gone (history: lens_portal). |
-| `lens_room(room_index, full)` | Room occupancy: its exits, and the accounts in it — first 50 rows of {index, name, kamiCount}, with accountsTotal/accountsServed. |
+| `lens_room(room_index, full)` | Room occupancy: its exits (special exits, then geometric neighbours, not de-duplicated: a room can appear twice), and the accounts in it — first 50 rows of {index, name, kamiCount}, with accountsTotal/accountsServed. |
 | `lens_roster(account_index, stats, full, at_least_block)` | Compact roster: one line per kami (index, state, HP) plus where the account is. Uncapped, until stats caps it. |
 | `lens_skills(kami_index)` | Skill registry; with a kami, that kami's tree. |
 | `lens_status()` | kami-lens daemon status: sync state, live block, blocks behind chain head (blockLag), stream health, degraded and feedsDegraded flags, per-feed service health, and the daemon's version and configuration. headBlockNumber/headSampledAt/blockLag are omitted together when the head sample is missing or over 60 s old. |

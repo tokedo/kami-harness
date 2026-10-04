@@ -29,6 +29,165 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [4.2.0] — 2026-10-04 — what the live stage showed missing or misleading
+
+MINOR. **100 tools** (no tool, parameter or schema added, removed or
+renamed; no result field removed or renamed), registry mass **69,572**
+(69,351 at 4.1.0; budget 73,000, no raise asked), `tools_hash`
+`bfb39aab2fe26e963efab3ffb04aa4df2c1f3db4fe59aeec8afed70aeb324dca`
+(Python 3.13). `SCHEMA_VERSION` **4.2.0**.
+
+**Why MINOR, by this file's own rule.** Results gain content
+(`payouts`, `fee_wei`), refusals and notices gain new texts, and two
+descriptions change — all additive, all visible to an agent at runtime,
+so not PATCH; nothing an existing caller relies on is removed, so not
+MAJOR.
+
+The findings come from a live test stage on the public test account
+(89 transactions) and the first live portal claim, 2026-10-04. Their
+real receipts are the fixtures (`executor/tests/fixtures/
+receipts_20261004/`, with the chain truth in `index.json`; the two that
+are another account's carry synthetic identifiers).
+
+### A harvest stop / collect says what it paid
+
+`harvest_stop`, `harvest_collect` and the harvest_stop rows of
+`act_sequence` returned the transaction fields and no payout: an agent
+decoded the receipt by hand to learn that a stop paid 622 of item 2.
+Each now carries `payouts`: per kami, `{kami_id, item, item_name,
+amount}`, in the order asked.
+
+- **The amount** is the game's own: the `HARVEST_STOP` /
+  `HARVEST_COLLECT` world event (upstream `LibHarvest.emitLog`) carries
+  `(holderID, kamiID, nodeIndex, output)`, and `output` is what the
+  claim credited the account after the harvest's tax.
+- **The item** is not in the event (a node pays the item its
+  `component.index.item` names — MUSU, or e.g. item 2 at nodes 73 and
+  83). It is the one catalogued item whose inventory entity
+  (`keccak256("inventory.instance", holderID, item)`) the receipt
+  writes between the previous event of the action and this one: a batch
+  runs each kami's claim and emits its event before the next begins.
+- **Attribution** is by the event's kami entity, never by position.
+- No event for the kami, several, or no single item: `decode_error` on
+  that kami's row, with `item` / `amount` null for what is not stated
+  (an amount from the event is still stated). The decode never raises
+  after the broadcast.
+
+Proven against the fixtures: the five stops paid 2, 2, 2, 622 and 630 of
+item 2 and the collect paid 0 — each equal to the account's item-2
+balance change read at the block, and each inventory write in the
+receipt equal to the balance after (61,954 / 61,956 / 61,958 / 62,583 /
+63,213 / 61,952); the two 34031872 stops joined into one 2-kami batch
+receipt, asked in the opposite order, attribute 630 and 622 to the right
+kamis. Nodes 73 and 83 read item 2 on chain (read-only `eth_call`).
+
+### Every write result says what it actually cost
+
+On Yominet the fee is not `gas_used` x price. Every landed receipt
+carries two Transfers of the gas token besides the game's logs: the
+prepayment at log 0 (the sender to a fee collector: gas limit x price,
++ 1 wei on every fixture) and the refund as the last log (that collector
+back to the sender). The common transaction fields gain **`fee_wei`**
+(a string): prepayment minus refund — 1.05x to 1.18x of `gas_used` x
+`effectiveGasPrice` across the fixtures, by transaction type.
+
+- The legs are identified by **counterparty as well as position**: log 0
+  from the receipt's sender to some X, the last log from that same X
+  back to the sender. A deposit's pull (sender -> the portal's token
+  holder, log 1), a claim's payout (the holder -> the signer, log 9) and
+  an approve on the gas token itself are never read as legs; a receipt
+  without both legs states `null`.
+- A reverted receipt carries no logs: `fee_wei` is `null`, never an
+  estimate — on a reverted `act_sequence` row and a reverted per-leg
+  `txs` row alike.
+- Where: `_send_tx`, `_send_batch_tx`, `_send_tx_owner`, `_send_eth`,
+  the portal tools' fields, both `act_sequence` success paths, and every
+  per-leg `txs` row (`_receipt_fields` carries it). The gas token's
+  address now lives in one constant (`_GAS_TOKEN`).
+- The sweep reserve's note that the fee "could not be derived read-only"
+  (SPEC X10, the code comment) now says it can; the 0.0002 ETH floor
+  itself is not re-derived and is unchanged.
+
+Proven: all 23 landed fixture receipts give the hand-computed fee; a
+receipt with its refund removed and the claim's payout moved last, one
+with its prepayment removed, legs of another sender and legs on another
+token all state `null`.
+
+### A deposit of the gas token must leave the fee
+
+`portal_deposit` checked `held >= amount` and the gas gate separately,
+but for Ether Shard (103) both come out of the gas token, so a deposit
+that left less than its fee passed every pre-send check, landed and
+reverted (4.1.0's known list). When the item's token IS the gas token
+it is now refused before signing unless the owner wallet holds the
+deposit's token amount **plus the gas gate's own fee bound** (gas limit
+x the flat price — the bound `_require_gas_balance` uses, now one
+function, `_gas_fee_bound`). The refusal states held, amount and bound
+in wei, the shortfall, and how many items the balance can deposit now.
+
+- Allowance covering: the deposit's own limit (dry-run, estimate x 1.5,
+  the limit it is then sent with) is checked before anything is signed.
+- Allowance short: the deposit cannot be estimated before its allowance
+  exists, so the approve is signed only if the wallet holds the amount
+  + the approve's bound, and the deposit's own bound is checked against
+  the re-read balance once the approve has landed, before the deposit
+  is signed; that refusal names the approve, whose allowance stays.
+- Tokens that are not the gas token (Onyx Shard 100): unchanged.
+
+### The two-process notice says whose transaction it was
+
+With two harness servers on one key, a `notice` called the other
+server's transaction "an earlier call's transaction". Every call id now
+carries a per-process tag, and the lane ledger keeps the id of the call
+that signed each entry, so the three notices that named a ledger entry
+(has since mined / was NOT executed / released ... left armed) say
+**"an earlier call of this server"** or **"another process using this
+key"** — a drain of mixed signers names each — and, for the latter, one
+more sentence: that process (a second harness server on the key, or
+this one before a restart) shares this key's nonce lane through the lane
+directory (shown with `~` for the home directory). An entry written by
+a 4.1.0 server carries no tag and is attributed to another process,
+which it is. Text only; the lane file format is unchanged.
+
+### Two descriptions that misled a careful agent
+
+- `lens_portal`: `openWithdrawals` is every OTHER account's open
+  withdrawals — the lens filters the asked account's rows out, as the
+  game client's panel does — and the account's own are in `receipts`
+  (pending: `lens_receipts`). An agent looked for its own receipts in
+  `openWithdrawals`.
+- `lens_room`: `exits` lists special exits, then geometric neighbours,
+  verbatim and not de-duplicated, so a room can appear twice (kami-lens
+  `roomQuery` at the 1.0.0 pin).
+
+The two corrections cost 221 characters of registry mass and move
+`tools_hash`.
+
+Tests: `executor/tests/test_h420_families.py` (57), each family failing
+first against 4.1.0 (`d56782b`). One existing exact-shape assertion,
+`test_v300_families.py::TestFailedLegsCarryTheirHash::test_reverted_leg_is_recorded`,
+gains `fee_wei: None` in its expected reverted leg. 922 tests, 4 skipped.
+
+### Known, not changed
+
+- **No static "feed inside a kill cooldown" refusal in `act_sequence`.**
+  The live stage lost two feeds to it, but whether a feed after a kill
+  reverts depends on item effects the validator does not model (a drink
+  before the kill changes it), and a wrong refusal in the sweep tool
+  costs more than a reverted feed.
+- The chain takes the prepayment as gas limit x price **+ 1 wei** (every
+  fixture), while the gas gate — and so the gas-token deposit rule —
+  requires gas limit x price. A wallet holding exactly the amount + the
+  bound passes the gate and is one wei short of the prepayment. Not
+  changed here: the same one-wei edge is the gas gate's for every
+  transaction, and moving it is a separate ruling.
+- `LaneBlockedError` still says its armed transactions were "signed
+  earlier by this harness", and the tombstone notice still says "a
+  transaction this harness had released"; neither names the process.
+- `travel_to_room`'s summed `gas_used` has no summed fee (each leg in
+  `txs` has its own `fee_wei`); `act_sequence`'s `filled` gap-fill rows
+  carry no gas fields, as before.
+
 ## [4.1.0] — 2026-10-04 — `portal_claim` reports the payout, not the gas refund
 
 MINOR. No tool, parameter, schema or description changes: **100 tools**,

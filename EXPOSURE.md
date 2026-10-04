@@ -36,7 +36,7 @@ rows below go missing.
 | `lens_auctions` | PERCEIVE | auctions + GDA price; buy history | official web client auction UI (Kamiden) | kami-lens daemon socket (+ Kamiden history) | 2026-07-23 |
 | `lens_quests` | PERCEIVE | quest registry; per-account acceptance; opt-in uncompacted registry | official web client quest log | kami-lens daemon socket | 2026-07-23 |
 | `lens_market` | PERCEIVE | KamiSwap listings/bids, first 50 of each; order history; opt-in every row + names | KamiSwap web UI (Kamiden) | kami-lens daemon socket → Kamiden | 2026-07-23 |
-| `lens_portal` | PERCEIVE | per-account portal history + withdrawals (settled history; pending receipts: `lens_receipts`) | official web client portal UI (Kamiden) | kami-lens daemon socket → Kamiden | 2026-07-23 |
+| `lens_portal` | PERCEIVE | per-account portal history (its withdrawals and deposits) + every OTHER account's open withdrawals (its own pending receipts: `lens_receipts`) | official web client portal UI (Kamiden) | kami-lens daemon socket → Kamiden | 2026-07-23 |
 | `lens_receipts` | PERCEIVE | one roster account's PENDING portal withdrawal receipts: amounts, tax, token, end time, claimability, lane, payout route + address, WAITING/CLAIMABLE/PAUSED | official web client portal UI (pending withdrawals) | kami-lens daemon socket (mirror; lens 1.0.0) | 2026-10-03 |
 | `lens_transfers` | PERCEIVE | per-account item transfer history | official web client transfer log (Kamiden) | kami-lens daemon socket → Kamiden | 2026-07-23 |
 | `lens_feed` | PERCEIVE | buffered world feed events: newest 50 by default, opt-in limit (1-500) and account filter (lens 1.0.0) | official web client feed ticker (Kamiden) | kami-lens daemon socket → Kamiden | 2026-07-23 |
