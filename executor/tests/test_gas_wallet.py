@@ -129,10 +129,13 @@ class TestGetGasBalance:
         gas_env.balances[gas_env.ownonly.owner_addr] = ETH // 2
         gas_env.mainnet[gas_env.ownonly.owner_addr] = 4 * ETH
         r = server.get_gas_balance()
+        # 4.3.0: each balance also in exact wei.
         assert r["balances"]["ownonly"] == {
             "owner_address": gas_env.ownonly.owner_addr,
             "owner_eth": "0.5",
+            "owner_wei": str(ETH // 2),
             "owner_mainnet_eth": "4",
+            "owner_mainnet_wei": str(4 * ETH),
         }
 
     def test_owner_mainnet_eth_reported(self, gas_env):

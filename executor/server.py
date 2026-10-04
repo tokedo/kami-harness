@@ -4278,27 +4278,54 @@ def get_gas_balance(account: str = "") -> dict:
     Reads live balances for the operator and owner wallets plus the
     owner's mainnet balance (bridging source). No secrets are exposed;
     read-only. An account without an operator wallet reports
-    operator_eth as null.
+    operator_eth as null. Each balance is also stated in exact wei
+    (*_wei), and `block` is the Yominet block they were read at.
 
     Args:
         account: Account label; empty reports every account.
     """
     labels = [account] if account else list(_accounts)
+    accts = [(label, _get_account(label)) for label in labels]
+    addrs = [a for _l, acct in accts
+             for a in (acct.operator_addr if acct.has_operator else None,
+                       acct.owner_addr) if a]
+    held, block = _balances_at_one_block(addrs)
     out = {}
-    for label in labels:
-        acct = _get_account(label)
+    for label, acct in accts:
         entry = {}
         if acct.has_operator:
             entry["operator_address"] = acct.operator_addr
             entry["operator_eth"] = str(w3.from_wei(
-                w3.eth.get_balance(acct.operator_addr), "ether"))
+                held[acct.operator_addr], "ether"))
+            entry["operator_wei"] = str(held[acct.operator_addr])
         if acct.owner_addr:
             entry["owner_address"] = acct.owner_addr
             entry["owner_eth"] = str(w3.from_wei(
-                w3.eth.get_balance(acct.owner_addr), "ether"))
-            entry["owner_mainnet_eth"] = _owner_mainnet_eth(acct.owner_addr)
+                held[acct.owner_addr], "ether"))
+            entry["owner_wei"] = str(held[acct.owner_addr])
+            mainnet = _owner_mainnet_eth(acct.owner_addr)
+            entry["owner_mainnet_eth"] = mainnet
+            # The ETH string is web3's exact Decimal (from_wei divides at
+            # precision 999), so its wei is exact too; "unavailable": null.
+            try:
+                entry["owner_mainnet_wei"] = str(
+                    int(Decimal(mainnet) * 10 ** 18))
+            except Exception:
+                entry["owner_mainnet_wei"] = None
         out[label] = entry
-    return {"balances": out}
+    return {"balances": out, "block": block}
+
+
+def _balances_at_one_block(addrs: list[str]) -> tuple[dict[str, int], int | None]:
+    """{address: wei} for every address, all read at ONE block, and that
+    block (4.3.0). The head is read first and every balance at it; when
+    the node will not answer at that height (a replica behind it), all
+    are re-read at `latest` and the block is None — never mixed."""
+    try:
+        block = int(w3.eth.block_number)
+        return {a: int(w3.eth.get_balance(a, block)) for a in addrs}, block
+    except Exception:
+        return {a: int(w3.eth.get_balance(a)) for a in addrs}, None
 
 
 @mcp.tool()

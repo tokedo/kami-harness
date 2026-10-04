@@ -68,11 +68,14 @@ class TestOwnerOnlyLoad:
         )
         monkeypatch.setattr(server, "_owner_mainnet_eth", lambda addr: "2")
         r = server.get_gas_balance()
+        # 4.3.0: each balance also in exact wei.
         assert r["balances"] == {
             "main": {
                 "owner_address": OWNER_ADDR,
                 "owner_eth": "1",
+                "owner_wei": str(10**18),
                 "owner_mainnet_eth": "2",
+                "owner_mainnet_wei": str(2 * 10**18),
             }
         }
 
