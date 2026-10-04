@@ -2186,10 +2186,19 @@ def _wrap_send_error(e: Exception, addr: str, role: str, account: str):
 # ---------------------------------------------------------------------------
 
 
+# Every call id carries this process's tag (4.2.0), and a lane entry
+# keeps the id of the call that signed it: an entry in a key's lane file
+# is therefore attributable to an earlier call of THIS server, or to
+# another process using the same key — a second harness server, or this
+# one before a restart — that shares the lane directory. An id without
+# this tag (any other process's, or a 4.1.0 one) is never this server's.
+_PROCESS_TAG = uuid.uuid4().hex[:8]
+
+
 class _CallControl:
     def __init__(self, tool: str, ctx=None):
         self.tool = tool
-        self.id = f"{tool}#{uuid.uuid4().hex[:12]}"
+        self.id = f"{tool}#{_PROCESS_TAG}.{uuid.uuid4().hex[:12]}"
         self.cancelled = threading.Event()
         self.ctx = ctx
         self.notices: list[str] = []
@@ -2590,6 +2599,29 @@ def _lane_next_nonce(lane: lanes.Lane, addr: str) -> int:
     return max(pending, lane.floor)
 
 
+_SIGNED_HERE = "an earlier call of this server"
+_SIGNED_ELSEWHERE = "another process using this key"
+
+
+def _signed_here(e: lanes.Entry) -> bool:
+    """The entry was signed by a call of THIS process (_PROCESS_TAG)."""
+    return str(e.call).partition("#")[2].startswith(_PROCESS_TAG + ".")
+
+
+def _signer(e: lanes.Entry) -> str:
+    return _SIGNED_HERE if _signed_here(e) else _SIGNED_ELSEWHERE
+
+
+def _shared_lane(lane: lanes.Lane) -> str:
+    """The sentence a notice adds when another process's entry is named."""
+    d, home = str(lane.directory), str(Path.home())
+    if d == home or d.startswith(home + os.sep):
+        d = "~" + d[len(home):]
+    return (f"Another process using this key (a second harness server on "
+            f"it, or this one before a restart) shares its nonce lane with "
+            f"this server through the lane directory {d}.")
+
+
 def _origin(e: dict | lanes.Entry) -> str:
     d = e.public() if isinstance(e, lanes.Entry) else e
     when = d.get("signed_at")
@@ -2795,20 +2827,27 @@ def _lane_drain(lane, addr, key, ctl, pending: int, held: list) -> None:
         if time.monotonic() >= deadline:
             break
         time.sleep(1.0)
+    signers = {_signer(e) for e in armed}
+    mixed = len(signers) > 1
     parts = []
     for e in armed:
         st = outcome.get(e.hash.lower(), "unconfirmed")
-        parts.append(f"{e.hash} ({_origin(e)}) -> {st}")
+        whose = f"; {_signer(e)}" if mixed else ""
+        parts.append(f"{e.hash} ({_origin(e)}{whose}) -> {st}")
     filled = ", ".join(
         f"nonce {n} by {h} -> {outcome.get(h.lower(), 'unconfirmed')}"
         for n, h in fills
     )
+    by = (f"{_SIGNED_HERE} and by {_SIGNED_ELSEWHERE}" if mixed
+          else next(iter(signers)))
     ctl.notice(
         f"released {len(armed)} transaction(s) left armed behind nonce "
-        f"{pending} by an earlier call: " + "; ".join(parts)
+        f"{pending} by {by}: " + "; ".join(parts)
         + f". Gap filled with a zero-value self-transfer: {filled}. This "
         f"call re-ran its own validation afterwards."
     )
+    if _SIGNED_ELSEWHERE in signers:
+        ctl.notice(_shared_lane(lane))
 
 
 def _lane_prepare(lane: lanes.Lane, addr: str, key: str,
@@ -2836,8 +2875,10 @@ def _lane_prepare(lane: lanes.Lane, addr: str, key: str,
         if st == "mined":
             if e.call != ctl.id and e.kind == "action":
                 ctl.notice(
-                    f"an earlier call's transaction {e.hash} "
-                    f"({_origin(e)}) has since mined at nonce {e.nonce}")
+                    f"{_signer(e)} signed transaction {e.hash} "
+                    f"({_origin(e)}); it has since mined at nonce {e.nonce}.")
+                if not _signed_here(e):
+                    ctl.notice(_shared_lane(lane))
             lane.mined(e.hash, e.nonce)
             continue
         if st == "held":
@@ -2848,10 +2889,12 @@ def _lane_prepare(lane: lanes.Lane, addr: str, key: str,
             lane.release(e, f"nonce {e.nonce} consumed by {who}")
             if e.call != ctl.id:
                 ctl.notice(
-                    f"an earlier call's transaction {e.hash} "
-                    f"({_origin(e)}) was NOT executed: its nonce "
+                    f"{_signer(e)} signed transaction {e.hash} "
+                    f"({_origin(e)}); it was NOT executed: its nonce "
                     f"{e.nonce} was consumed by {who or 'another hash'}"
-                    f"{' (signed by this harness, ' + origin + ')' if ours else ''}")
+                    f"{' (signed by this harness, ' + origin + ')' if ours else ''}.")
+                if not _signed_here(e):
+                    ctl.notice(_shared_lane(lane))
         elif st == "absent":
             lane.release(e, "not held by the node (two fresh lookups)")
         # None: unproven — kept, and it holds the floor up.
