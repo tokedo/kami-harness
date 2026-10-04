@@ -19,9 +19,11 @@ from pathlib import Path
 
 import pytest
 
+import lanes
 import server
 from test_400_surface import ETH_TOKEN, portal_env  # noqa: F401  (fixture)
 from test_h350_families import FakeChain, seq_env  # noqa: F401  (fixture)
+from test_h400_lane import _sign_feed
 from test_h400_send_path import chain_env  # noqa: F401  (fixture)
 
 FIX = Path(__file__).parent / "fixtures" / "receipts_20261004"
@@ -388,3 +390,95 @@ def test_a_deposit_of_a_token_that_is_not_the_gas_token_needs_only_its_amount(
     portal.allowance[(t, owner)] = wei
     out = server.portal_deposit(100, 1_000, account="split")
     assert out["status"] == "success"
+
+
+# ---------------------------------------------------------------------------
+# H4 — the two-process notice says whose transaction it was
+# ---------------------------------------------------------------------------
+
+ANOTHER = "another process using this key"
+THIS = "an earlier call of this server"
+
+
+def _ledger(node, op, nonces, call, broadcast=True):
+    """Entries in the key's lane file, written by the call `call` — of
+    THIS process when `call` is one of its own call ids, else of another
+    process sharing the lane directory (a second server on the key)."""
+    lane = lanes.Lane(server.CHAIN_ID, server.Web3.to_checksum_address(op),
+                      lanes.default_dir())
+    hashes = []
+    for step, n in enumerate(nonces, start=1):
+        raw = _sign_feed(n)
+        if broadcast:
+            h = node.rpc({"jsonrpc": "2.0", "id": 1,
+                          "method": "eth_sendRawTransaction",
+                          "params": ["0x" + raw.hex()]})["result"]
+        else:
+            h = "0x" + server.Web3.keccak(raw).hex().removeprefix("0x")
+        lane.offered(lane.add(n, h, raw, call, "act_sequence", step))
+        hashes.append(h)
+    lane.save()
+    return hashes
+
+
+def _this_servers_call() -> str:
+    return server._CallControl("act_sequence").id
+
+
+def _other_process_call() -> str:
+    return "act_sequence#0123456789ab"       # the 4.1.0 call-id shape
+
+
+@pytest.mark.parametrize("whose", ["this", "other"])
+def test_a_mined_entry_is_attributed_to_its_signer(chain_env, monkeypatch,  # noqa: F811
+                                                    whose):
+    node, game, clock, op = chain_env
+    game.inv[11301] = 10
+    game.xp[server._kami_entity_id(5)] = 1_000
+    call = _this_servers_call() if whose == "this" else _other_process_call()
+    (h,) = _ledger(node, op, [500], call)            # contiguous: it mines
+    monkeypatch.setattr(server, "_LANES", {})
+    out = server.run_tool("level_up_kami", kami_id=5, account="testa")
+    note = out["notice"]
+    assert f"{h} (act_sequence step 1" in note
+    assert "has since mined at nonce 500" in note
+    if whose == "this":
+        assert THIS in note and ANOTHER not in note, note
+    else:
+        assert ANOTHER in note and THIS not in note, note
+        assert "lane directory" in note
+        assert str(lanes.default_dir()) in note, note
+
+
+@pytest.mark.parametrize("whose", ["this", "other"])
+def test_a_drained_tail_is_attributed_to_its_signer(chain_env, monkeypatch,  # noqa: F811
+                                                    whose):
+    node, game, clock, op = chain_env
+    game.inv[11301] = 10
+    game.xp[server._kami_entity_id(5)] = 1_000
+    call = _this_servers_call() if whose == "this" else _other_process_call()
+    armed = _ledger(node, op, [501, 502], call)      # behind a gap at 500
+    monkeypatch.setattr(server, "_LANES", {})
+    out = server.run_tool("level_up_kami", kami_id=5, account="testa")
+    note = out["notice"]
+    assert "released 2 transaction(s) left armed behind nonce 500" in note
+    assert all(h in note for h in armed)
+    if whose == "this":
+        assert THIS in note and ANOTHER not in note, note
+    else:
+        assert ANOTHER in note and THIS not in note, note
+        assert str(lanes.default_dir()) in note, note
+
+
+def test_a_consumed_entry_of_another_process_says_so(chain_env, monkeypatch):  # noqa: F811
+    """Signed by another process at nonce 500, never broadcast, and the
+    nonce is used by something else: NOT executed — and whose it was."""
+    node, game, clock, op = chain_env
+    game.xp[server._kami_entity_id(5)] = 1_000
+    (h,) = _ledger(node, op, [500], _other_process_call(), broadcast=False)
+    node.set_nonce(op, 501)                          # 500 consumed elsewhere
+    monkeypatch.setattr(server, "_LANES", {})
+    out = server.run_tool("level_up_kami", kami_id=5, account="testa")
+    note = out["notice"]
+    assert f"{h} (act_sequence step 1" in note and "NOT executed" in note
+    assert ANOTHER in note and THIS not in note, note
