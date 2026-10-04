@@ -2056,14 +2056,22 @@ def _require_item_balance(
     return balance
 
 
+# The chain takes gas limit x price + 1 wei up front: the prepayment
+# Transfer at log 0 of every 2026-10-04 receipt (23 of 23, gas limits from
+# 297,303 to 7,500,000) is exactly that.
+_PREPAYMENT_EXTRA_WEI = 1
+
+
 def _gas_fee_bound(gas_limit: int) -> int:
-    """The fee bound the gas gate holds a signer to: gas limit x the flat
-    price. What a transaction pays (_fee_wei) is the prepayment minus the
-    refund of unused gas, and the prepayment is this bound (+ 1 wei on
-    every 2026-10-04 receipt), so the fee never exceeds it but by that
-    wei: 1.05x-1.18x of gas USED x the price was measured, well inside a
-    limit provisioned at 1.5x or more of the use."""
-    return gas_limit * _GAS_PRICE["maxFeePerGas"]
+    """The fee bound the gas gate holds a signer to — and the gas-token
+    deposit rule too: what the chain PREPAYS, gas limit x the flat price
+    + 1 wei (_PREPAYMENT_EXTRA_WEI). The balance must cover the prepayment
+    when the transaction starts, so a bound one wei lower passed a wallet
+    the chain finds a wei short (review ruling, 4.2.0). What a
+    transaction finally pays (_fee_wei) is the prepayment minus the
+    refund of unused gas, so it never exceeds this bound: 1.05x-1.18x of
+    gas USED x the price was measured."""
+    return gas_limit * _GAS_PRICE["maxFeePerGas"] + _PREPAYMENT_EXTRA_WEI
 
 
 def _require_gas_balance(
@@ -2071,8 +2079,9 @@ def _require_gas_balance(
 ) -> None:
     """Gas-balance validation gate for the signing wallet.
 
-    With a known gas limit the requirement is exact
-    (gas_limit x flat fee + value). Without one, only a zero balance is
+    With a known gas limit the requirement is exact: the prepayment
+    (_gas_fee_bound: gas_limit x flat fee + 1 wei) + value. Without one,
+    only a zero balance is
     rejected here — the gas estimate performed at build time surfaces
     the shortfall pre-broadcast otherwise.
     """
@@ -2084,7 +2093,8 @@ def _require_gas_balance(
                 f"{role} wallet {addr} holds "
                 f"{w3.from_wei(balance, 'ether')} ETH; the transaction "
                 f"requires {w3.from_wei(required, 'ether')} ETH "
-                f"(gas limit {gas_limit} at the flat price"
+                f"(gas limit {gas_limit} at the flat price + "
+                f"{_PREPAYMENT_EXTRA_WEI} wei, the prepayment"
             )
             if value_wei:
                 detail += (
@@ -9246,7 +9256,7 @@ def _require_gas_token_left(addr: str, held: int, item: int, items: int,
     so `held >= wei` and the gas gate (each passing on its own) let
     through a deposit that lands and reverts. Required: held >= the
     deposit's token amount + the gas gate's fee bound for `leg`
-    (_gas_fee_bound: gas limit x the flat price)."""
+    (_gas_fee_bound: gas limit x the flat price + 1 wei, the prepayment)."""
     bound = _gas_fee_bound(gas_limit)
     need = wei + bound
     if held >= need:
@@ -9268,7 +9278,8 @@ def _require_gas_token_left(addr: str, held: int, item: int, items: int,
         f"gas come out of one balance. Owner wallet {addr} holds {held} wei "
         f"({_fmt_token(held)} ETH); depositing {items} items takes {wei} wei, "
         f"and {leg} fee bound is {bound} wei (gas limit {gas_limit} x the "
-        f"flat price {_GAS_PRICE['maxFeePerGas']} wei, the gas gate's bound): "
+        f"flat price {_GAS_PRICE['maxFeePerGas']} wei + "
+        f"{_PREPAYMENT_EXTRA_WEI} wei: the prepayment, the gas gate's bound): "
         f"{need} wei in all, {need - held} wei short. A deposit that leaves "
         f"less than its fee lands and reverts{tail}.")
 
