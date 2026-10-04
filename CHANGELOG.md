@@ -58,12 +58,13 @@ before signing runs, and nothing is signed:
   approve's dry-run and bound when the allowance is short, else the
   deposit's dry-run, limit, gas-token rule and gas gate. Returns the
   token amount and `credited`, `approve_needed`, `approve_fee_bound_wei`
-  and `deposit_fee_bound_wei` (each the prepayment bound of its leg,
-  `null` when that leg is not sent — or, for the deposit while the
-  allowance is short, when it cannot be estimated before the allowance
-  exists), `gas_token`, and `gas_token_rule` (`passes`, `not the gas
-  token`, or that the approve stage passes and the deposit's own bound
-  is checked once the approve has landed).
+  and `deposit_fee_bound_wei` (each the prepayment bound of its leg;
+  the approve's `null` when no approve is needed; the deposit's the
+  J8 estimate while the allowance is short, with
+  `deposit_fee_bound_estimated: true`), `gas_token`, and
+  `gas_token_rule` (`passes`, `not the gas token`, or that it passes
+  with the deposit's bound an estimate, the exact one checked once the
+  approve has landed).
 - **Claim.** Runs the chain's own `eth_call` of the claim from the
   signer and the gas gate. Returns `payee`, `route`, the token amount
   (`amount_wei`, `amount`), `claimable_now`, `claimable_at`, the
@@ -160,14 +161,43 @@ land within a few blocks. Other action tools have no `act_sequence` op,
 and the one-lane-per-key rule is already said once in the MCP
 instructions.
 
-Tests: `executor/tests/test_h430_families.py` (34), each failing first
-against 4.2.0 + the SPEC typo fix (`d7bf63f`). Three existing
+### A gas-token deposit that cannot leave the deposit's fee is refused before its approve
+
+With the allowance short the deposit cannot be estimated (its
+`eth_estimateGas` reverts on the missing allowance), so through part 1
+only the approve's bound was checked before signing: a near-total
+deposit spent an approve, left a standing allowance, and was refused
+after it. Now, when the token is the gas token and an approve is
+needed, the wallet must hold, **before anything is signed**, the amount
++ the approve's bound + an **estimated** deposit bound from
+`_DEPOSIT_GAS_ESTIMATE` = **1,205,354** gas: the recorded live deposit
+(`tests/fixtures/receipts_20261004/system_erc20_portal_34031247`, 5
+Ether Shards, 803,569 gas used) x 1.5, the factor every portal estimate
+is provisioned with, rounded up. The refusal names held, amount, the
+approve's bound and the estimated deposit bound, says nothing was
+signed and that the deposit's bound is an estimate. The exact deposit
+check after the approve stays, so a deposit whose real limit exceeds
+the estimate is still refused before IT is signed (naming the approve
+that landed). A deposit whose allowance covers is checked exactly, as
+before. The dry run states the estimate (`deposit_fee_bound_estimated`).
+
+Tests: `executor/tests/test_h430_families.py` (44), each failing first
+against 4.2.0 + the SPEC typo fix (`d7bf63f`) — the review's pins
+excepted, which pass on the built code and each fail under the mutation
+they pin (the cooldown taken from the first write instead of the last;
+the gas gate deleted from the claim, cancel or deposit dry run). Two
+tests that encoded the pre-J8 check move with it:
+`test_h420_families.py::test_after_the_approve_the_deposit_is_checked_against_its_own_fee`
+(the exact post-approve refusal, now with a fake deposit whose real
+limit, 1,500,000, exceeds the estimate) and
+`test_h430_families.py::test_a_deposit_dry_run_with_a_short_allowance_signs_no_approve`
+(the estimate instead of null). Three existing
 exact-shape assertions gain the new fields, same strictness:
 `test_h400_lane.py::test_a_filled_gap_is_the_first_line_of_the_sequence_result`
 (the fill row's three fields: the fake node's values, `fee_wei` null —
 its receipts carry no gas legs), `test_gas_wallet.py::TestGetGasBalance::test_owner_only_account_shape`
 and `test_owner_only.py::TestOwnerOnlyLoad::test_get_gas_balance_non_empty`
-(the wei keys). 966 tests, 4 skipped.
+(the wei keys). 976 tests, 4 skipped.
 
 ### Known, not changed
 

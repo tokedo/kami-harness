@@ -315,13 +315,15 @@ which bridges an ERC-20 into an in-game item and back: Onyx Shard, item
   never an unlimited allowance. Ether Shard's token is the gas token, so
   its deposit is refused before signing unless the owner wallet holds
   the amount plus the gas gate's fee bound (gas limit x the flat price
-  + 1 wei, what the chain prepays); with an approve first, that
-  approve's bound is checked before it, and the deposit's own bound
-  once it has landed, before the deposit. A deposit's dry run signs
-  neither the approve nor the deposit, and states the token amount,
-  whether an approve is needed, both fee bounds (the deposit's is
-  `null` while the allowance is short: it cannot be estimated before
-  the allowance exists) and the gas-token check's verdict.
+  + 1 wei, what the chain prepays); with an approve first, the approve's
+  bound plus an estimated deposit bound (1,205,354 gas: a recorded
+  deposit's gas used x 1.5) are checked before the approve, and the
+  deposit's exact bound once the approve has landed, before the
+  deposit. A deposit's dry run signs neither the approve nor the
+  deposit, and states the token amount, whether an approve is needed,
+  both fee bounds (the deposit's the estimate while the allowance is
+  short, `deposit_fee_bound_estimated: true`) and the gas-token check's
+  verdict.
 - `lens_receipts` lists a roster account's pending receipts (id,
   claimable time, lane, payout route and address, state); `lens_portal`
   reads its history (`receipts`) — its `openWithdrawals` are every
