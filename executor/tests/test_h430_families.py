@@ -11,12 +11,18 @@ All hermetic: the fake portal and fake node of the 4.0.0 / 4.2.0 tests.
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 
 import pytest
 
 import server
 from fakenode import READINESS_ERROR
 from test_400_surface import ETH_TOKEN, ONYX_TOKEN, portal_env  # noqa: F401
+from test_gas_wallet import gas_env  # noqa: F401  (fixture)
+from test_h350_families import FakeChain, seq_env  # noqa: F401  (fixture)
+from test_h420_families import _batch_of_the_two_872_stops
+from test_h420_families import landed  # noqa: F401  (fixture)
 from test_h400_lane import _travel_env
 from test_h400_send_path import _feeds, _refuse_nonce
 from test_h400_send_path import chain_env  # noqa: F401  (fixture)
@@ -371,3 +377,169 @@ def test_fund_operator_describes_the_prepayment():
     tools = {t.name: t for t in server.mcp._tool_manager.list_tools()}
     d = tools["fund_operator"].description
     assert "250k gas at the flat price + 1 wei" in d, d
+
+
+# ===========================================================================
+# Part 2 — the second live round's last-call list
+# ===========================================================================
+
+FIX = Path(__file__).parent / "fixtures" / "receipts_20261004"
+_REAL_KAMI_EID = server._kami_entity_id
+
+
+def _receipt(name_or_raw):
+    raw = (json.loads((FIX / name_or_raw).read_text())
+           if isinstance(name_or_raw, str) else name_or_raw)
+    return server._format_receipt(raw)
+
+
+START = "system_harvest_start_34030997_988a9650.json"      # kamis 6058, 6245
+STOP = "system_harvest_stop_34031314_ee431877.json"        # kami 6058
+COLLECT = "system_harvest_collect_34031082_94415aa2.json"  # kami 6058
+
+
+@pytest.fixture()
+def starts(landed, monkeypatch):  # noqa: F811
+    """harvest_start on its real send path too (landed covers stop and
+    collect): ownership passes, the chain answers with a recorded receipt."""
+    monkeypatch.setattr(server, "_require_kamis_owned", lambda *a: None)
+    return landed
+
+
+# ---------------------------------------------------------------------------
+# J4 — get_gas_balance states exact wei, and the block it read at
+# ---------------------------------------------------------------------------
+
+def test_gas_balance_states_every_balance_in_exact_wei(gas_env):  # noqa: F811
+    odd = 123_456_789_012_345_678_901                   # 21 digits
+    gas_env.balances[gas_env.solo.operator_addr] = odd
+    gas_env.balances[gas_env.solo.owner_addr] = 1
+    gas_env.mainnet[gas_env.solo.owner_addr] = odd + 7
+    solo = server.get_gas_balance(account="solo")["balances"]["solo"]
+    assert solo.get("operator_wei") == str(odd), solo
+    assert solo.get("owner_wei") == "1", solo
+    assert solo.get("owner_mainnet_wei") == str(odd + 7), solo
+    assert solo["operator_eth"] == "123.456789012345678901"   # unchanged
+    gas_env.mainnet.clear()
+    solo = server.get_gas_balance(account="solo")["balances"]["solo"]
+    assert solo["owner_mainnet_eth"] == "unavailable"
+    assert "owner_mainnet_wei" in solo and solo["owner_mainnet_wei"] is None
+
+
+def test_gas_balance_states_the_block_it_read_at(gas_env, monkeypatch):  # noqa: F811
+    """Every Yominet balance of the call is read at ONE stated block."""
+    reads = []
+
+    def get_balance(addr, block_identifier="latest"):
+        reads.append(block_identifier)
+        return gas_env.balances.get(addr, 0)
+
+    monkeypatch.setattr(server.w3.eth, "block_number", 34_100_000,
+                        raising=False)
+    monkeypatch.setattr(server.w3.eth, "get_balance", get_balance)
+    r = server.get_gas_balance()
+    assert r.get("block") == 34_100_000, r
+    assert reads and set(reads) == {34_100_000}, reads
+
+
+# ---------------------------------------------------------------------------
+# J5 — one tool, one result shape on its single and batch paths
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("tool, name", [
+    ("harvest_start", START), ("harvest_stop", STOP),
+    ("harvest_collect", COLLECT),
+])
+def test_single_and_batch_paths_return_the_same_keys(starts, tool, name):
+    """One receipt answers both calls: the key sets must match."""
+    call = getattr(server, tool)
+    args = (lambda ks: (ks, 73)) if tool == "harvest_start" else (
+        lambda ks: (ks,))
+    starts.append(_receipt(name))
+    single = call(*args([6058]), account="testa")
+    starts.append(_receipt(name))
+    batch = call(*args([6058, 6245]), account="testa")
+    assert set(single) == set(batch), (
+        f"{tool}: single-only {set(single) - set(batch)}, "
+        f"batch-only {set(batch) - set(single)}")
+    assert batch["account"] == "testa"
+
+
+# ---------------------------------------------------------------------------
+# J6 — a start / stop / collect says when each kami may act next
+# ---------------------------------------------------------------------------
+
+def test_a_batch_start_states_each_kamis_cooldown(starts):
+    """The 2-kami start (34030997): each kami's component.Time.Next write
+    — LibCooldown.set, block timestamp + cooldown — the unit the kill
+    rows use."""
+    starts.append(_receipt(START))
+    out = server.harvest_start([6245, 6058], 73, account="testa")
+    assert out.get("cooldowns") == [
+        {"kami_id": 6245, "cooldown_until": 1791101278},
+        {"kami_id": 6058, "cooldown_until": 1791101278}], out
+
+
+@pytest.mark.parametrize("tool, name, kamis, want", [
+    ("harvest_stop", STOP, [6058], {6058: 1791101909}),
+    ("harvest_collect", COLLECT, [6058], {6058: 1791101541}),
+])
+def test_a_stop_or_collect_states_the_cooldown_it_started(starts, tool, name,
+                                                          kamis, want):
+    starts.append(_receipt(name))
+    out = getattr(server, tool)(kamis, account="testa")
+    assert out.get("cooldowns") == [
+        {"kami_id": k, "cooldown_until": want[k]} for k in kamis], out
+
+
+def test_a_batch_stop_states_each_kamis_own_cooldown(starts):
+    starts.append(_receipt(_batch_of_the_two_872_stops()))
+    out = server.harvest_stop([11224, 12649], account="testa")
+    assert out.get("cooldowns") == [
+        {"kami_id": 11224, "cooldown_until": 1791103093},
+        {"kami_id": 12649, "cooldown_until": 1791103093}], out
+
+
+def test_a_cooldown_the_receipt_does_not_carry_is_null_never_a_guess(starts):
+    """No Time.Next write for the kami, and the read at the receipt's
+    block fails (the offline node): null plus a decode_error."""
+    raw = json.loads((FIX / STOP).read_text())
+    tn = "0x" + server._TIME_NEXT_COMPONENT_ID.to_bytes(32, "big").hex()
+    raw = {**raw, "logs": [lg for lg in raw["logs"]
+                           if lg["topics"][1:2] != [tn]]}
+    starts.append(_receipt(raw))
+    (row,) = server.harvest_stop([6058], account="testa")["cooldowns"]
+    assert row["kami_id"] == 6058 and row["cooldown_until"] is None, row
+    assert "cooldown" in row.get("decode_error", ""), row
+
+
+def test_sequence_start_and_stop_rows_carry_cooldowns(seq_env):  # noqa: F811
+    seq_env.setattr(server, "_kami_entity_id", _REAL_KAMI_EID)
+    names = [START, STOP]
+    seq_env.setattr(server, "w3", FakeChain(["ok", "ok"]))
+    seq_env.setattr(server, "_await_receipt",
+                    lambda h, built, timeout, account=None, ceiling_key=None:
+                    _receipt(names[int(h[-2:], 16)]))
+    out = server.act_sequence([
+        {"op": "harvest_start", "kami_ids": [6058, 6245], "node_index": 73},
+        {"op": "harvest_stop", "kami_ids": [6058]},
+    ], account="testa")
+    start, stop = out["steps"]
+    assert start.get("cooldowns") == [
+        {"kami_id": 6058, "cooldown_until": 1791101278},
+        {"kami_id": 6245, "cooldown_until": 1791101278}], start
+    assert stop.get("cooldowns") == [
+        {"kami_id": 6058, "cooldown_until": 1791101909}], stop
+
+
+# ---------------------------------------------------------------------------
+# J7 — the single-action tools say how to get one block
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name", ["feed_kami", "liquidate_kami",
+                                  "harvest_start", "harvest_stop"])
+def test_the_actions_act_sequence_batches_say_how_to_land_together(name):
+    d = {t.name: t for t in server.mcp._tool_manager.list_tools()}[
+        name].description
+    assert "Calls on one key run in turn" in d, d
+    assert "act_sequence" in d, d
