@@ -29,6 +29,105 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [4.1.0] — 2026-10-04 — `portal_claim` reports the payout, not the gas refund
+
+MINOR. No tool, parameter, schema or description changes: **100 tools**,
+registry mass **69,351**, `tools_hash`
+`907899dc681349b5d37860b3183cfb46135c338aabdfd586ca90f449e511b2be` — a
+4.0.0 deployment and a 4.1.0 one have the same surface fingerprint.
+`SCHEMA_VERSION` **4.1.0**.
+
+**Why MINOR and not PATCH, by this file's own rule.** The build brief
+labelled this 4.0.1, but what an agent sees at runtime changes —
+`portal_claim`'s `amount_wei` is now the payout, its `payee` can
+change, `amount` is absent when it cannot be stated, and `decode_error`
+has new texts — and PATCH is reserved for changes with no agent-visible
+effect at all (the 3.2.0 and 3.7.0 shape).
+
+### What was wrong
+
+On Yominet gas is paid in the same ERC-20 that Ether Shard (item 103)
+is withdrawn to, so a claim's receipt carries two Transfer logs of
+that token besides the payout: the gas prepayment
+(the sender to a fee collector, first) and the unused-gas refund (the
+fee collector back to the sender, last). 4.0.0 read every Transfer of
+the claimed token in the receipt and kept the LAST one — the refund. A
+live claim on 2026-10-04 paid 90,000,000,000,000 wei (0.00009 ETH) and
+was reported as 2,176,567,500,000 wei, its gas refund.
+
+- **Since** 4.0.0 (2026-10-03), the tool's first release.
+- **Who is affected**: Ether Shard (103) claims. `amount_wei` / `amount`
+  was the gas refund on every claim whose receipt carried one — in
+  practice every claim, since the gas limit is 1.5x the estimate.
+  `payee` was the refund's recipient, the signer: right by coincidence
+  when the signer is the payee (the operator claiming an operator-lane
+  receipt, the owner claiming an owner receipt), wrong when the owner
+  claims an operator-lane receipt (the operator is paid; the owner was
+  named). Onyx Shard (100) claims were reported correctly: Onyx is not
+  the gas token, so its payout was the token's only Transfer.
+- **Funds were never affected.** The claim itself was always right —
+  the chain paid the right payee the right amount; only the tool's
+  report of it was wrong. `tx_hash`, `status`, `block`, `gas_used`,
+  `route` and `notice` were always right.
+
+### The rule now
+
+The game's own record of a claim, its `PORTAL_TOKEN_CLAIM` world event,
+carries the timestamp, the account id and the receipt id only — no
+payee and no amount — so the payout is read from the token's Transfer
+logs, by rule and never by position: the one Transfer of the token
+**from the portal's token holder** (`component.token.holder`: the game
+pays a claim out of it and nothing else, so neither gas leg can match)
+**to the payee computed before signing**, whose value must equal the
+receipt's token amount read before signing. Only the claimed token's
+Transfers count: the same transfer on any other contract is never the
+payout. No such Transfer, more than one, or a value that disagrees with
+the receipt: `decode_error` says so with the numbers, and no
+`amount_wei` / `amount` is stated (`payee` is stated when the payout was
+found but its value disagrees). The decode never raises after the
+broadcast.
+
+### The same class, everywhere
+
+`portal_claim` was the only reader of ERC-20 Transfer logs. None of the
+other results can mistake a gas leg for its value:
+
+- `portal_withdraw` reads its receipt id and token amount from its own
+  `PORTAL_TOKEN_WITHDRAW` world event, not from a Transfer.
+- `portal_deposit` reports the token amount it computed (items x
+  10^(18 - scale), what the game pulls); `portal_cancel` reports the
+  items read before signing. Neither reads a log.
+- `fund_operator`, `withdraw_operator`, `bridge_status` and
+  `get_gas_balance` report the amount sent (fixed before signing) and
+  absolute balances, never a balance difference; `buy_kami` and
+  `newbie_vendor_buy` report the price read before signing.
+- `pool_swap`'s `received` is an in-game item inventory difference,
+  which gas does not touch.
+- The scavenge, droptable, gacha and sacrifice commit, and liquidation
+  decoders match world-event, store-record or component-write topics,
+  never the Transfer topic.
+
+Tests: `executor/tests/test_h410_portal_claim.py` — the live claim's
+three Transfers (synthetic addresses, its log order and values) and the
+same logs reversed; signer = payee on both lanes; the owner signing an
+operator-lane receipt; no payout, a payout to someone else, a payout
+from someone else, two payouts; a payout whose value disagrees with the
+receipt; the holder paying the payee on another token contract, alone
+and beside the real payout. 865 tests.
+
+### Known, not changed
+
+- `portal_deposit` of the gas token (Ether Shard 103) checks the token
+  balance against the deposit amount and the gas gate separately,
+  though both come out of the same token on this chain, so a deposit
+  that leaves less than the fee passes every pre-send check and then
+  reverts.
+- The fee this chain actually deducts is the gas prepayment minus the
+  refund, both visible as Transfers of the gas token in every receipt —
+  about 11 % above `gas_used` x the flat price in two live transactions —
+  so the sweep reserve's note that the fee "could not be derived
+  read-only" can be answered from a receipt in a later release.
+
 ## [4.0.0] — 2026-10-03 — one send path, the token portal, lens 1.0.0
 
 MAJOR. **100 tools** (ACT 59 / PERCEIVE 34 / META 7; the OUTSOURCE class
