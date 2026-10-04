@@ -4933,8 +4933,10 @@ def lens_node(
 
 @mcp.tool()
 def lens_room(room_index: int, full: bool = False) -> dict:
-    """Room occupancy: its exits, and the accounts in it — first 50 rows
-    of {index, name, kamiCount}, with accountsTotal/accountsServed.
+    """Room occupancy: its exits (special exits, then geometric
+    neighbours, not de-duplicated: a room can appear twice), and the
+    accounts in it — first 50 rows of {index, name, kamiCount}, with
+    accountsTotal/accountsServed.
 
     Args:
         room_index: Room index (1-70; see catalogs/rooms.csv).
@@ -5141,7 +5143,9 @@ def lens_market(account_index: int = -1, full: bool = False) -> dict:
 
 @mcp.tool()
 def lens_portal(account_index: int) -> dict:
-    """Token portal history for an account, plus open withdrawals."""
+    """Token portal history for an account (`receipts`: its withdrawals,
+    then deposits); `openWithdrawals` is every OTHER account's open
+    withdrawals (its own: `receipts`; pending ones: lens_receipts)."""
     return _lens_request("portal", [account_index])
 
 
