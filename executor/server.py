@@ -9473,7 +9473,8 @@ def portal_withdraw(
 
 
 @mcp.tool()
-def portal_claim(receipt_id: str, account: str = "main") -> dict:
+def portal_claim(receipt_id: str, account: str = "main",
+                 dry_run: bool = False) -> dict:
     """Claim a portal withdrawal receipt once its delay has passed: the ERC-20 is paid out.
 
     Owner receipt: signed by and paid to the owner. Operator-lane receipt:
@@ -9484,7 +9485,8 @@ def portal_claim(receipt_id: str, account: str = "main") -> dict:
     Validates before signing: portal enabled, receipt pending and this
     account's, not paused, delay ended, an allowed signer's key held,
     payee set. Returns payee and the amount paid, from the token transfer
-    in this transaction.
+    in this transaction. dry_run runs every check and returns payee,
+    route and token amount without signing.
 
     Args:
         receipt_id: From portal_withdraw, or lens_receipts (with its
@@ -9509,8 +9511,24 @@ def portal_claim(receipt_id: str, account: str = "main") -> dict:
     # The payer of every claim (upstream TokenHolderComponent), resolved
     # before signing: nothing after the broadcast may raise.
     holder = _resolve_component("component.token.holder")
-    receipt = _portal_send(p["portal"].functions.claim(rid), addr, key, role,
-                           account)
+    fn = p["portal"].functions.claim(rid)
+    if dry_run:
+        # 4.3.0 (J1): every check the send makes — the chain's own
+        # eth_call of the claim from the signer and the gas gate — and
+        # no signature. The payout is the receipt's token amount, which
+        # the decode of a real claim must find equal (_portal_payout).
+        gas = _portal_gas(fn, addr, account)
+        _require_gas_balance(addr, gas, 0, role)
+        return {**({"notice": notice} if notice else {}),
+                "dry_run": True, "receipt_id": hex(rid),
+                "route": "operator" if rec["operator_lane"] else "owner",
+                "item": rec["item"], "token": p["token"],
+                "payee": Web3.to_checksum_address(payee),
+                "amount_wei": str(rec["token_wei"]),
+                "amount": _fmt_token(rec["token_wei"]),
+                "claimable_now": True, "claimable_at": rec["claimable_at"],
+                "signer": role, "fee_bound_wei": str(_gas_fee_bound(gas))}
+    receipt = _portal_send(fn, addr, key, role, account)
     out = {**({"notice": notice} if notice else {}),
            **_tx_fields(receipt), "receipt_id": hex(rid),
            "route": "operator" if rec["operator_lane"] else "owner",
@@ -9526,12 +9544,14 @@ def portal_claim(receipt_id: str, account: str = "main") -> dict:
 
 
 @mcp.tool()
-def portal_cancel(receipt_id: str, account: str = "main") -> dict:
+def portal_cancel(receipt_id: str, account: str = "main",
+                  dry_run: bool = False) -> dict:
     """Cancel a pending portal withdrawal receipt: its items return to the inventory, the export tax does not.
 
     Same signer rule as portal_claim. Validates before signing: portal
     enabled, receipt pending and this account's, not paused, an allowed
-    signer's key held.
+    signer's key held. dry_run runs every check and returns the items
+    that would return without signing.
 
     Args:
         receipt_id: From portal_withdraw or lens_receipts; decimal or
@@ -9541,17 +9561,26 @@ def portal_cancel(receipt_id: str, account: str = "main") -> dict:
     rec = _portal_receipt(rid)
     p = _portal_item(rec["item"])
     addr, key, role, _payee = _portal_signer(account, rec)
-    receipt = _portal_send(p["portal"].functions.cancel(rid), addr, key, role,
-                           account)
-    return {
-        **_tx_fields(receipt), "receipt_id": hex(rid), "item": rec["item"],
+    fn = p["portal"].functions.cancel(rid)
+    quote = {
+        "receipt_id": hex(rid), "item": rec["item"],
         "items_refunded": rec["token_wei"] // 10 ** (18 - p["scale"]),
         "tax_not_refunded": rec["tax_items"],
     }
+    if dry_run:
+        # 4.3.0 (J1): the send's own checks (eth_call, gas gate), no
+        # signature.
+        gas = _portal_gas(fn, addr, account)
+        _require_gas_balance(addr, gas, 0, role)
+        return {"dry_run": True, **quote, "signer": role,
+                "fee_bound_wei": str(_gas_fee_bound(gas))}
+    receipt = _portal_send(fn, addr, key, role, account)
+    return {**_tx_fields(receipt), **quote}
 
 
 @mcp.tool()
-def portal_deposit(item: int, amount: int, account: str = "main") -> dict:
+def portal_deposit(item: int, amount: int, account: str = "main",
+                   dry_run: bool = False) -> dict:
     """Deposit an ERC-20 from the owner wallet into the game as items through the token portal (owner-signed).
 
     amount is in ITEMS (as portal_withdraw); the import tax (flat + basis
@@ -9560,7 +9589,9 @@ def portal_deposit(item: int, amount: int, account: str = "main") -> dict:
     transaction, in txs).
 
     Validates before signing: portal enabled, item registered, token
-    balance in the owner wallet, tax below amount.
+    balance in the owner wallet, tax below amount. dry_run signs nothing
+    (not even the approve) and returns the token amount, whether an
+    approve is needed, the fee bounds and the gas-token check.
     """
     acct = _get_account(account)
     if amount < 1:
@@ -9586,38 +9617,68 @@ def portal_deposit(item: int, amount: int, account: str = "main") -> dict:
     # comes out of the balance the deposit needs.
     gas_token = p["token"].lower() == _GAS_TOKEN.lower()
     deposit = p["portal"].functions.deposit(item, amount)
-    deposit_gas = None
-    txs = []
-    if int(token.functions.allowance(acct.owner_addr, spender).call()) < wei:
+    quote = {
+        "item": item, "item_name": _get_item_name(item), "amount": amount,
+        "tax": tax, "credited": amount - tax["items"],
+        "token": {"address": p["token"], "amount_wei": str(wei),
+                  "amount": _fmt_token(wei)},
+    }
+    approve_needed = int(
+        token.functions.allowance(acct.owner_addr, spender).call()) < wei
+    approve = approve_gas = deposit_gas = None
+    if approve_needed:
         approve = token.functions.approve(spender, wei)
         _dry_run(approve, acct.owner_addr, account=account)
-        gas = int(approve.estimate_gas({"from": acct.owner_addr}) * 3 // 2)
+        approve_gas = int(
+            approve.estimate_gas({"from": acct.owner_addr}) * 3 // 2)
         if gas_token:
             # The deposit cannot be estimated before its allowance exists:
             # here the amount + the APPROVE's bound; the deposit's own
             # bound below, before the deposit is signed.
             _require_gas_token_left(acct.owner_addr, held, item, amount, wei,
-                                    gas, "the approve's")
-        r = _signed_send(approve, acct.owner_addr, acct.owner_key, "owner",
-                         account, gas_limit=gas)
-        txs.append({"step": "approve", **_tx_fields(r)})
-    if gas_token:
+                                    approve_gas, "the approve's")
+    else:
+        # Estimable now: the deposit's dry-run and limit (the one it is
+        # sent with), and for the gas token its bound, before anything.
         deposit_gas = _portal_gas(deposit, acct.owner_addr, account)
-        if txs:   # the approve's fee came out of the same balance
+        if gas_token:
+            _require_gas_token_left(acct.owner_addr, held, item, amount, wei,
+                                    deposit_gas, "the deposit's")
+    if dry_run:
+        # 4.3.0 (J1): nothing is signed — not even the approve. With the
+        # allowance short the deposit cannot be estimated, so its bound
+        # is null and the verdict says which stage was checked.
+        if deposit_gas is not None:
+            _require_gas_balance(acct.owner_addr, deposit_gas, 0, "owner")
+        rule = ("not the gas token" if not gas_token
+                else "passes" if not approve_needed
+                else "approve stage passes; the deposit's own bound is "
+                     "checked once the approve has landed (it cannot be "
+                     "estimated before its allowance exists)")
+        return {
+            "dry_run": True, **quote, "approve_needed": approve_needed,
+            "approve_fee_bound_wei": (str(_gas_fee_bound(approve_gas))
+                                      if approve_gas else None),
+            "deposit_fee_bound_wei": (str(_gas_fee_bound(deposit_gas))
+                                      if deposit_gas else None),
+            "gas_token": gas_token, "gas_token_rule": rule,
+        }
+    txs = []
+    if approve_needed:
+        r = _signed_send(approve, acct.owner_addr, acct.owner_key, "owner",
+                         account, gas_limit=approve_gas)
+        txs.append({"step": "approve", **_tx_fields(r)})
+        if gas_token:
+            deposit_gas = _portal_gas(deposit, acct.owner_addr, account)
+            # the approve's fee came out of the same balance
             held = int(token.functions.balanceOf(acct.owner_addr).call())
-        _require_gas_token_left(acct.owner_addr, held, item, amount, wei,
-                                deposit_gas, "the deposit's",
-                                approved=txs[0]["tx_hash"] if txs else None)
+            _require_gas_token_left(acct.owner_addr, held, item, amount, wei,
+                                    deposit_gas, "the deposit's",
+                                    approved=txs[0]["tx_hash"])
     receipt = _portal_send(deposit, acct.owner_addr, acct.owner_key, "owner",
                            account, gas=deposit_gas)
     txs.append({"step": "deposit", **_tx_fields(receipt)})
-    return {
-        **_tx_fields(receipt), "item": item, "item_name": _get_item_name(item),
-        "amount": amount, "tax": tax, "credited": amount - tax["items"],
-        "token": {"address": p["token"], "amount_wei": str(wei),
-                  "amount": _fmt_token(wei)},
-        "txs": txs,
-    }
+    return {**_tx_fields(receipt), **quote, "txs": txs}
 
 
 # ---- On-chain: in-world transfers between accounts ----
