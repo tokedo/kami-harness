@@ -392,9 +392,10 @@ def test_sequence_rows_report_fee_wei_and_null_for_a_revert(seq_env):  # noqa: F
 PRICE = 2_500_000                      # the flat price, wei per gas
 # The fake portal's estimates (fakenode Result.gas_used) x 1.5, the gas
 # limit the portal send provisions: deposit 500,000 -> 750,000; approve
-# 60,000 -> 90,000. The gas gate's fee bound is gas limit x the price.
-DEPOSIT_BOUND = 750_000 * PRICE        # 1,875,000,000,000 wei
-APPROVE_BOUND = 90_000 * PRICE         #   225,000,000,000 wei
+# 60,000 -> 90,000. The gas gate's fee bound is what the chain prepays:
+# gas limit x the price + 1 wei (every fixture receipt's log 0).
+DEPOSIT_BOUND = 750_000 * PRICE + 1    # 1,875,000,000,001 wei
+APPROVE_BOUND = 90_000 * PRICE + 1     #   225,000,000,001 wei
 ITEMS = 5                              # Ether Shard 103, scale 5
 WEI = ITEMS * 10 ** 13                 # 50,000,000,000,000 wei
 
@@ -432,6 +433,43 @@ def test_a_gas_token_deposit_that_leaves_exactly_the_fee_is_sent(
     out = server.portal_deposit(103, ITEMS, account="split")
     assert [t["step"] for t in out["txs"]] == ["deposit"]
     assert game.inv[103] == 200_000 + ITEMS - 1        # tax 1
+
+
+def test_the_bound_includes_the_wei_the_chain_prepays(portal_env):  # noqa: F811
+    """Review ruling (4.2.0): every measured prepayment is gas limit x
+    price + 1 wei, so a wallet holding exactly amount + gas limit x price
+    is one wei short when the deposit's transferFrom runs: refused. One
+    wei more is sent."""
+    node, game, clock, portal, split = portal_env
+    held = WEI + 750_000 * PRICE
+    _fund(portal, split, held, allowance=WEI)
+    with pytest.raises(server.PreTxValidationError) as ei:
+        server.portal_deposit(103, ITEMS, account="split")
+    assert not node.sends
+    msg = str(ei.value)
+    assert f"fee bound is {750_000 * PRICE + 1} wei" in msg, msg
+    assert "1 wei short" in msg, msg
+    _fund(portal, split, held + 1, allowance=WEI)
+    assert server.portal_deposit(103, ITEMS, account="split")["status"] == (
+        "success")
+
+
+@pytest.mark.parametrize("value", [0, 7 * 10 ** 15])
+def test_the_gas_gate_moves_by_the_same_wei(monkeypatch, value):
+    """_require_gas_balance, the gate every send passes: a balance of
+    exactly gas limit x price (+ value) is refused, one wei more passes."""
+    from web3 import Web3
+    gas = 3_000_000
+    balance = {"wei": gas * PRICE + value}
+    monkeypatch.setattr(server, "w3", type("W", (), {
+        "eth": type("E", (), {"get_balance": staticmethod(
+            lambda a: balance["wei"])}),
+        "from_wei": staticmethod(Web3.from_wei)}))
+    with pytest.raises(server.PreTxValidationError) as ei:
+        server._require_gas_balance("0x" + "11" * 20, gas, value, "operator")
+    assert "gas limit 3000000 at the flat price" in str(ei.value)
+    balance["wei"] += 1
+    server._require_gas_balance("0x" + "11" * 20, gas, value, "operator")
 
 
 def test_a_short_wallet_signs_no_approve_either(portal_env):  # noqa: F811
