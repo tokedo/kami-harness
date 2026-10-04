@@ -29,6 +29,97 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [4.3.0] — 2026-10-04 — the last release before the freeze
+
+MINOR. **100 tools**; three new *optional* parameters (`dry_run` on
+`portal_deposit`, `portal_claim`, `portal_cancel`), no tool, parameter
+or result field removed or renamed. Registry mass **70,057** (70,057 −
+69,572 = 485 for the three parameters, their three description
+sentences and `fund_operator`'s; budget 73,000, no raise asked),
+`tools_hash`
+`8c212abfe0d02d1554af8d49c70647608f6faeebb8734e9abbc71a1febd33004`
+(Python 3.13). `SCHEMA_VERSION` **4.3.0**.
+
+**Why MINOR, by this file's own rule.** New optional parameters, new
+result content and new texts; nothing an existing caller relies on is
+removed.
+
+### `dry_run` on the three portal tools that lacked it
+
+`portal_withdraw` had a dry run; `portal_deposit`, `portal_claim` and
+`portal_cancel` did not, so the 4.2.0 gas-token deposit rule could not
+be tried without signing (a real deposit signs its approve first). Each
+now takes `dry_run: bool = False`. Every check the real call makes
+before signing runs, and nothing is signed:
+
+- **Deposit.** Signs neither the approve nor the deposit. Runs the
+  approve's dry-run and bound when the allowance is short, else the
+  deposit's dry-run, limit, gas-token rule and gas gate. Returns the
+  token amount and `credited`, `approve_needed`, `approve_fee_bound_wei`
+  and `deposit_fee_bound_wei` (each the prepayment bound of its leg,
+  `null` when that leg is not sent — or, for the deposit while the
+  allowance is short, when it cannot be estimated before the allowance
+  exists), `gas_token`, and `gas_token_rule` (`passes`, `not the gas
+  token`, or that the approve stage passes and the deposit's own bound
+  is checked once the approve has landed).
+- **Claim.** Runs the chain's own `eth_call` of the claim from the
+  signer and the gas gate. Returns `payee`, `route`, the token amount
+  (`amount_wei`, `amount`), `claimable_now`, `claimable_at`, the
+  `signer` and its `fee_bound_wei`, and the same `notice` as a real
+  claim when the payee is not this server's operator wallet.
+- **Cancel.** Likewise; returns `items_refunded` and
+  `tax_not_refunded`, the `signer` and `fee_bound_wei`.
+- A refusal is the real call's `PreTxValidationError`, word for word —
+  so the gas-token rule can be seen to refuse with zero transactions. A
+  dry run has no terminal state: `dry_run: true` and no `status`,
+  `tx_hash`, `block`, `gas_used` or `fee_wei`.
+
+`portal_deposit`'s real path is regrouped so the dry run and the send
+share every check; what it sends, and in what order, is unchanged.
+
+### A fee total where a tool sums gas
+
+- `travel_to_room` (reached, partial, and the `BatchTxError` payload)
+  gains **`fee_wei`** beside its summed `gas_used`: the sum of its legs'
+  fees, or `null` when any leg that spent or may have spent gas
+  (success, reverted, unconfirmed) states none. **The rule chosen is
+  null, not a partial sum**: a reverted hop's receipt carries no logs,
+  so summing the rest would understate the call's cost as if it were
+  the total, and `fee_wei` is never an estimate. A leg proven not
+  executed or refused before signing cost nothing and counts nothing.
+  `gas_used` keeps its meaning (the successful legs).
+- `act_sequence`'s gap-fill rows (`filled`) — real transactions that
+  cost gas — gain `block`, `gas_used` and `fee_wei` from their own
+  receipts. The one-by-one receipt fallback (an endpoint that will not
+  batch) now reads each fill's receipt once; it never did, so a fill row
+  stayed `unconfirmed` there.
+
+### The texts 4.2.0 left behind
+
+- `LaneBlockedError` names who signed each armed transaction — "an
+  earlier call of this server" / "another process using this key", each
+  named when they are mixed — and, for another process, says it shares
+  the key's nonce lane through the lane directory. It no longer says
+  "signed earlier by this harness".
+- The late-mined notice reads "<signer> signed a transaction the lane had
+  released, <hash> (<origin>); it mined late at nonce N." (+ the
+  shared-lane sentence for another process).
+- `fund_operator`'s description states its provision as the prepayment:
+  "250k gas at the flat price + 1 wei", as its refusal does.
+
+Tests: `executor/tests/test_h430_families.py` (19), each failing first
+against 4.2.0 + the SPEC typo fix (`d7bf63f`). One existing exact-shape
+assertion, `test_h400_lane.py::test_a_filled_gap_is_the_first_line_of_the_sequence_result`,
+gains the fill row's three new fields (the fake node's values; `fee_wei`
+null, its receipts carry no gas legs). 951 tests, 4 skipped.
+
+### Known, not changed
+
+- `portal_withdraw`'s dry run (since 4.0.0) stops before its `eth_call`
+  and gas gate; the three new dry runs run both. Left as built.
+- No static "feed inside a kill cooldown" refusal in `act_sequence`
+  (4.2.0's reason stands).
+
 ## [4.2.0] — 2026-10-04 — what the live stage showed missing or misleading
 
 MINOR. **100 tools** (no tool, parameter or schema added, removed or

@@ -153,10 +153,10 @@ bytes re-offered on an ambiguous refusal, and a new nonce only once the
 old one is proven consumed by another hash. The ledger is persistent,
 under `KAMI_LANE_DIR` (default `~/.kami-harness/lanes`). Writes on
 different wallets run concurrently; reads never wait behind writes. A
-`notice` that names a transaction from the ledger says who signed it: an
-earlier call of this server, or another process using this key (a
-second server on it, or this one before a restart), which shares the
-lane directory with it.
+`notice` that names a transaction from the ledger — and the lane-blocked
+error — says who signed it: an earlier call of this server, or another
+process using this key (a second server on it, or this one before a
+restart), which shares the lane directory with it.
 
 `fee_wei` is what the transaction actually paid: on Yominet gas is
 charged in the gas token, and every landed receipt carries its
@@ -164,8 +164,12 @@ prepayment (log 0, the sender to a fee collector) and its refund (the
 last log, that collector back to the sender); `fee_wei` is the
 difference, identified by those counterparties, and `null` for a
 reverted transaction (its receipt has no logs). It is about 1.05x to
-1.18x of `gas_used` x the flat price. Every per-leg `txs` row and every
-`act_sequence` row carries it too.
+1.18x of `gas_used` x the flat price. Every per-leg `txs` row, every
+`act_sequence` row and every `act_sequence` gap-fill row (`filled`,
+with its `block` and `gas_used`) carries it too. `travel_to_room`
+states a `fee_wei` total beside its summed `gas_used`: the sum of its
+hops' fees, `null` when a hop that spent gas states none (a reverted
+hop), never a partial sum.
 
 Every served call fits a wall-clock box, `KAMI_CALL_BUDGET_S` (default
 90 s) — a server setting, not a tool parameter.
@@ -223,9 +227,9 @@ owner wallet (noted per tool).
 | `name_kami(kami_id, name, account)` | Name or rename a kami. Costs 1 Holy Dust. Kami must be in room 11. |
 | `newbie_vendor_buy(kami_index, max_price_eth, account)` | Buy one kami from the newbie vendor with ETH (system.newbievendor.buy). One purchase per account, ever. |
 | `pool_swap(item_in, item_out, amount_in, min_amount_out, account, dry_run)` | Swap one item against MUSU in a constant-product pool. |
-| `portal_cancel(receipt_id, account)` | Cancel a pending portal withdrawal receipt: its items return to the inventory, the export tax does not. |
-| `portal_claim(receipt_id, account)` | Claim a portal withdrawal receipt once its delay has passed: the ERC-20 is paid out. |
-| `portal_deposit(item, amount, account)` | Deposit an ERC-20 from the owner wallet into the game as items through the token portal (owner-signed). |
+| `portal_cancel(receipt_id, account, dry_run)` | Cancel a pending portal withdrawal receipt: its items return to the inventory, the export tax does not. |
+| `portal_claim(receipt_id, account, dry_run)` | Claim a portal withdrawal receipt once its delay has passed: the ERC-20 is paid out. |
+| `portal_deposit(item, amount, account, dry_run)` | Deposit an ERC-20 from the owner wallet into the game as items through the token portal (owner-signed). |
 | `portal_withdraw(item, amount, to, account, dry_run)` | Withdraw items to their ERC-20 through the token portal: a receipt claimable after the export delay (portal_claim). |
 | `register_account(name, account)` | Register the in-game account: one owner-signed transaction that creates the account entity, sets the display name, and binds the operator address. |
 | `revive_kami(kami_id, method, account)` | Revive a DEAD kami to RESTING via one of the game's revive paths. |
@@ -294,6 +298,13 @@ which bridges an ERC-20 into an in-game item and back: Onyx Shard, item
   receipt, a claim before its end time, or no key for an allowed signer
   is refused before signing. After an operator rotation the claim pays
   the new operator, and the result's `notice` names it.
+- `portal_claim`, `portal_cancel` and `portal_deposit` take `dry_run`
+  (4.3.0): every check the real call makes runs — for a claim or cancel
+  the chain's own `eth_call` from the signer and the gas gate — and
+  nothing is signed. A refusal is the real call's. A claim's dry run
+  states the payee, route, token amount and that it is claimable now; a
+  cancel's the items that would return and the tax that would not; each
+  the signer and its fee bound.
 - `portal_deposit` is owner-signed; when the owner's allowance to the
   portal's token spender is short, it first approves exactly the
   deposit's token amount (a second transaction, listed in `txs`) —
@@ -302,7 +313,11 @@ which bridges an ERC-20 into an in-game item and back: Onyx Shard, item
   the amount plus the gas gate's fee bound (gas limit x the flat price
   + 1 wei, what the chain prepays); with an approve first, that
   approve's bound is checked before it, and the deposit's own bound
-  once it has landed, before the deposit.
+  once it has landed, before the deposit. A deposit's dry run signs
+  neither the approve nor the deposit, and states the token amount,
+  whether an approve is needed, both fee bounds (the deposit's is
+  `null` while the allowance is short: it cannot be estimated before
+  the allowance exists) and the gas-token check's verdict.
 - `lens_receipts` lists a roster account's pending receipts (id,
   claimable time, lane, payout route and address, state); `lens_portal`
   reads its history (`receipts`) — its `openWithdrawals` are every
