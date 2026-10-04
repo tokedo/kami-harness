@@ -268,9 +268,13 @@ of the node's dry-run, enforced before signing (the per-transaction gas
 lane alone would admit more). A multi-kami batch whose dry-run fails is
 re-run kami by kami, and the error says whether the batch SIZE or one
 kami (ITEM) failed. `harvest_start(dry_run=true)` runs every gate and
-the dry-run, then returns without signing. `harvest_stop`,
-`harvest_collect` and `act_sequence`'s harvest_stop rows return
-`payouts`: per kami, the `item` (and `item_name`) and `amount` the
+the dry-run, then returns without signing. Single and batch calls
+return the same keys (`account`; `kamis` on stop and collect). All three,
+and `act_sequence`'s harvest_start / harvest_stop rows, return
+`cooldowns`: per kami, `cooldown_until` (unix seconds) from the
+receipt's own cooldown write — the decoded kill's field and unit.
+`harvest_stop`, `harvest_collect` and `act_sequence`'s harvest_stop
+rows return `payouts`: per kami, the `item` (and `item_name`) and `amount` the
 transaction paid it — the amount from the game's own `HARVEST_STOP` /
 `HARVEST_COLLECT` event, the item from the inventory write the receipt
 makes for it (a node can pay MUSU or another item). What cannot be
@@ -426,10 +430,13 @@ expressible in the tool parameters.
 | `list_accounts()` | List all configured accounts with labels and public addresses. | yes |
 | `withdraw_operator(amount_eth, account)` | Send ETH from the operator wallet to the same account's owner wallet. | — |
 
+`get_gas_balance` states each balance in ETH and in exact wei
+(`*_wei`), all Yominet balances read at one stated `block`.
+
 `fund_operator` provisions 250k gas (its balance check requires the
 prepayment, 250k gas at the flat price + 1 wei). A plain ETH value
-transfer on
-Yominet burns ~113k gas (Initia MiniEVM), not the standard 21k; at the
+transfer on Yominet burns ~113k gas (Initia MiniEVM), not the standard
+21k; at the
 flat 0.0025 gwei gas price that is ~0.0000003 ETH per transfer.
 MiniEVM transfer costs vary with the recipient (~21.1k gas to an
 EIP-7702 delegated EOA, ~174k on first touch), so `withdraw_operator`
