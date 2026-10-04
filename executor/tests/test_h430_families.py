@@ -300,3 +300,74 @@ def test_a_gap_fill_row_carries_its_gas_fields(chain_env, monkeypatch,  # noqa: 
     assert fill.get("block") == int(rec["blockNumber"], 16), fill
     assert fill.get("gas_used") == int(rec["gasUsed"], 16), fill
     assert fill.get("fee_wei") == "300000000000", fill
+
+
+# ---------------------------------------------------------------------------
+# J3 — the texts 4.2.0 left behind
+# ---------------------------------------------------------------------------
+
+THIS = "an earlier call of this server"
+ANOTHER = "another process using this key"
+
+
+def _call_of(whose: str) -> str:
+    return (server._CallControl("act_sequence").id if whose == "this"
+            else "act_sequence#0123456789ab")       # another process's
+
+
+@pytest.mark.parametrize("whose", ["this", "other"])
+def test_the_lane_blocked_error_says_who_signed_the_armed_tail(
+    chain_env, monkeypatch, whose,  # noqa: F811
+):
+    from test_h400_lane import _nonce_of
+    from test_h420_families import _ledger
+    node, game, clock, op = chain_env
+    game.xp[server._kami_entity_id(5)] = 1_000
+    armed = _ledger(node, op, [501, 502], _call_of(whose))
+    monkeypatch.setattr(server, "_LANES", {})
+    node.fail("eth_sendRawTransaction", times=5, error={
+        "code": -32000, "message": "insufficient funds for gas * price"},
+        when=lambda p: _nonce_of(p[0]) == 500)
+    with pytest.raises(server.LaneBlockedError) as ei:
+        server.level_up_kami(5, account="testa")
+    text = str(ei.value)
+    assert "lane blocked behind nonce 500" in text
+    assert all(h in text for h in armed)
+    assert "Nothing was sent by this call" in text
+    assert "by this harness" not in text, text
+    if whose == "this":
+        assert THIS in text and ANOTHER not in text, text
+    else:
+        assert ANOTHER in text and THIS not in text, text
+        assert "lane directory" in text, text
+
+
+@pytest.mark.parametrize("whose", ["this", "other"])
+def test_the_late_mined_notice_says_who_signed_it(chain_env, whose):  # noqa: F811
+    from test_h400_lane import _sign_feed
+    node, game, clock, op = chain_env
+    game.xp[server._kami_entity_id(5)] = 1_000
+    lane = server._lane(op)
+    raw = _sign_feed(500)
+    h = "0x" + server.Web3.keccak(raw).hex().removeprefix("0x")
+    with lane.critical():
+        e = lane.add(500, h, raw, _call_of(whose), "use_item_batch", 2)
+        lane.release(e, "proven absent")
+    game.inv[11301] = 1
+    node.rpc({"jsonrpc": "2.0", "id": 1, "method": "eth_sendRawTransaction",
+              "params": ["0x" + raw.hex()]})            # it mines anyway
+    note = server.run_tool("level_up_kami", kami_id=5,
+                           account="testa")["notice"]
+    assert f"had released, {h} (use_item_batch step 2" in note
+    assert "mined late at nonce 500" in note
+    assert "this harness had released" not in note, note
+    if whose == "this":
+        assert THIS in note and ANOTHER not in note, note
+    else:
+        assert ANOTHER in note and THIS not in note, note
+
+
+def test_fund_operator_describes_the_prepayment():
+    tools = {t.name: t for t in server.mcp._tool_manager.list_tools()}
+    d = tools["fund_operator"].description
+    assert "250k gas at the flat price + 1 wei" in d, d
