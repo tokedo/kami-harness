@@ -20,7 +20,9 @@ from pathlib import Path
 import pytest
 
 import server
+from test_400_surface import ETH_TOKEN, portal_env  # noqa: F401  (fixture)
 from test_h350_families import FakeChain, seq_env  # noqa: F401  (fixture)
+from test_h400_send_path import chain_env  # noqa: F401  (fixture)
 
 FIX = Path(__file__).parent / "fixtures" / "receipts_20261004"
 INDEX = json.loads((FIX / "index.json").read_text())
@@ -289,3 +291,100 @@ def test_sequence_rows_report_fee_wei_and_null_for_a_revert(seq_env):  # noqa: F
     assert ok["status"] == "success" and ok.get("fee_wei") == FEES[name]
     assert bad["status"] == "reverted"
     assert bad.get("fee_wei", "absent") is None
+
+
+# ---------------------------------------------------------------------------
+# H3 — a deposit of the gas token must leave the fee
+# ---------------------------------------------------------------------------
+
+PRICE = 2_500_000                      # the flat price, wei per gas
+# The fake portal's estimates (fakenode Result.gas_used) x 1.5, the gas
+# limit the portal send provisions: deposit 500,000 -> 750,000; approve
+# 60,000 -> 90,000. The gas gate's fee bound is gas limit x the price.
+DEPOSIT_BOUND = 750_000 * PRICE        # 1,875,000,000,000 wei
+APPROVE_BOUND = 90_000 * PRICE         #   225,000,000,000 wei
+ITEMS = 5                              # Ether Shard 103, scale 5
+WEI = ITEMS * 10 ** 13                 # 50,000,000,000,000 wei
+
+
+def _fund(portal, split, held, allowance):
+    owner, t = split.owner_addr.lower(), ETH_TOKEN.lower()
+    portal.token_bal[(t, owner)] = held
+    portal.allowance[(t, owner)] = allowance
+
+
+def test_a_gas_token_deposit_that_would_leave_less_than_its_fee_is_refused(
+    portal_env,  # noqa: F811
+):
+    """The live failure: the token balance covers the deposit and the gas
+    gate passes on its own, but both come out of ONE balance. One wei
+    short of amount + fee bound: refused before signing, with the three
+    numbers."""
+    node, game, clock, portal, split = portal_env
+    held = WEI + DEPOSIT_BOUND - 1
+    _fund(portal, split, held, allowance=WEI)
+    with pytest.raises(server.PreTxValidationError) as ei:
+        server.portal_deposit(103, ITEMS, account="split")
+    msg = str(ei.value)
+    assert not node.sends
+    for number in (held, WEI, DEPOSIT_BOUND):
+        assert str(number) in msg, msg
+    assert "gas token" in msg
+
+
+def test_a_gas_token_deposit_that_leaves_exactly_the_fee_is_sent(
+    portal_env,  # noqa: F811
+):
+    node, game, clock, portal, split = portal_env
+    _fund(portal, split, WEI + DEPOSIT_BOUND, allowance=WEI)
+    out = server.portal_deposit(103, ITEMS, account="split")
+    assert [t["step"] for t in out["txs"]] == ["deposit"]
+    assert game.inv[103] == 200_000 + ITEMS - 1        # tax 1
+
+
+def test_a_short_wallet_signs_no_approve_either(portal_env):  # noqa: F811
+    """Allowance short: the approve's own fee comes out of the same token.
+    Holding less than amount + the approve's fee bound refuses before
+    the approve is signed."""
+    node, game, clock, portal, split = portal_env
+    held = WEI + APPROVE_BOUND - 1
+    _fund(portal, split, held, allowance=0)
+    with pytest.raises(server.PreTxValidationError) as ei:
+        server.portal_deposit(103, ITEMS, account="split")
+    assert not node.sends and not portal.approvals
+    msg = str(ei.value)
+    for number in (held, WEI, APPROVE_BOUND):
+        assert str(number) in msg, msg
+
+
+def test_after_the_approve_the_deposit_is_checked_against_its_own_fee(
+    portal_env,  # noqa: F811
+):
+    """The deposit cannot be estimated before its allowance exists, so its
+    own bound is checked once the approve has landed — and the deposit is
+    refused before IT is signed, saying the approve landed."""
+    node, game, clock, portal, split = portal_env
+    held = WEI + APPROVE_BOUND          # covers the approve, not the deposit
+    _fund(portal, split, held, allowance=0)
+    with pytest.raises(server.PreTxValidationError) as ei:
+        server.portal_deposit(103, ITEMS, account="split")
+    assert len(node.sends) == 1 and len(portal.approvals) == 1
+    msg = str(ei.value)
+    approve_hash = node.sends[0][2]
+    assert approve_hash in msg and "approve" in msg
+    for number in (held, WEI, DEPOSIT_BOUND):
+        assert str(number) in msg, msg
+
+
+def test_a_deposit_of_a_token_that_is_not_the_gas_token_needs_only_its_amount(
+    portal_env,  # noqa: F811
+):
+    """Onyx Shard (100) is not the gas token: the balance covering the
+    amount exactly is enough, as before."""
+    node, game, clock, portal, split = portal_env
+    owner, t = split.owner_addr.lower(), "0x4badfb501ab304ff11217c44702bb9e9732e7cf4"
+    wei = 1_000 * 10 ** 16
+    portal.token_bal[(t, owner)] = wei
+    portal.allowance[(t, owner)] = wei
+    out = server.portal_deposit(100, 1_000, account="split")
+    assert out["status"] == "success"
