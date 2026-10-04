@@ -5640,6 +5640,49 @@ def _harvest_payouts(receipt, kami_ids: list[int], identifier: str) -> list[dict
                 for k in kami_ids]
 
 
+def _kami_cooldowns(receipt, kami_ids: list[int]) -> list[dict]:
+    """[{kami_id, cooldown_until}] per kami, in kami_ids order (4.3.0):
+    when each kami may act next, as THIS transaction left it. Never raises.
+
+    harvest start, stop and collect (and a liquidation, for the killer)
+    all reset the kami's cooldown through LibCooldown.set at the pin:
+    component.Time.Next on the kami entity = block timestamp + cooldown.
+    The value is the receipt's own LAST write of that component on the
+    kami's entity — the decoded kill's `cooldown_until`, same field and
+    unit (unix seconds). Without such a write, one read of the component
+    at the receipt's block; if that fails too: null and a decode_error,
+    never a guess."""
+    try:
+        writes = (_component_write_words(receipt, _TIME_NEXT_COMPONENT_ID)
+                  if receipt is not None else {})
+    except Exception:
+        writes = {}
+    block = getattr(receipt, "blockNumber", None)
+    out = []
+    for k in kami_ids:
+        row = {"kami_id": k, "cooldown_until": None}
+        try:
+            words = writes.get(_kami_entity_id(k))
+            if words:
+                row["cooldown_until"] = int.from_bytes(words[-1], "big")
+            elif block is None:
+                raise ValueError("no receipt block to read at")
+            else:
+                row["cooldown_until"] = int(w3.eth.contract(
+                    address=_resolve_component("component.Time.Next"),
+                    abi=_UINT_VALUE_ABI,
+                ).functions.safeGet(_kami_entity_id(k)).call(
+                    block_identifier=block))
+        except Exception as e:
+            row["cooldown_until"] = None
+            row["decode_error"] = (
+                f"cooldown not stated: the receipt carries no "
+                f"component.Time.Next write for kami #{k}, and reading it at "
+                f"block {block} failed ({_err_text(e)[:160]})")
+        out.append(row)
+    return out
+
+
 def _diagnose_batch(system_id, abi, kami_ids, single_args, account, first):
     """A multi-kami dry-run failed: re-run each kami alone, and say which.
 
@@ -5723,28 +5766,30 @@ def harvest_start(
                 "gas_limit": gas}
     try:
         if len(entity_ids) == 1:
-            return _send_tx(
+            result = _send_tx(
                 account, "system.harvest.start", _ABI_HARVEST_START,
                 [entity_ids[0], node_index, 0, 0],
                 gas_limit=_harvest_gas("harvest_start", 1),
-                ceiling_key="harvest_start",
+                ceiling_key="harvest_start", return_receipt=True,
             )
-        # Batch: _send_batch_tx applies base + per_item x kamis settled.
-        try:
-            return _send_batch_tx(
-                account, "system.harvest.start", _ABI_HARVEST_START,
-                "executeBatched", [entity_ids, node_index, 0, 0],
-                _GAS_CEILINGS["harvest_start_per_item"],
-                ceiling_key="harvest_start",
-                gas_base=_GAS_CEILINGS["harvest_start_base"],
-            )
-        except PreTxValidationError as be:
-            if "dry-run" not in be.detail:
-                raise
-            _diagnose_batch("system.harvest.start", _ABI_HARVEST_START,
-                            kami_ids,
-                            [[eid, node_index, 0, 0] for eid in entity_ids],
-                            account, be)
+        else:
+            # Batch: _send_batch_tx applies base + per_item x kamis settled.
+            try:
+                result = _send_batch_tx(
+                    account, "system.harvest.start", _ABI_HARVEST_START,
+                    "executeBatched", [entity_ids, node_index, 0, 0],
+                    _GAS_CEILINGS["harvest_start_per_item"],
+                    ceiling_key="harvest_start",
+                    gas_base=_GAS_CEILINGS["harvest_start_base"],
+                    return_receipt=True,
+                )
+            except PreTxValidationError as be:
+                if "dry-run" not in be.detail:
+                    raise
+                _diagnose_batch(
+                    "system.harvest.start", _ABI_HARVEST_START, kami_ids,
+                    [[eid, node_index, 0, 0] for eid in entity_ids],
+                    account, be)
     except PreTxValidationError as e:
         # The chain reports the first gate that failed and stops. The
         # room half is one this module can state without a new read: a
@@ -5764,6 +5809,10 @@ def harvest_start(
                 "read_facts": ("node/room match",),
             },
         ) from None
+    # 4.3.0 (J6): when each kami may act next, from this receipt.
+    receipt = result.pop("_receipt", None)
+    result["cooldowns"] = _kami_cooldowns(receipt, kami_ids)
+    return result
 
 
 @mcp.tool()
@@ -5811,6 +5860,7 @@ def harvest_stop(kami_ids: list[int], account: str = "main") -> dict:
     result["kamis"] = kami_ids
     receipt = result.pop("_receipt", None)
     result["payouts"] = _harvest_payouts(receipt, kami_ids, "HARVEST_STOP")
+    result["cooldowns"] = _kami_cooldowns(receipt, kami_ids)
     return result
 
 
@@ -5861,6 +5911,7 @@ def harvest_collect(kami_ids: list[int], account: str = "main") -> dict:
     receipt = result.pop("_receipt", None)
     result["payouts"] = _harvest_payouts(receipt, kami_ids,
                                          "HARVEST_COLLECT")
+    result["cooldowns"] = _kami_cooldowns(receipt, kami_ids)
     return result
 
 
@@ -13367,6 +13418,11 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
             # 4.2.0 (H1): from the step's own receipt, as harvest_stop.
             rows[i]["payouts"] = _harvest_payouts(
                 receipts.get(i), parsed[i]["kami_ids"], "HARVEST_STOP")
+        if row["status"] == "success" and parsed[i]["op"] in (
+                "harvest_start", "harvest_stop"):
+            # 4.3.0 (J6): as harvest_start / harvest_stop state them.
+            rows[i]["cooldowns"] = _kami_cooldowns(
+                receipts.get(i), parsed[i]["kami_ids"])
 
     landed = sum(1 for r in rows if r["status"] == "success")
     sent = sum(1 for r in rows if r["status"] != "not_sent")

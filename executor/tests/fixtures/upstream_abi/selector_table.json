@@ -623,6 +623,20 @@
    ]
   },
   {
+   "target": "component.Time.Next",
+   "signature": "safeGet(uint256)",
+   "selector": "0x04fd7bd9",
+   "returns": [
+    "uint256"
+   ],
+   "tools": [
+    "act_sequence",
+    "harvest_collect",
+    "harvest_start",
+    "harvest_stop"
+   ]
+  },
+  {
    "target": "component.address.operator",
    "signature": "getEntitiesWithValue(address)",
    "selector": "0x3e1b5e0d",
