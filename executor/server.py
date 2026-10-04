@@ -9033,6 +9033,75 @@ def _tx_fields(receipt) -> dict:
             "block": receipt.blockNumber, "gas_used": receipt.gasUsed}
 
 
+def _portal_payout(receipt, token: str, holder: str, payee: str,
+                   expected_wei: int) -> dict:
+    """A claim's payout from its own receipt: {"payee", "amount_wei"}, plus
+    "decode_error" whenever it cannot be stated. Never raises.
+
+    The game's record of a claim, the PORTAL_TOKEN_CLAIM world event,
+    carries (timestamp, account id, receipt id) only — no payee, no amount
+    (upstream LibTokenPortal.emitClaim at the pin) — so the payout is read
+    from the token's Transfer logs. On Yominet gas is paid in the same
+    ERC-20 the portal pays Ether Shard 103 out in: every receipt also
+    carries the gas prepayment (the sender to a fee collector) and the
+    unused-gas refund (the fee collector back to the sender) as Transfers
+    of that token, and the refund's recipient is the signer, who can be
+    the payee. 4.0.0 took the LAST Transfer of the token and reported the
+    refund.
+
+    The payout is the one Transfer of the token FROM the portal's token
+    holder (upstream pays a claim out of TokenHolderComponent and nothing
+    else, so neither gas leg can match) TO the payee computed before
+    signing, and its value must equal the receipt's token amount read
+    before signing. Log order plays no part. None, several, or a value
+    that disagrees: a decode_error naming the numbers, and no amount.
+    """
+    out: dict = {"payee": None, "amount_wei": None}
+    try:
+        token, holder, want = (a.lower() for a in (token, holder, payee))
+        seen, payouts = 0, []
+        for log in getattr(receipt, "logs", []) or []:
+            topics = [(t.hex() if hasattr(t, "hex") else str(t)).lower()
+                      .removeprefix("0x")
+                      for t in (getattr(log, "topics", None) or [])]
+            if (str(getattr(log, "address", "")).lower() != token
+                    or len(topics) < 3 or topics[0] != _TRANSFER_TOPIC):
+                continue
+            seen += 1
+            if ("0x" + topics[1][-40:] != holder
+                    or "0x" + topics[2][-40:] != want):
+                continue
+            data = log.data if isinstance(log.data, (bytes, bytearray)) else (
+                bytes.fromhex(str(log.data).removeprefix("0x")))
+            payouts.append(int.from_bytes(bytes(data)[:32], "big"))
+        if not payouts:
+            out["decode_error"] = (
+                f"no payout identified in the receipt: no Transfer of the "
+                f"token from the portal's token holder {holder} to the payee "
+                f"{payee} among its {seen} Transfer log(s) of the token (gas "
+                f"is paid in this token, so its prepayment and refund are "
+                f"Transfers of it too, and neither is the payout)")
+        elif len(payouts) > 1:
+            out["decode_error"] = (
+                f"payout ambiguous: {len(payouts)} Transfers of the token from "
+                f"the portal's token holder to the payee {payee} "
+                f"({', '.join(map(str, payouts))} wei); the receipt's token "
+                f"amount read before signing is {expected_wei} wei")
+        else:
+            out["payee"] = Web3.to_checksum_address(want)
+            if payouts[0] == expected_wei:
+                out["amount_wei"] = str(payouts[0])
+            else:
+                out["decode_error"] = (
+                    f"the payout Transfer to {out['payee']} is {payouts[0]} "
+                    f"wei but the receipt's token amount read before signing "
+                    f"is {expected_wei} wei; the amount is not stated")
+    except Exception as e:  # after broadcast: report, never raise
+        out = {"payee": None, "amount_wei": None,
+               "decode_error": f"payout not decoded: {e}"}
+    return out
+
+
 @mcp.tool()
 def portal_withdraw(
     item: int, amount: int, to: Literal["owner", "operator"] = "owner",
@@ -9150,6 +9219,9 @@ def portal_claim(receipt_id: str, account: str = "main") -> dict:
             f"operator-lane receipt: the payout goes to the account's "
             f"operator as of this claim, {payee}, which is not this "
             f"server's operator wallet ({acct._operator_addr or 'none'})")
+    # The payer of every claim (upstream TokenHolderComponent), resolved
+    # before signing: nothing after the broadcast may raise.
+    holder = _resolve_component("component.token.holder")
     receipt = _portal_send(p["portal"].functions.claim(rid), addr, key, role,
                            account)
     out = {**({"notice": notice} if notice else {}),
@@ -9157,18 +9229,12 @@ def portal_claim(receipt_id: str, account: str = "main") -> dict:
            "route": "operator" if rec["operator_lane"] else "owner",
            "item": rec["item"], "token": p["token"], "payee": None,
            "amount_wei": None}
-    for log in getattr(receipt, "logs", []) or []:
-        topics = [t.hex().removeprefix("0x") if hasattr(t, "hex") else str(t)
-                  for t in (getattr(log, "topics", None) or [])]
-        if (str(getattr(log, "address", "")).lower() == p["token"].lower()
-                and topics and topics[0] == _TRANSFER_TOPIC and len(topics) >= 3):
-            data = log.data if isinstance(log.data, (bytes, bytearray)) else (
-                bytes.fromhex(str(log.data).removeprefix("0x")))
-            out["payee"] = Web3.to_checksum_address("0x" + topics[2][-40:])
-            out["amount_wei"] = str(int.from_bytes(bytes(data)[:32], "big"))
-            out["amount"] = _fmt_token(int(out["amount_wei"]))
-    if out["payee"] is None:
-        out["decode_error"] = "no token Transfer log found in the receipt"
+    paid = _portal_payout(receipt, p["token"], holder, payee, rec["token_wei"])
+    out["payee"], out["amount_wei"] = paid["payee"], paid["amount_wei"]
+    if out["amount_wei"] is not None:
+        out["amount"] = _fmt_token(int(out["amount_wei"]))
+    if "decode_error" in paid:
+        out["decode_error"] = paid["decode_error"]
     return out
 
 
