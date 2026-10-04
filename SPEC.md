@@ -1,7 +1,7 @@
 ---
 module: kami-harness
-version: 16
-describes: c313d20
+version: 17
+describes: b22324e
 ---
 
 # SPEC — contract registry
@@ -61,10 +61,12 @@ this registry says *what holds*, not *how it is built*.
   descriptions, 4,150 characters of registry mass.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **69,572 characters** at 4.2.0 (69,351 at 4.0.0 and 4.1.0, 72,855 at
-  3.7.0), against a `REGISTRY_MASS_BUDGET` of 73,000. 4.2.0's two
-  description corrections (`lens_portal`, `lens_room`) cost 221 and
-  asked for no raise. **4.0.0 asked for no raise**: its
+  **70,057 characters** at 4.3.0 (69,572 at 4.2.0, 69,351 at 4.0.0 and
+  4.1.0, 72,855 at 3.7.0), against a `REGISTRY_MASS_BUDGET` of 73,000.
+  4.3.0's three optional `dry_run` parameters, their description
+  sentences and `fund_operator`'s prepayment wording cost 485, and 4.2.0's
+  two description corrections (`lens_portal`, `lens_room`) 221; neither
+  asked for a raise. **4.0.0 asked for no raise**: its
   space came from removals — the strategy-service family (5,286), the
   two standing sentences moved to the instructions (4,150) and
   `stop_harvest_batch` (about 974) — and the four portal tools (3,048),
@@ -129,7 +131,7 @@ this registry says *what holds*, not *how it is built*.
 - The MCP `initialize` handshake carries it in the `instructions` field
   as the exact string `tools_hash=<64 hex chars>`.
 - Value at this ref (Python 3.13):
-  `bfb39aab2fe26e963efab3ffb04aa4df2c1f3db4fe59aeec8afed70aeb324dca`.
+  `8c212abfe0d02d1554af8d49c70647608f6faeebb8734e9abbc71a1febd33004`.
 - The MCP `initialize` handshake additionally carries
   `schema_version=<SCHEMA_VERSION>` and `error_snippets=<on|off>` in the
   same `instructions` field, space-separated after the hash. The
@@ -140,7 +142,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "4.2.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "4.3.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -243,7 +245,9 @@ address has one lane, because a chain account has one nonce sequence.
   latter adds that the process (a second harness server on the key, or
   this one before a restart) shares the key's nonce lane through the
   lane directory. An entry without this process's tag is another
-  process's.
+  process's. Since 4.3.0 the late-mined notice and `LaneBlockedError`
+  say it too (the error no longer says "signed earlier by this
+  harness").
 - **Budgets.** A single send waits 60 s for its receipt, resolving the
   hash every 5 s and ending early on a proven collision or drop. A
   sequence waits 30 s + 0.5 s per step (62 s at 64), polling all open
@@ -285,7 +289,18 @@ lane ledger until resolved.
   the three states above applies: the answer carries `dry_run: true` as
   its discriminator and **no `status`, `tx_hash`, `block` or
   `gas_used`**, rather than a fourth `status` value this table does not
-  define.
+  define. **The portal dry runs (4.3.0)** follow the same rule:
+  `portal_claim(dry_run)` and `portal_cancel(dry_run)` run every check
+  the send makes — the chain's own `eth_call` from the signer and the
+  gas gate — and return the quote (claim: payee, route, token amount,
+  claimable now; cancel: items returned, tax kept; each the signer and
+  its fee bound); `portal_deposit(dry_run)` signs neither the approve
+  nor the deposit and returns the token amount, whether an approve is
+  needed, both fee bounds (the deposit's `null` while the allowance is
+  short: it cannot be estimated before the allowance exists) and the
+  gas-token rule's verdict. A refusal is the real call's
+  `PreTxValidationError`. (`portal_withdraw(dry_run)`, since 4.0.0,
+  stops before its `eth_call` and gas gate.)
 - **Every encoded call exists upstream.** Each (system or component or
   World, function, argument types, return types) this module encodes
   exists in the game's ABI at the pinned upstream commit, checked
@@ -308,7 +323,12 @@ lane ledger until resolved.
   token itself (a portal deposit's pull, a claim's payout, an approve on
   the token) is never misread. A receipt without both legs states
   `null`; a reverted transaction's receipt carries no logs, so a
-  reverted row or leg states `fee_wei: null`, never an estimate.
+  reverted row or leg states `fee_wei: null`, never an estimate. Since
+  4.3.0 an `act_sequence` gap-fill row (`filled`) carries `block`,
+  `gas_used` and `fee_wei` from its own receipt, and `travel_to_room`
+  states a `fee_wei` total beside its summed `gas_used`: the sum of its
+  legs' fees, `null` when any leg that spent or may have spent gas
+  (success, reverted, unconfirmed) states none — never a partial sum.
 - **The gas gate's bound is the prepayment (4.2.0).** The chain takes
   gas limit x the flat price + 1 wei up front (log 0 of every measured
   receipt), and the signer's balance must cover it when the transaction
@@ -952,7 +972,7 @@ writer; no other module opens the keys file or the Keychain.
 
 | claim | enforcement |
 |---|---|
-| Registry description mass ≤ 73,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget`, `test_h350_families.py::test_registry_mass_within_the_raised_budget` (69,572 at this ref, on Python 3.13 — 3,428 characters of headroom) |
+| Registry description mass ≤ 73,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget`, `test_h350_families.py::test_registry_mass_within_the_raised_budget` (70,057 at this ref, on Python 3.13 — 2,943 characters of headroom) |
 | Two consecutive sends never share a nonce or a hash, and a level is counted once — reported from a chain read-back, never arithmetic | `test_h400_send_path.py::test_two_steps_never_share_a_nonce_and_a_level_is_counted_once`, `::test_a_nonce_reused_by_a_stale_read_never_reports_unconfirmed`, `test_h400_lane.py::test_a_level_result_is_read_back_not_counted` |
 | A refused sequence step leaves nothing armed: re-offered, else its nonce filled, else stated; a later call executes no step of it; the receipt budget is spent only on steps that can mine | `test_h400_send_path.py::test_a_refused_step_leaves_nothing_armed_behind_its_nonce`, `::test_a_sequence_never_waits_the_long_budget_on_steps_that_cannot_mine`, `test_h400_lane.py::test_a_filled_gap_is_the_first_line_of_the_sequence_result` |
 | A nonce consumed by another hash is a collision naming that hash and whether this harness signed it, ending the wait early — never "may still be included" | `test_h400_send_path.py::test_a_nonce_consumed_by_another_hash_is_a_collision_not_unconfirmed`, `::test_a_nonce_taken_by_another_signer_is_named_and_ends_the_wait_early` |
@@ -974,6 +994,10 @@ writer; no other module opens the keys file or the Keychain.
 | A harvest stop / collect and an `act_sequence` stop row report per kami the item and amount paid — 2, 2, 2, 622, 630 of item 2 and a collect of 0 on the 2026-10-04 receipts — attributed by the event's kami in a batch; an undecodable payout is a `decode_error`, never a guess | `test_h420_families.py::test_a_stop_states_the_item_and_amount_it_paid` (5 receipts), `::test_a_collect_that_paid_nothing_says_zero_of_its_item`, `::test_the_item_is_the_inventory_the_receipt_writes`, `::test_a_batch_attributes_each_payout_to_its_own_kami`, `::test_a_payout_that_cannot_be_decoded_is_a_decode_error_never_a_guess`, `::test_a_sequence_stop_row_carries_its_payouts`, `::test_a_batch_paying_two_different_items_states_each_kamis_own` (both ask orders), `::test_two_items_written_before_one_event_state_the_amount_not_the_item`, `::test_two_events_for_one_kami_state_no_amount` |
 | `fee_wei` is the prepayment minus the refund on every landed fixture receipt, is never a leg the transaction itself moves, is `null` without both legs or on a revert, and is on every send path, leg and sequence row | `test_h420_families.py::test_fee_wei_is_the_prepayment_minus_the_refund` (23 receipts), `::test_a_transaction_that_moves_the_gas_token_itself_is_not_misread`, `::test_the_legs_are_identified_by_counterparty_not_by_position`, `::test_a_reverted_transaction_has_a_null_fee`, `::test_every_send_path_reports_fee_wei`, `::test_sequence_rows_report_fee_wei_and_null_for_a_revert` |
 | A lane notice names who signed the entry: an earlier call of this server, or another process using this key (and the lane directory they share) — mined, drained and consumed | `test_h420_families.py::test_a_mined_entry_is_attributed_to_its_signer`, `::test_a_drained_tail_is_attributed_to_its_signer`, `::test_a_consumed_entry_of_another_process_says_so` |
+| The lane-blocked error and the late-mined notice name who signed (4.3.0), never "by this harness" where the ledger knows | `test_h430_families.py::test_the_lane_blocked_error_says_who_signed_the_armed_tail`, `::test_the_late_mined_notice_says_who_signed_it` |
+| The portal dry runs sign nothing (a deposit not even its approve), quote what the call would do, refuse exactly as the real call, and carry no terminal state; each tool's `dry_run` is optional and defaults to false | `test_h430_families.py::test_a_deposit_dry_run_quotes_and_signs_nothing`, `::test_a_deposit_dry_run_refuses_as_the_real_call_does`, `::test_a_deposit_dry_run_with_a_short_allowance_signs_no_approve`, `::test_a_deposit_dry_run_of_a_token_that_is_not_the_gas_token`, `::test_a_claim_dry_run_states_payee_route_amount_and_signs_nothing`, `::test_a_claim_dry_run_before_the_delay_refuses_as_the_real_call_does`, `::test_a_claim_dry_run_names_a_payee_that_is_not_this_server`, `::test_a_cancel_dry_run_states_items_and_tax_and_signs_nothing`, `::test_the_three_portal_tools_take_an_optional_dry_run` |
+| `travel_to_room`'s `fee_wei` is its legs' sum, null when a leg that spent gas states none, and counts nothing for a leg never sent; a gap-fill row carries `block`, `gas_used`, `fee_wei` on the batched and the one-by-one receipt path | `test_h430_families.py::test_travel_states_the_fee_total_of_its_hops`, `::test_travel_fee_total_is_null_when_a_hop_that_spent_gas_states_none`, `::test_travel_fee_total_counts_nothing_for_a_hop_never_sent`, `::test_a_gap_fill_row_carries_its_gas_fields` (both paths), `test_h400_lane.py::test_a_filled_gap_is_the_first_line_of_the_sequence_result` |
+| `fund_operator`'s description states its provision as the prepayment | `test_h430_families.py::test_fund_operator_describes_the_prepayment` |
 | `lens_portal` says `openWithdrawals` is every OTHER account's and the account's own are in `receipts` / `lens_receipts`; `lens_room` says its exits are not de-duplicated | `test_h420_families.py::test_lens_portal_says_open_withdrawals_are_every_other_accounts`, `::test_lens_room_says_exits_are_not_de_duplicated` |
 | Harvest calls and `act_sequence` harvest steps take at most 10 kamis, refused before signing; a refused multi-kami dry-run says SIZE or names the ITEM; `harvest_start(dry_run)` sends nothing | `test_400_surface.py::test_more_than_ten_kamis_are_refused_before_signing`, `::test_a_sequence_harvest_step_takes_at_most_ten_kamis`, `::test_a_batch_refused_while_every_kami_passes_alone_is_a_size_failure`, `::test_a_batch_refused_for_one_kami_names_the_kami`, `::test_harvest_start_dry_run_sends_nothing` |
 | A loop stops at a transaction boundary inside `KAMI_CALL_BUDGET_S` and returns `time_boxed` and `remaining`; a single transaction is never cut by the box | `test_400_surface.py::test_a_loop_stops_inside_its_box_and_says_what_remains`, `::test_a_single_transaction_is_never_cut_by_the_box` |
@@ -1039,7 +1063,7 @@ writer; no other module opens the keys file or the Keychain.
 | A snippet states no advice, never lengthens past its bound, never hides a subject silently, reports only facts it read, and never introduces the `-32000` marker retry routes on | `test_error_snippets.py::TestSnippetGuards`, `::TestSnippetBehaviour` |
 | The three snippets an agent sees are the pinned wordings | `test_error_snippets.py::TestSnippetExamples` (harvest_start on a HARVESTING kami, harvest_collect on a RESTING kami, a dry-run revert — asserted verbatim) |
 | An `allow_partial` return keeps its documented shape with the flag on | `test_error_snippets.py::TestSnippetBehaviour::test_batch_error_leaves_the_returned_payload_untouched` |
-| `SCHEMA_VERSION == "4.2.0"` | `test_tool_surface.py::test_schema_version` |
+| `SCHEMA_VERSION == "4.3.0"` | `test_tool_surface.py::test_schema_version` |
 | The default secrets backend is `envfile`, and no code path reaches the Keychain under it — not load, not get, not put, not with a manifest present | `test_secrets_store.py::TestEnvfileIsTheDefault` (the Keychain helpers are replaced with raisers) |
 | An unrecognised `KAMI_SECRETS_BACKEND` fails loudly instead of resolving to a backend | `test_secrets_store.py::TestEnvfileIsTheDefault::test_unknown_backend_fails_loudly` |
 | The protected-names manifest is the keys file's name with a trailing `.env` removed plus `.secrets.names`, alongside it; an absent manifest protects nothing | `test_secrets_store.py::TestManifestPath` |
@@ -1249,3 +1273,4 @@ each entry is expected to land; it records what it would cost.
 | 14 | 2026-10-03 | Re-pinned to `4efee84` (SCHEMA_VERSION **4.0.0**). **MAJOR**: ten tools removed (the nine strategy-service tools and `stop_harvest_batch`), six added (`portal_withdraw`, `portal_claim`, `portal_cancel`, `portal_deposit`, `lens_receipts`, `lens_pool_history`), one parameter removed (`get_scavenge_droptable.account`), new optional parameters, and changed return shapes and terminal states. P1 count 104 -> **100**, classes ACT 56 -> 59 / PERCEIVE 32 -> 34 / META 7, OUTSOURCE 9 -> 0 (the class is gone), `READ_TOOLS` 40 -> 37; P1 mass 72,855 -> **69,351** against the unchanged 73,000 budget; P2 `tools_hash` `87dc7481...1c1b` -> `907899dc...b2be`. D1 advances `9488894` (0.5.3) -> `0ffc8a7` (kami-lens **1.0.0**), checked read-only against a live 1.0.0 daemon. **Part 1, the send path** (no surface change of its own): P4 gains the four terminal states (`TxNonceCollisionError` and `TxDroppedError` under `TxNotExecutedError`), the per-signer nonce lane (floor, write-ahead ledger, same-bytes re-offer, zero-value gap fill, drain with notice and re-validation, `LaneBlockedError`), "proven" as two lookups on fresh sessions each answered by one replica, tool bodies on worker threads with cancel at the next transaction (`CallCancelledError`), chain read-backs on every loop, travel on the clamped stamina, scavenge reveals until drained, and an occupied equipment slot never swapped. **Part 2, the surface**: the strategy-service family left (one of its tools posted the operator private key) and D2/X2 retire; `get_scavenge_droptable` reads its rewards from chain; the standing text moves to the MCP `instructions`, joined by the nonce-lane, time-box, verify and incomplete sentences; `stop_harvest_batch` left; the token portal (upstream's signer rule, exact approvals, the payout to the operator as of the claim); measured harvest caps of 10 with the SIZE/ITEM diagnosis and `harvest_start(dry_run)`; the call time box (`KAMI_CALL_BUDGET_S`); the empirical sweep floor (X10); the lens 1.0.0 passthroughs — `at_least_block` on seven verify reads, `NOT_APPLIED` as `LensNotAppliedError`, `INCOMPLETE` and incomplete rows verbatim, `lens_kami.equipment`, `lens_node` target and occupant-account selectors, `lens_roster.full`, `lens_feed` limit and account mapped to the real options; no lens quote wrapper. **`pool_swap` could never land** (it encoded an `executeTyped` the pool system does not have; its swap is `swap`, `0x4a4f0718`): fixed, its `dry_run` now runs the chain's `eth_call`, and every encoded call is checked statically against the vendored upstream ABI with a committed selector table; the pool fee is read from `component.rate` (the nonexistent `component.value.fee` had made every quote fall back to 30 bps). Receipt ids in the lens's 0x-hex form; HP read back where an item acts on HP. `act_sequence` per-step keys are designed and deferred ("Not for now"). Provenance wording in the current text is neutral (field sessions, a multi-account deployment, a transaction index, maintainer rulings). Invariant rows added for the lane, the proof rule, the portal, harvest caps, the time box, the sweep floor, the lens passthroughs and the upstream encoding; 846 tests. |
 | 15 | 2026-10-04 | Re-pinned to `1d4eb86` (SCHEMA_VERSION **4.1.0**). **MINOR**, not the 4.0.1 the build brief labelled it: no tool, parameter, schema or description changes — count 100, classes unchanged, P1 mass **69,351** and P2 `tools_hash` `907899dc...b2be` byte-identical, so a 4.0.0 deployment and a 4.1.0 one have the same surface fingerprint — but what an agent sees at runtime changes (`portal_claim`'s `amount_wei` is now the payout, its `payee` can change, `amount` is absent when it cannot be stated, `decode_error` has new texts), which is outside this file's PATCH definition (the 3.2.0 and 3.7.0 shape). 4.0.0 kept the LAST Transfer of the claimed token in the receipt; gas is paid in the token Ether Shard (103) is withdrawn to, so that was the unused-gas refund (a live claim on 2026-10-04: payout 90,000,000,000,000 wei, reported 2,176,567,500,000), and `payee` was the refund's recipient, the signer — wrong when the owner claims an operator-lane receipt. Funds were never affected. P4's portal paragraph states the payout rule (the claimed token pinned); the portal-results invariant row points to a new row for it (`test_h410_portal_claim.py`); P1/P3 and the version row say 4.1.0. Every other reader of receipt logs or balances was checked for the same class and none can take a gas leg for its value; two related gaps are recorded, not changed (CHANGELOG [4.1.0]). 865 tests. |
 | 16 | 2026-10-04 | Re-pinned to `c313d20` (SCHEMA_VERSION **4.2.0**). **MINOR**: no tool, parameter or schema added, removed or renamed, and no result field removed or renamed — count 100, classes unchanged — but results gain content and two descriptions change: P1 mass **69,351 -> 69,572** (no raise), P2 `tools_hash` `907899dc...b2be` -> `bfb39aab...4dca`. The fixes of a live test stage on the public test account (89 transactions) and the first live claim, each failing first against `d56782b` and proven on its real receipts (`executor/tests/fixtures/receipts_20261004/`): `harvest_stop`, `harvest_collect` and `act_sequence` stop rows carry `payouts` per kami (the amount from the game's `HARVEST_STOP` / `HARVEST_COLLECT` event, the item from the inventory write before it, by kami entity — 2, 2, 2, 622, 630 of item 2 and a collect of 0); every write result, leg and sequence row carries `fee_wei` (the gas token's prepayment at log 0 minus its refund at the last log, legs identified by counterparty; null on a revert); a gas-token deposit is refused before signing unless it leaves the gas gate's fee bound, and that bound — for every send, and for the balance checks of `fund_operator`, `buy_kami` and `newbie_vendor_buy` — is the prepayment, gas limit x price + 1 wei (review ruling); a lane notice says whether this server or another process using the key signed the entry it names; `lens_portal` and `lens_room` say what `openWithdrawals` and `exits` are. P4 gains the fee, gas-gate-bound, payout, gas-token-deposit and whose-transaction rules; six invariant rows (`test_h420_families.py`, the payout row pinned by three attribution tests a review's mutations required); X10 no longer says the fee cannot be derived read-only (the floor is unchanged); the mass row's stale 3.7.0 figure is corrected. Not built: a static feed-inside-a-kill-cooldown refusal (CHANGELOG [4.2.0]). 932 tests. |
+| 17 | 2026-10-04 | Re-pinned to `b22324e` (SCHEMA_VERSION **4.3.0**), part 1 of the last release before the freeze. **MINOR**: three new *optional* parameters (`dry_run` on `portal_deposit`, `portal_claim`, `portal_cancel`), no tool, parameter, schema or result field removed or renamed — count 100, classes unchanged; P1 mass **69,572 -> 70,057** (no raise), P2 `tools_hash` `bfb39aab...4dca` -> `8c212abf...3004`. The portal dry runs sign nothing (a deposit not even its approve), quote the call and refuse exactly as it would (P4's dry-run rule); `travel_to_room` states a `fee_wei` total (null, never a partial sum, when a leg that spent gas states none) and gap-fill rows carry `block` / `gas_used` / `fee_wei`, the one-by-one receipt fallback now reading them; `LaneBlockedError` and the late-mined notice name who signed; `fund_operator`'s description states the prepayment. Four invariant rows (`test_h430_families.py`); the version and mass rows. 951 tests. |
