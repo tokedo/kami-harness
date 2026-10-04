@@ -543,3 +543,154 @@ def test_the_actions_act_sequence_batches_say_how_to_land_together(name):
         name].description
     assert "Calls on one key run in turn" in d, d
     assert "act_sequence" in d, d
+
+
+# ===========================================================================
+# Review amendment — A, B, C (J8)
+# ===========================================================================
+
+# --- A: the LAST cooldown write wins ----------------------------------------
+
+@pytest.mark.parametrize("later", [1_791_101_999, 1_791_100_000])
+def test_the_last_cooldown_write_in_the_receipt_wins(starts, later):
+    """The 34031314 stop with its component.Time.Next write on kami 6058
+    (1791101909) followed by a second write of another value: the later
+    WRITE is the cooldown — larger or smaller, never the first, never the
+    max."""
+    raw = json.loads((FIX / STOP).read_text())
+    tn = "0x" + server._TIME_NEXT_COMPONENT_ID.to_bytes(32, "big").hex()
+    kami = "0x" + server._kami_entity_id(6058).to_bytes(32, "big").hex()
+    logs = list(raw["logs"])
+    i = next(i for i, lg in enumerate(logs)
+             if lg["topics"][1:2] == [tn] and lg["topics"][3:4] == [kami])
+    second = dict(logs[i])
+    second["data"] = logs[i]["data"][:-64] + later.to_bytes(32, "big").hex()
+    logs.insert(i + 1, second)
+    starts.append(_receipt({**raw, "logs": logs}))
+    (row,) = server.harvest_stop([6058], account="testa")["cooldowns"]
+    assert row == {"kami_id": 6058, "cooldown_until": later}, row
+
+
+# --- B: the dry runs run the gas gate -----------------------------------------
+
+def _poor(node, address, wei=10 ** 9):
+    """The fake node answers `wei` for this address's native balance."""
+    rich = node._eth_getBalance
+    node._eth_getBalance = lambda addr, block="latest": (
+        hex(wei) if addr.lower() == address.lower() else rich(addr, block))
+
+
+@pytest.mark.parametrize("tool", ["portal_claim", "portal_cancel"])
+def test_a_settle_dry_run_refuses_a_signer_short_of_gas_as_the_real_call_does(
+    portal_env, tool,  # noqa: F811
+):
+    node, game, clock, portal, split = portal_env
+    rid = _receipt_at(portal_env)                 # operator lane: operator signs
+    _poor(node, split.operator_addr)
+    sent = len(node.sends)
+    call = getattr(server, tool)
+    with pytest.raises(server.PreTxValidationError) as dry:
+        call(rid, account="split", dry_run=True)
+    with pytest.raises(server.PreTxValidationError) as real:
+        call(rid, account="split")
+    assert str(dry.value) == str(real.value)
+    assert "operator wallet" in str(dry.value), str(dry.value)
+    assert f"gas limit {SETTLE_BOUND // PRICE}" in str(dry.value)
+    assert len(node.sends) == sent
+    assert int(rid, 16) in portal.receipts
+
+
+def test_a_deposit_dry_run_refuses_an_owner_short_of_gas_as_the_real_call_does(
+    portal_env,  # noqa: F811
+):
+    node, game, clock, portal, split = portal_env
+    wei = 1_000 * 10 ** 16
+    _fund(portal, split, wei, allowance=wei, token=ONYX_TOKEN)
+    _poor(node, split.owner_addr)
+    with pytest.raises(server.PreTxValidationError) as dry:
+        server.portal_deposit(100, 1_000, account="split", dry_run=True)
+    with pytest.raises(server.PreTxValidationError) as real:
+        server.portal_deposit(100, 1_000, account="split")
+    assert str(dry.value) == str(real.value)
+    assert "owner wallet" in str(dry.value), str(dry.value)
+    assert not node.sends
+
+
+# --- C (J8): a gas-token deposit that cannot leave the deposit's fee is
+# refused BEFORE the approve, on an estimated deposit bound ----------------
+
+# The recorded live deposit (fixtures/receipts_20261004,
+# system_erc20_portal_34031247: 5 Ether Shards, gas used 803,569) x 1.5,
+# rounded up — the deposit's gas limit before its allowance exists.
+DEPOSIT_GAS_ESTIMATE = 1_205_354
+EST_BOUND = DEPOSIT_GAS_ESTIMATE * PRICE + 1     # 3,013,385,000,001 wei
+
+
+def test_the_deposit_gas_estimate_is_the_recorded_deposit_times_one_and_a_half():
+    raw = json.loads((FIX / "system_erc20_portal_34031247_f8ba5d86.json")
+                     .read_text())
+    used = int(raw["gasUsed"], 16)
+    assert used == 803_569
+    assert server._DEPOSIT_GAS_ESTIMATE == -(-used * 3 // 2) == 1_205_354
+
+
+def test_a_short_allowance_deposit_that_cannot_leave_the_deposit_fee_signs_nothing(
+    portal_env,  # noqa: F811
+):
+    """One wei below amount + the approve's bound + the ESTIMATED deposit
+    bound: refused before the approve, naming the four numbers and that
+    the deposit's bound is an estimate. No transaction is sent."""
+    node, game, clock, portal, split = portal_env
+    held = WEI + APPROVE_BOUND + EST_BOUND - 1
+    _fund(portal, split, held, allowance=0)
+    with pytest.raises(server.PreTxValidationError) as ei:
+        server.portal_deposit(103, ITEMS, account="split")
+    assert not node.sends and not portal.approvals
+    msg = str(ei.value)
+    for number in (held, WEI, APPROVE_BOUND, EST_BOUND):
+        assert str(number) in msg, (number, msg)
+    assert "estimate" in msg and "1 wei short" in msg, msg
+
+
+def test_a_short_allowance_deposit_at_the_estimated_boundary_proceeds(
+    portal_env,  # noqa: F811
+):
+    """Exactly amount + the approve's bound + the estimated deposit bound:
+    the approve is signed, and the exact deposit check after it (the fake
+    deposit's own bound is below the estimate) lets the deposit go."""
+    node, game, clock, portal, split = portal_env
+    _fund(portal, split, WEI + APPROVE_BOUND + EST_BOUND, allowance=0)
+    out = server.portal_deposit(103, ITEMS, account="split")
+    assert [t["step"] for t in out["txs"]] == ["approve", "deposit"]
+
+
+def test_a_short_allowance_dry_run_states_the_estimated_deposit_bound(
+    portal_env,  # noqa: F811
+):
+    node, game, clock, portal, split = portal_env
+    _fund(portal, split, WEI + APPROVE_BOUND + EST_BOUND, allowance=0)
+    out = server.portal_deposit(103, ITEMS, account="split", dry_run=True)
+    assert not node.sends and not portal.approvals
+    assert out["approve_needed"] is True
+    assert out["deposit_fee_bound_wei"] == str(EST_BOUND)
+    assert out.get("deposit_fee_bound_estimated") is True, out
+    assert "estimate" in out["gas_token_rule"], out
+    _fund(portal, split, WEI + APPROVE_BOUND + EST_BOUND - 1, allowance=0)
+    with pytest.raises(server.PreTxValidationError, match="1 wei short"):
+        server.portal_deposit(103, ITEMS, account="split", dry_run=True)
+    assert not node.sends and not portal.approvals
+
+
+def test_a_deposit_with_its_allowance_is_checked_exactly_as_before(portal_env):  # noqa: F811
+    """Allowance covering: no estimate anywhere — the deposit's own bound,
+    estimated by the node, exactly as in 4.2.0."""
+    node, game, clock, portal, split = portal_env
+    _fund(portal, split, WEI + DEPOSIT_BOUND, allowance=WEI)
+    out = server.portal_deposit(103, ITEMS, account="split", dry_run=True)
+    assert out["deposit_fee_bound_wei"] == str(DEPOSIT_BOUND)
+    assert out.get("deposit_fee_bound_estimated") is False, out
+    assert server.portal_deposit(103, ITEMS, account="split")["status"] == (
+        "success")
+    _fund(portal, split, WEI + DEPOSIT_BOUND - 1, allowance=WEI)
+    with pytest.raises(server.PreTxValidationError, match="1 wei short"):
+        server.portal_deposit(103, ITEMS, account="split")
