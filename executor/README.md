@@ -122,7 +122,8 @@ determinable preconditions against chain state before signing:
    `component.address.operator`; owner writes check the account
    entity's name component; `register_account` itself is exempt).
 2. **Gas balance** — the signer's ETH balance must cover the gas
-   provision (+ transaction value where applicable).
+   provision: what the chain prepays, gas limit x the flat price + 1 wei
+   (+ transaction value where applicable).
 3. **Per-tool prechecks** — ownership, state, holdings, batch shape
    (see each tool's docstring). Batch writes reject an empty target
    array (an empty `executeBatched` executes as an on-chain status=1
@@ -298,9 +299,10 @@ which bridges an ERC-20 into an in-game item and back: Onyx Shard, item
   deposit's token amount (a second transaction, listed in `txs`) —
   never an unlimited allowance. Ether Shard's token is the gas token, so
   its deposit is refused before signing unless the owner wallet holds
-  the amount plus the gas gate's fee bound (gas limit x the flat price);
-  with an approve first, that approve's bound is checked before it, and
-  the deposit's own bound once it has landed, before the deposit.
+  the amount plus the gas gate's fee bound (gas limit x the flat price
+  + 1 wei, what the chain prepays); with an approve first, that
+  approve's bound is checked before it, and the deposit's own bound
+  once it has landed, before the deposit.
 - `lens_receipts` lists a roster account's pending receipts (id,
   claimable time, lane, payout route and address, state); `lens_portal`
   reads its history (`receipts`) — its `openWithdrawals` are every
