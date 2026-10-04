@@ -9421,11 +9421,15 @@ def _require_gas_token_left(addr: str, held: int, item: int, items: int,
 
 # J8 (4.3.0): a deposit's gas limit while its allowance is short — it
 # cannot be estimated then (eth_estimateGas reverts on the missing
-# allowance). The recorded live deposit (tests/fixtures/receipts_20261004,
-# system_erc20_portal_34031247: 5 Ether Shards, gas used 803,569) x 1.5,
-# the factor every portal estimate is provisioned with, rounded up. An
-# ESTIMATE: the exact bound is checked again once the approve has landed.
-_DEPOSIT_GAS_ESTIMATE = 1_205_354
+# allowance). The limit the recorded live deposit was SENT with
+# (tests/fixtures/receipts_20261004, system_erc20_portal_34031247: 5 Ether
+# Shards; its prepayment = 1,712,649 x the flat price + 1 wei): the node's
+# estimate x 1.5, the factor every portal estimate is provisioned with.
+# The node's estimate ran ~1.42x the 803,569 gas the deposit used, so gas
+# used x 1.5 (1,205,354) would be looser than the exact check this stands
+# in for (review ruling). An ESTIMATE all the same: the exact bound is
+# checked again once the approve has landed.
+_DEPOSIT_GAS_ESTIMATE = 1_712_649
 
 
 def _require_gas_token_left_before_approve(addr: str, held: int, item: int,
@@ -9450,8 +9454,8 @@ def _require_gas_token_left_before_approve(addr: str, held: int, item: int,
         f"{items} items takes {wei} wei, the approve's fee bound is {a} wei "
         f"(gas limit {approve_gas} x the flat price {price} wei + "
         f"{_PREPAYMENT_EXTRA_WEI} wei, the prepayment), and the deposit's is "
-        f"an ESTIMATE, {d} wei (gas limit {_DEPOSIT_GAS_ESTIMATE}: a recorded "
-        f"deposit's gas used x 1.5 — a deposit cannot be estimated before "
+        f"an ESTIMATE, {d} wei (gas limit {_DEPOSIT_GAS_ESTIMATE}: the limit "
+        f"a recorded deposit was sent with — a deposit cannot be estimated before "
         f"its allowance exists; its exact bound is checked once the approve "
         f"has landed): {need} wei in all, {need - held} wei short. By that "
         f"estimate at most {max(held - a - d, 0) // (wei // items)} items can "

@@ -565,7 +565,7 @@ def test_after_the_approve_the_deposit_is_checked_against_its_own_fee(
     4.3.0 (J8): before the approve the wallet must also cover an ESTIMATED
     deposit bound (server._DEPOSIT_GAS_ESTIMATE), so this case now needs a
     deposit whose real limit exceeds the estimate: the fake deposit here
-    estimates 1,000,000 gas (limit 1,500,000, above 1,205,354), and the
+    estimates 1,300,000 gas (limit 1,950,000, above 1,712,649), and the
     wallet covers the approve and the estimate but not the real bound."""
     from fakenode import Result, addr_for
     node, game, clock, portal, split = portal_env
@@ -573,12 +573,12 @@ def test_after_the_approve_the_deposit_is_checked_against_its_own_fee(
 
     def heavy_deposit(n, caller, args, commit):
         res = plain(n, caller, args, commit)
-        return Result(status=res.status, gas_used=1_000_000, logs=res.logs,
+        return Result(status=res.status, gas_used=1_300_000, logs=res.logs,
                       revert=res.revert, output=res.output)
 
     node.handle(addr_for("system.erc20.portal"), "deposit(uint32,uint256)",
                 heavy_deposit)
-    real_bound = 1_500_000 * PRICE + 1
+    real_bound = 1_950_000 * PRICE + 1
     est_bound = server._DEPOSIT_GAS_ESTIMATE * PRICE + 1
     held = WEI + APPROVE_BOUND + est_bound   # passes before the approve
     assert held < WEI + real_bound           # ... but not the real bound

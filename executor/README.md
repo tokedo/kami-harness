@@ -316,8 +316,8 @@ which bridges an ERC-20 into an in-game item and back: Onyx Shard, item
   its deposit is refused before signing unless the owner wallet holds
   the amount plus the gas gate's fee bound (gas limit x the flat price
   + 1 wei, what the chain prepays); with an approve first, the approve's
-  bound plus an estimated deposit bound (1,205,354 gas: a recorded
-  deposit's gas used x 1.5) are checked before the approve, and the
+  bound plus an estimated deposit bound (1,712,649 gas: the limit a
+  recorded deposit was sent with) are checked before the approve, and the
   deposit's exact bound once the approve has landed, before the
   deposit. A deposit's dry run signs neither the approve nor the
   deposit, and states the token amount, whether an approve is needed,

@@ -170,10 +170,13 @@ deposit spent an approve, left a standing allowance, and was refused
 after it. Now, when the token is the gas token and an approve is
 needed, the wallet must hold, **before anything is signed**, the amount
 + the approve's bound + an **estimated** deposit bound from
-`_DEPOSIT_GAS_ESTIMATE` = **1,205,354** gas: the recorded live deposit
-(`tests/fixtures/receipts_20261004/system_erc20_portal_34031247`, 5
-Ether Shards, 803,569 gas used) x 1.5, the factor every portal estimate
-is provisioned with, rounded up. The refusal names held, amount, the
+`_DEPOSIT_GAS_ESTIMATE` = **1,712,649** gas: the limit the recorded live
+deposit (`tests/fixtures/receipts_20261004/system_erc20_portal_34031247`,
+5 Ether Shards) was sent with — the node's estimate x 1.5, read from its
+prepayment. Not gas used x 1.5 (1,205,354): the node's estimate ran
+~1.42x the 803,569 gas the deposit used, and the check before the
+approve must be at least as strict as the exact check it stands in for
+(review ruling). The refusal names held, amount, the
 approve's bound and the estimated deposit bound, says nothing was
 signed and that the deposit's bound is an estimate. The exact deposit
 check after the approve stays, so a deposit whose real limit exceeds
@@ -189,7 +192,7 @@ the gas gate deleted from the claim, cancel or deposit dry run). Two
 tests that encoded the pre-J8 check move with it:
 `test_h420_families.py::test_after_the_approve_the_deposit_is_checked_against_its_own_fee`
 (the exact post-approve refusal, now with a fake deposit whose real
-limit, 1,500,000, exceeds the estimate) and
+limit, 1,950,000, exceeds the estimate) and
 `test_h430_families.py::test_a_deposit_dry_run_with_a_short_allowance_signs_no_approve`
 (the estimate instead of null). Three existing
 exact-shape assertions gain the new fields, same strictness:

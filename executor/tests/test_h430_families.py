@@ -622,19 +622,26 @@ def test_a_deposit_dry_run_refuses_an_owner_short_of_gas_as_the_real_call_does(
 # --- C (J8): a gas-token deposit that cannot leave the deposit's fee is
 # refused BEFORE the approve, on an estimated deposit bound ----------------
 
-# The recorded live deposit (fixtures/receipts_20261004,
-# system_erc20_portal_34031247: 5 Ether Shards, gas used 803,569) x 1.5,
-# rounded up — the deposit's gas limit before its allowance exists.
-DEPOSIT_GAS_ESTIMATE = 1_205_354
-EST_BOUND = DEPOSIT_GAS_ESTIMATE * PRICE + 1     # 3,013,385,000,001 wei
+# The gas limit the recorded live deposit (fixtures/receipts_20261004,
+# system_erc20_portal_34031247: 5 Ether Shards) was SENT with — the
+# node's estimate x 1.5, read from its prepayment — the deposit's gas
+# limit before its allowance exists (review ruling: at least as strict as
+# the exact check it stands in for).
+DEPOSIT_GAS_ESTIMATE = 1_712_649
+EST_BOUND = DEPOSIT_GAS_ESTIMATE * PRICE + 1     # 4,281,622,500,001 wei
 
 
-def test_the_deposit_gas_estimate_is_the_recorded_deposit_times_one_and_a_half():
+def test_the_deposit_gas_estimate_is_the_limit_the_recorded_deposit_was_sent_with():
+    """prepayment = gas limit x price + 1 wei (log 0, the sender to the
+    fee collector); the node's estimate ran ~1.42x the gas used."""
     raw = json.loads((FIX / "system_erc20_portal_34031247_f8ba5d86.json")
                      .read_text())
+    prepay = int(raw["logs"][0]["data"], 16)
+    assert (prepay - 1) % PRICE == 0
+    limit = (prepay - 1) // PRICE
+    assert server._DEPOSIT_GAS_ESTIMATE == limit == 1_712_649
     used = int(raw["gasUsed"], 16)
-    assert used == 803_569
-    assert server._DEPOSIT_GAS_ESTIMATE == -(-used * 3 // 2) == 1_205_354
+    assert used == 803_569 and round(limit / 1.5 / used, 2) == 1.42
 
 
 def test_a_short_allowance_deposit_that_cannot_leave_the_deposit_fee_signs_nothing(
