@@ -287,6 +287,32 @@ def test_a_resolution_answer_without_the_owner_field_is_not_trusted(
     assert server._own_index_cache == {}
 
 
+_MISSING = object()
+
+
+@pytest.mark.parametrize("query", ["roster", "quests"])        # L1, L2
+@pytest.mark.parametrize("index", [True, "77", 77.0, _MISSING],
+                         ids=["bool", "str", "float", "missing"])
+def test_a_resolution_answer_without_an_integer_index_is_not_used(
+        lens, world, query, index):
+    """`true` is an int to Python and would be sent as "True"; a string,
+    a float or no index at all is not an account index either. None of
+    them is used, cached, or followed by the real read — and the
+    reads where no account has a meaning raise it too."""
+    slim = _env(OWN_INDEX, "mine", world.acct.owner_addr, STRANGER_OPERATOR)
+    if index is _MISSING:
+        del slim["data"]["index"]
+    else:
+        slim["data"]["index"] = index
+    world.resolution = {"ok": True, **slim}
+    with pytest.raises(server.LensQueryError) as ei:
+        (L1 | L2)[query]()
+    assert ei.value.code == "INTERNAL"
+    assert "has no index" in str(ei.value)
+    assert _sent(lens) == [_resolution(world.acct)]   # no second request
+    assert server._own_index_cache == {}
+
+
 # ---------------------------------------------------------------------------
 # flags keep their place after the filled index, as the daemon's prefill
 # ---------------------------------------------------------------------------
