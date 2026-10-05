@@ -1,7 +1,7 @@
 ---
 module: kami-harness
 version: 19
-describes: a1d091e
+describes: b71fc4b
 ---
 
 # SPEC — contract registry
@@ -61,10 +61,11 @@ this registry says *what holds*, not *how it is built*.
   descriptions, 4,150 characters of registry mass.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **70,684 characters** at 4.4.0 (70,523 at 4.3.0, 69,572 at 4.2.0,
+  **71,133 characters** at 4.4.0 (70,523 at 4.3.0, 69,572 at 4.2.0,
   69,351 at 4.0.0 and 4.1.0, 72,855 at 3.7.0), against a
-  `REGISTRY_MASS_BUDGET` of 73,000. 4.4.0's two `account_key` glosses
-  (`lens_account`, `lens_inventory`) cost 161; 4.3.0's three optional
+  `REGISTRY_MASS_BUDGET` of 73,000. 4.4.0's account glosses on seven
+  lens reads (your own account by label and by default) cost 610;
+  4.3.0's three optional
   `dry_run` parameters, their description sentences and
   `fund_operator`'s prepayment wording cost 485, and
   `get_gas_balance`'s sentence and the one sentence on four action tools
@@ -134,7 +135,7 @@ this registry says *what holds*, not *how it is built*.
 - The MCP `initialize` handshake carries it in the `instructions` field
   as the exact string `tools_hash=<64 hex chars>`.
 - Value at this ref (Python 3.13):
-  `4e67aa90e927e0d3ca1bc05b5a716355a0f1d21c1ab2710e8a20141f41030f9d`.
+  `fb65e0db8f875629d5091cacdbf54864c4548dcfb5bb8aaf6f8986899722fac0`.
 - The MCP `initialize` handshake additionally carries
   `schema_version=<SCHEMA_VERSION>` and `error_snippets=<on|off>` in the
   same `instructions` field, space-separated after the hash. The
@@ -702,26 +703,34 @@ softened, and the pre-snippet text is unchanged.
   daemon answers one connection's requests in order), and the socket
   timeout outlasts the wait (30 s, or the wait plus 15 s). No other
   wrapper takes the parameter; `status` refuses it upstream.
-- **A roster label is your own account (4.4.0).** In `lens_account`
-  and `lens_inventory`, an `account_key` that is not empty, not digits
-  and not a 0x address, and that equals one of the deployment's roster
-  labels case-insensitively, is that label — never an in-game name.
-  `lens_account` makes its one request by the label's own address (the
-  owner's; the operator's when the entry has no owner key, the
-  `lens_receipts` rule) and returns the envelope verbatim once its
-  `data.ownerAddress` (`data.operatorAddress` for an owner-less label)
-  equals that address by value. A `NOT_FOUND` on that read, or an
-  answer for another wallet's account, raises `LensQueryError`
+- **Your own account (4.4.0).** In `lens_account` and
+  `lens_inventory`, an `account_key` that is not empty, not digits and
+  not a 0x address, and that equals one of the deployment's roster
+  labels case-insensitively, is that label — never an in-game name. A
+  read called with no account (`account_key=""`, `account_index` < 0)
+  is for the roster entry labelled `main`, when the roster has one:
+  `lens_account`, `lens_inventory`, `lens_party` and `lens_roster` read
+  its account; `lens_quests`, `lens_market` and `lens_trades` send its
+  index once it has an account and the 4.3.0 request while it has none
+  (never an error for the missing argument). Without a `main` entry,
+  each of the seven sends the 4.3.0 request byte for byte, as does
+  every other key (a name, digits including 0, an address).
+  `lens_account` reads an own account in its one request, by address
+  (the owner's; the operator's when the entry has no owner key, the
+  `lens_receipts` rule). The others learn the index with the D1
+  resolution read and then send it as the daemon's own prefill would:
+  `[index, flags in their order]`. Every read by an own address is
+  used only once its `data.ownerAddress` (`data.operatorAddress` for
+  an owner-less entry) equals that address by value; the envelope
+  returned is the daemon's, verbatim. A `NOT_FOUND`, or another
+  wallet's account, means the wallet has no account: `LensQueryError`
   `NOT_FOUND: no account is registered for owner wallet 0x… (account
-  '<label>')` (`for operator 0x…` for an owner-less label); an answer
-  without the field raises `INTERNAL`; every other error on that read
-  — `LensUnavailableError`, `LensNotReadyError`, `LensNotAppliedError`,
-  any other code — passes through as itself. `lens_inventory` refuses
-  a label before any request (`LensQueryError` `BAD_ARGS`, naming
-  `lens_account`): the lens `inventory` query takes no address, and
-  D1's thin-wrapper rule allows one request (EXPOSURE deferred row
-  `own-inventory-by-label`). Every other key — a name, digits, an
-  address, empty — is sent byte for byte as at 4.3.0.
+  '<label>')` (`for operator 0x…` for an owner-less entry) for the
+  first four, the 4.3.0 request for the last three. An answer without
+  the address or the index raises `INTERNAL`; every other error on
+  these reads — `LensUnavailableError`, `LensNotReadyError`,
+  `LensNotAppliedError`, any other code — passes through as itself,
+  for all seven.
 - **Incomplete answers pass through as they are.** An `INCOMPLETE`
   error passes through as a `LensQueryError`; a row with
   `incomplete: true` (no `vitals`/`liquidation` on node rows) reaches
@@ -919,6 +928,25 @@ softened, and the pre-snippet text is unchanged.
   composition, no cross-query joins, no derived fields harness-side. A
   read that would require any of those is deferred with a visible
   EXPOSURE row until the daemon serves it.
+- **The one exception (4.4.0): learning your own account's index.** A
+  read that takes an account index, made for one of the deployment's
+  OWN roster accounts (a label, or `main` when no account is given;
+  P5), may make at most ONE extra request per call, always
+  `account <own address> --slim`, only to learn that account's index.
+  The ownership check of P5 applies to it, and nothing from it reaches
+  the caller: the caller's envelope is the second read's, verbatim. The
+  index is cached in the server process once found (an account's index
+  never changes), so from then on the call is one request; "no account
+  yet" is never cached and is asked again on the next call. The cache
+  is read and written under a lock (tool bodies run on worker
+  threads). `at_least_block`, where the tool has it, goes on both
+  reads (a registration and the read after it may share a block), and
+  on the one read once the index is cached. Every daemon error on the
+  resolution read other than the address having no account passes
+  through as its own class; for the reads where no account has a
+  meaning (`lens_quests`, `lens_market`, `lens_trades`) an own account
+  that does not exist yet is not an error, and any other failure of the
+  resolution read is raised, not swallowed.
 
 ### D2 — (retired) the third-party strategy service
 
@@ -1072,7 +1100,8 @@ writer; no other module opens the keys file or the Keychain.
 | Portal receipt ids are returned in the lens's 0x-hex form, and both forms are accepted; the harvest SIZE refusal names the RPC node; an item that acts on HP reads the kami's stored HP back before and after | `test_400_surface.py::test_portal_withdraw_to_operator_is_operator_signed_and_decodes_the_receipt`, `::test_portal_cancel_returns_the_items_but_not_the_tax`, `::test_the_size_refusal_names_the_rpc_node_not_a_harvest_node`, `::test_use_item_batch_reads_hp_back_for_an_item_that_acts_on_hp`, `::test_an_item_that_does_not_act_on_hp_reads_no_hp`, `::test_feed_kami_reads_hp_back`, `::test_feed_level_allocate_batch_reads_hp_back_on_the_feed`, `::test_the_hp_effect_rule_reads_the_catalog` |
 | `at_least_block` is on exactly the seven verify reads, absent by default and sent as `--at-least=<block>`; `NOT_APPLIED` is `LensNotAppliedError` carrying `applied_through`; every read opens its own connection, with a socket timeout that outlasts the wait | `test_400_lens.py::test_at_least_block_holds_the_read_for_that_block`, `::test_defaults_send_none_of_the_new_options`, `::test_the_verify_set_carries_at_least_block_and_status_does_not`, `::test_not_applied_is_its_own_error_and_carries_applied_through`, `::test_every_read_opens_its_own_connection`, `::test_the_socket_timeout_outlasts_the_wait` |
 | The lens 1.0.0 options reach the daemon: `equipment`, roster `full`, node targets and occupant account, feed `limit` and account, `receipts` by the roster account's owner address, `pool-history` | `test_400_lens.py::test_the_1_0_0_options_reach_the_daemon`, `::test_lens_receipts_reads_the_roster_accounts_owner_address`, `::test_lens_receipts_falls_back_to_the_operator_address` |
-| A key equal to a roster label (any case; never digits or a 0x address) makes `lens_account` read the label's own account: one request by its owner address (operator address when there is no owner key), returned verbatim only when the answer's address equals it by value; a label with no account, or another wallet's account, raises `no account is registered for …`; `lens_inventory` refuses a label with no request; `NOT_READY`, a starting or unreachable daemon, a dropped connection, `NOT_APPLIED` and other codes on the label's read keep their own classes; every other key is sent byte for byte as at 4.3.0 | `test_h440_own_account.py` (all), `test_lens_wrappers.py::TestArgumentMapping` |
+| A key equal to a roster label (any case; never digits or a 0x address) reads that label's own account in `lens_account` (one request by its address) and `lens_inventory` (by its index); a read with no account is for the `main` entry — `lens_account`, `lens_inventory`, `lens_party`, `lens_roster` read its account or raise `no account is registered for …`, `lens_quests`, `lens_market`, `lens_trades` send its index once registered and the 4.3.0 request otherwise; without `main`, all seven send the 4.3.0 bytes; every other key is sent byte for byte as at 4.3.0; every read by an own address is ownership-checked by value; daemon errors keep their own classes | `test_h440_own_account.py` (all), `test_h440_no_account.py` (all), `test_lens_wrappers.py::TestArgumentMapping` |
+| The resolution read (D1's one exception) is at most one `account <own address> --slim` per call, with `at_least_block` where the tool has one; a found index is cached (one request per call afterwards), "no account yet" never is; flags follow the filled index as the daemon's prefill keeps them; an explicit index, 0 included, resolves nothing | `test_h440_no_account.py::test_l1_reads_mains_index_resolving_it_once`, `::test_l1_without_an_account_says_so_and_asks_again_next_time`, `::test_l1_at_least_block_holds_both_reads_and_the_cached_one`, `::test_l2_without_mains_account_sends_the_old_request`, `::test_l2_never_swallows_a_daemon_failure_on_the_resolution_read`, `::test_the_filled_request_is_the_daemons_own_prefill_of_the_old_one`, `::test_an_explicit_index_is_sent_and_nothing_is_resolved` |
 | `INCOMPLETE`, `incomplete: true` rows, the 1.0.0 `meta` fields and a `status` without its head sample pass through verbatim, nothing filled in | `test_400_lens.py::test_incomplete_passes_through_as_a_query_error`, `::test_incomplete_rows_and_the_new_meta_pass_through_verbatim`, `::test_status_without_the_head_sample_passes_through` |
 | The instructions say once how to verify a write and what an incomplete answer means; `portal_claim`/`portal_cancel` point to `lens_receipts`; `lens_feed` states its default; no lens quote wrapper exists | `test_400_lens.py::test_the_agent_is_told_once_how_to_verify_and_what_incomplete_means`, `::test_portal_claim_and_cancel_point_to_lens_receipts`, `::test_lens_feed_states_its_new_default`, `::test_there_is_no_lens_quote_wrapper`, `test_tool_surface.py::test_standing_text_is_said_once_in_the_instructions` |
 | The offline suite reaches no network: the module's client is a dead loopback port unless a test installs its own fake | `conftest.py::_offline_rpc` (autouse) |
@@ -1277,7 +1306,9 @@ an empirical floor, not a fee model, and the description says so.
   caller's job.
 - **Not a world-state indexer.** This module maintains no mirror, cache,
   or derived view of world state, and never recomputes a lens-served
-  value (see D1's thin-wrapper rule).
+  value (see D1's thin-wrapper rule). The one thing it keeps is the
+  index of its own roster accounts once found (D1's one exception): an
+  identity, never served to a caller.
 - **Not a general-purpose wallet.** No arbitrary contract call, no
   arbitrary-recipient bridging — the bridge recipient is pinned to the
   signing account's own owner address and is not a parameter.
@@ -1339,4 +1370,4 @@ each entry is expected to land; it records what it would cost.
 | 16 | 2026-10-04 | Re-pinned to `c313d20` (SCHEMA_VERSION **4.2.0**). **MINOR**: no tool, parameter or schema added, removed or renamed, and no result field removed or renamed — count 100, classes unchanged — but results gain content and two descriptions change: P1 mass **69,351 -> 69,572** (no raise), P2 `tools_hash` `907899dc...b2be` -> `bfb39aab...4dca`. The fixes of a live test stage on the public test account (89 transactions) and the first live claim, each failing first against `d56782b` and proven on its real receipts (`executor/tests/fixtures/receipts_20261004/`): `harvest_stop`, `harvest_collect` and `act_sequence` stop rows carry `payouts` per kami (the amount from the game's `HARVEST_STOP` / `HARVEST_COLLECT` event, the item from the inventory write before it, by kami entity — 2, 2, 2, 622, 630 of item 2 and a collect of 0); every write result, leg and sequence row carries `fee_wei` (the gas token's prepayment at log 0 minus its refund at the last log, legs identified by counterparty; null on a revert); a gas-token deposit is refused before signing unless it leaves the gas gate's fee bound, and that bound — for every send, and for the balance checks of `fund_operator`, `buy_kami` and `newbie_vendor_buy` — is the prepayment, gas limit x price + 1 wei (review ruling); a lane notice says whether this server or another process using the key signed the entry it names; `lens_portal` and `lens_room` say what `openWithdrawals` and `exits` are. P4 gains the fee, gas-gate-bound, payout, gas-token-deposit and whose-transaction rules; six invariant rows (`test_h420_families.py`, the payout row pinned by three attribution tests a review's mutations required); X10 no longer says the fee cannot be derived read-only (the floor is unchanged); the mass row's stale 3.7.0 figure is corrected. Not built: a static feed-inside-a-kill-cooldown refusal (CHANGELOG [4.2.0]). 932 tests. |
 | 17 | 2026-10-04 | Re-pinned to `071dbfb` (SCHEMA_VERSION **4.3.0**), the last release before the freeze, both parts. **MINOR**: three new *optional* parameters (`dry_run` on `portal_deposit`, `portal_claim`, `portal_cancel`), no tool, parameter, schema or result field removed or renamed — count 100, classes unchanged; P1 mass **69,572 -> 70,523** (no raise), P2 `tools_hash` `bfb39aab...4dca` -> `beb79942...7958`. Part 1: the portal dry runs sign nothing (a deposit not even its approve), quote the call and refuse exactly as it would (P4's dry-run rule); `travel_to_room` states a `fee_wei` total (null, never a partial sum, when a leg that spent gas states none) and gap-fill rows carry `block` / `gas_used` / `fee_wei`, the one-by-one receipt fallback now reading them; `LaneBlockedError` and the late-mined notice name who signed; `fund_operator`'s description states the prepayment. Part 2 (the second live round): `get_gas_balance` states exact wei and its read block; the three harvest tools return one key set on both paths (`_send_batch_tx` states `account`); start / stop / collect results and sequence start/stop rows state per-kami `cooldown_until` from the receipt; four action tools say calls on one key run in turn and name `act_sequence`. Review amendment: J8 — an allowance-short gas-token deposit is refused before its approve unless it covers the approve's bound + an estimated deposit bound (1,712,649 gas: the limit the recorded live deposit was sent with), the exact check after the approve unchanged; the last-cooldown-write rule and the dry runs' gas gate pinned by tests. Eight invariant rows (`test_h430_families.py`); the version and mass rows. 976 tests. |
 | 18 | 2026-10-05 | Re-pinned to `21d7b0b` (SCHEMA_VERSION **4.3.0**, unchanged): a documentation correction, and like revisions 2 and 4 a spec revision with no new SCHEMA_VERSION. No code, test, tool, parameter, schema or description change — count 100, classes unchanged, P1 mass **70,523** and P2 `tools_hash` `beb79942...7958` byte-identical; the code is `071dbfb`'s. D1 advances `0ffc8a7` (kami-lens 1.0.0) -> `7f9be7b` (1.0.3) and states 1.0.1 as the floor for correct reads: a 1.0.0 daemon could keep an earlier write when several transactions in one block wrote the same value and serve it as current, fixed in 1.0.1. The advance was checked read-only against the lens repository: no query, option, error code or envelope key this module sends or reads changed between 1.0.0 and 1.0.3, and the additions pass through verbatim. D1 keeps the 1.0.0 pin as one history clause and gains the 1.0.0 -> 1.0.3 bullet; its single-declaration sentence now names the three documents that repeat the version (SETUP's checkout step, the README's `Current:` line, `executor/README.md`), the copies that had kept saying 1.0.0. `SETUP.md`, `README.md` and `executor/README.md` corrected with it; CHANGELOG [4.3.0] gains the dated correction note. 976 tests. |
-| 19 | 2026-10-05 | Re-pinned to `a1d091e` (SCHEMA_VERSION **4.4.0**). **MINOR**, by the CHANGELOG's own rule and the 4.1.0 precedent: no tool, parameter, schema or result field added, removed or renamed — count 100, classes unchanged — but `account_key` on `lens_account` and `lens_inventory` changes meaning for one class of value, a key equal to one of the deployment's roster labels: `lens_account` reads the label's own account by its address instead of the player who holds that name, and `lens_inventory` refuses the label instead of answering that player's inventory; such a player stays reachable by index. Both descriptions say so: P1 mass **70,523 -> 70,684** (no raise), P2 `tools_hash` `beb79942...7958` -> `4e67aa90...0f9d`, P3 4.4.0. P5 gains the roster-label bullet and the Invariants table its row; D1 (pin `7f9be7b`, kami-lens 1.0.3, 1.0.1 or newer required) and its thin-wrapper rule unchanged — the rule is why `lens_inventory` refuses rather than resolves, with an EXPOSURE deferred row. Re-pinned for the review amendment: ten more guards (names in any case are sent as they are; an address that a label is spelled like stays an address); no code, description, mass or hash change. 1023 tests. |
+| 19 | 2026-10-05 | Re-pinned to `b71fc4b` (SCHEMA_VERSION **4.4.0**), both parts. **MINOR**, by the CHANGELOG's own rule and the 4.1.0 precedent: no tool, parameter, schema or result field added, removed or renamed — count 100, classes unchanged — but two existing parameters change meaning for one class of value each. Part 1: an `account_key` equal to one of the deployment's roster labels reads that label's own account (`lens_account` by address, `lens_inventory` by index) instead of the player who holds that name; such a player stays reachable by index. Part 2: a read called with no account is for the roster's `main` entry instead of the daemon's configured default operator — `lens_account`, `lens_inventory`, `lens_party`, `lens_roster` read its account or say `no account is registered`; `lens_quests`, `lens_market`, `lens_trades` send its index once registered and the 4.3.0 request otherwise — and without a `main` entry nothing changes. Seven descriptions say so: P1 mass **70,523 -> 71,133** (no raise), P2 `tools_hash` `beb79942...7958` -> `fb65e0db...fac0`, P3 4.4.0; the handshake standing text is unchanged. P5 gains the own-account bullet; D1 gains the thin-wrapper rule's one named exception — one `account <own address> --slim` read per call to learn an own account's index, ownership-checked, cached once found and never while absent, `at_least_block` on both reads — with its pin (`7f9be7b`, kami-lens 1.0.3, 1.0.1 or newer required) unchanged; the Invariants table gains two rows. 1090 tests. |
