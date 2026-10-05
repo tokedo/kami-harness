@@ -1,7 +1,7 @@
 ---
 module: kami-harness
-version: 17
-describes: 071dbfb
+version: 18
+describes: 21d7b0b
 ---
 
 # SPEC — contract registry
@@ -750,17 +750,18 @@ softened, and the pre-snippet text is unchanged.
 
 ### D1 — kami-lens daemon
 
-- **Pin:** `0ffc8a734082bc9ee74ec381178b4320fe323aad` (`0ffc8a7`,
-  kami-lens release 1.0.0). Built in parallel with this release on the
-  lens branch `lens-100`, which becomes lens `main` by fast-forward, so
-  the commit is final: it is never squashed or rebased. Checked
-  read-only against a live daemon built from it (`lens_status`,
-  `lens_kami(equipment)`, `lens_node` target and occupant-account
-  selectors, `lens_pool_history`, `at_least_block` at the applied mark
-  and `NOT_APPLIED` ahead of it, `receipts` by address). (At 3.7.0 the
-  pin was `9488894`, kami-lens 0.5.3.) **This row is the only place the
-  compatible lens version is stated** (SETUP's checkout step repeats the
-  commit). It had been duplicated
+- **Pin:** `7f9be7b67d9884c19422ec27c330633f2f257a10` (`7f9be7b`,
+  kami-lens release 1.0.3), a commit on lens `main`. **1.0.1 or newer
+  is required for correct reads** (the 1.0.0 -> 1.0.3 bullet below says
+  why); the 4.0.0 lens parameters and the two tools `lens_receipts` and
+  `lens_pool_history` need 1.0.0 or newer (the 0.5.3 -> 1.0.0 bullet).
+  The 4.2.0 and 4.3.0 result checks
+  were made against daemons on 1.0.2 and 1.0.3. (Pinned to 1.0.0
+  `0ffc8a7` at 4.0.0, checked read-only against a live daemon built
+  from it; at 3.7.0 the pin was `9488894`, kami-lens 0.5.3.) **This row
+  is the only place the compatible lens version is declared** (SETUP's
+  checkout step, the README's `Current:` line and `executor/README.md`
+  repeat it, and must move with it). It had been duplicated
   in a `server.KAMI_LENS_PIN` constant that no code path read; the
   constant held the 0.4.0 commit under a comment saying 0.2.0, and
   nothing could fail on the contradiction. The constant is deleted at
@@ -848,6 +849,26 @@ softened, and the pre-snippet text is unchanged.
   option as undeclared (the socket has refused undeclared flags since
   0.5.2), so a deployment upgrades the lens first; a 4.0.0 call that
   uses none of the new parameters sends exactly what 3.7.0 sent.
+- **The 1.0.0 -> 1.0.3 advance is a documentation correction made after
+  4.3.0 (2026-10-05), and 1.0.1 is the floor for correct reads.** When
+  several transactions in one block wrote the same value (an account's
+  item balance, a kami's state), a 1.0.0 daemon could keep an earlier
+  write and serve that wrong value as current, with `degraded` empty;
+  1.0.1 fixes it, and an upgrade with a normal restart is enough
+  (nothing has to be deleted). Nothing in
+  this module changed with the advance: no query, option, error code or
+  envelope key it sends or reads changed between 1.0.0 and 1.0.3. The
+  additions pass through verbatim per P5 — `status.sync.reconcileRepairs`
+  and `lastRepair` (1.0.1), and on an inventory row whose item the
+  registry does not hold, that item's own `item.index` and
+  `unregistered: true` (1.0.2). The rest changes values, not meanings:
+  the projection clock no longer falls behind the chain by the length
+  of a quiet gap between blocks (1.0.2) and is set from the chain head
+  before LIVE is reported, so LIVE — and the end of the `NOT_READY`
+  answers before it — can come up to 5 s later (1.0.3); projected
+  harvest amounts are
+  floored at 0 (1.0.2). Until this correction SETUP's checkout step
+  installed 1.0.0.
 - **Transport:** local AF_UNIX stream socket, one newline-delimited JSON
   request and one response per connection — the daemon answers one
   connection's requests in order, so a read held by `--at-least` never
@@ -1294,3 +1315,4 @@ each entry is expected to land; it records what it would cost.
 | 15 | 2026-10-04 | Re-pinned to `1d4eb86` (SCHEMA_VERSION **4.1.0**). **MINOR**, not the 4.0.1 the build brief labelled it: no tool, parameter, schema or description changes — count 100, classes unchanged, P1 mass **69,351** and P2 `tools_hash` `907899dc...b2be` byte-identical, so a 4.0.0 deployment and a 4.1.0 one have the same surface fingerprint — but what an agent sees at runtime changes (`portal_claim`'s `amount_wei` is now the payout, its `payee` can change, `amount` is absent when it cannot be stated, `decode_error` has new texts), which is outside this file's PATCH definition (the 3.2.0 and 3.7.0 shape). 4.0.0 kept the LAST Transfer of the claimed token in the receipt; gas is paid in the token Ether Shard (103) is withdrawn to, so that was the unused-gas refund (a live claim on 2026-10-04: payout 90,000,000,000,000 wei, reported 2,176,567,500,000), and `payee` was the refund's recipient, the signer — wrong when the owner claims an operator-lane receipt. Funds were never affected. P4's portal paragraph states the payout rule (the claimed token pinned); the portal-results invariant row points to a new row for it (`test_h410_portal_claim.py`); P1/P3 and the version row say 4.1.0. Every other reader of receipt logs or balances was checked for the same class and none can take a gas leg for its value; two related gaps are recorded, not changed (CHANGELOG [4.1.0]). 865 tests. |
 | 16 | 2026-10-04 | Re-pinned to `c313d20` (SCHEMA_VERSION **4.2.0**). **MINOR**: no tool, parameter or schema added, removed or renamed, and no result field removed or renamed — count 100, classes unchanged — but results gain content and two descriptions change: P1 mass **69,351 -> 69,572** (no raise), P2 `tools_hash` `907899dc...b2be` -> `bfb39aab...4dca`. The fixes of a live test stage on the public test account (89 transactions) and the first live claim, each failing first against `d56782b` and proven on its real receipts (`executor/tests/fixtures/receipts_20261004/`): `harvest_stop`, `harvest_collect` and `act_sequence` stop rows carry `payouts` per kami (the amount from the game's `HARVEST_STOP` / `HARVEST_COLLECT` event, the item from the inventory write before it, by kami entity — 2, 2, 2, 622, 630 of item 2 and a collect of 0); every write result, leg and sequence row carries `fee_wei` (the gas token's prepayment at log 0 minus its refund at the last log, legs identified by counterparty; null on a revert); a gas-token deposit is refused before signing unless it leaves the gas gate's fee bound, and that bound — for every send, and for the balance checks of `fund_operator`, `buy_kami` and `newbie_vendor_buy` — is the prepayment, gas limit x price + 1 wei (review ruling); a lane notice says whether this server or another process using the key signed the entry it names; `lens_portal` and `lens_room` say what `openWithdrawals` and `exits` are. P4 gains the fee, gas-gate-bound, payout, gas-token-deposit and whose-transaction rules; six invariant rows (`test_h420_families.py`, the payout row pinned by three attribution tests a review's mutations required); X10 no longer says the fee cannot be derived read-only (the floor is unchanged); the mass row's stale 3.7.0 figure is corrected. Not built: a static feed-inside-a-kill-cooldown refusal (CHANGELOG [4.2.0]). 932 tests. |
 | 17 | 2026-10-04 | Re-pinned to `071dbfb` (SCHEMA_VERSION **4.3.0**), the last release before the freeze, both parts. **MINOR**: three new *optional* parameters (`dry_run` on `portal_deposit`, `portal_claim`, `portal_cancel`), no tool, parameter, schema or result field removed or renamed — count 100, classes unchanged; P1 mass **69,572 -> 70,523** (no raise), P2 `tools_hash` `bfb39aab...4dca` -> `beb79942...7958`. Part 1: the portal dry runs sign nothing (a deposit not even its approve), quote the call and refuse exactly as it would (P4's dry-run rule); `travel_to_room` states a `fee_wei` total (null, never a partial sum, when a leg that spent gas states none) and gap-fill rows carry `block` / `gas_used` / `fee_wei`, the one-by-one receipt fallback now reading them; `LaneBlockedError` and the late-mined notice name who signed; `fund_operator`'s description states the prepayment. Part 2 (the second live round): `get_gas_balance` states exact wei and its read block; the three harvest tools return one key set on both paths (`_send_batch_tx` states `account`); start / stop / collect results and sequence start/stop rows state per-kami `cooldown_until` from the receipt; four action tools say calls on one key run in turn and name `act_sequence`. Review amendment: J8 — an allowance-short gas-token deposit is refused before its approve unless it covers the approve's bound + an estimated deposit bound (1,712,649 gas: the limit the recorded live deposit was sent with), the exact check after the approve unchanged; the last-cooldown-write rule and the dry runs' gas gate pinned by tests. Eight invariant rows (`test_h430_families.py`); the version and mass rows. 976 tests. |
+| 18 | 2026-10-05 | Re-pinned to `21d7b0b` (SCHEMA_VERSION **4.3.0**, unchanged): a documentation correction, and like revisions 2 and 4 a spec revision with no new SCHEMA_VERSION. No code, test, tool, parameter, schema or description change — count 100, classes unchanged, P1 mass **70,523** and P2 `tools_hash` `beb79942...7958` byte-identical; the code is `071dbfb`'s. D1 advances `0ffc8a7` (kami-lens 1.0.0) -> `7f9be7b` (1.0.3) and states 1.0.1 as the floor for correct reads: a 1.0.0 daemon could keep an earlier write when several transactions in one block wrote the same value and serve it as current, fixed in 1.0.1. The advance was checked read-only against the lens repository: no query, option, error code or envelope key this module sends or reads changed between 1.0.0 and 1.0.3, and the additions pass through verbatim. D1 keeps the 1.0.0 pin as one history clause and gains the 1.0.0 -> 1.0.3 bullet; its single-declaration sentence now names the three documents that repeat the version (SETUP's checkout step, the README's `Current:` line, `executor/README.md`), the copies that had kept saying 1.0.0. `SETUP.md`, `README.md` and `executor/README.md` corrected with it; CHANGELOG [4.3.0] gains the dated correction note. 976 tests. |
