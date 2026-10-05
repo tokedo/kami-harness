@@ -218,6 +218,25 @@ UNCHANGED = [
      b'{"id": 1, "query": "inventory", "args": ["someone"]}\n'),
     (lambda: server.lens_inventory("mainx"),
      b'{"id": 1, "query": "inventory", "args": ["mainx"]}\n'),
+    # a name keeps its case: only a label is matched case-insensitively
+    (lambda: server.lens_account("Someone"),
+     b'{"id": 1, "query": "account", "args": ["Someone"]}\n'),
+    (lambda: server.lens_account("SOMEONE"),
+     b'{"id": 1, "query": "account", "args": ["SOMEONE"]}\n'),
+    (lambda: server.lens_account("MainX"),
+     b'{"id": 1, "query": "account", "args": ["MainX"]}\n'),
+    (lambda: server.lens_account("Someone", identity_only=True),
+     b'{"id": 1, "query": "account", "args": ["Someone", "--slim"]}\n'),
+    (lambda: server.lens_account("SOMEONE", identity_only=True),
+     b'{"id": 1, "query": "account", "args": ["SOMEONE", "--slim"]}\n'),
+    (lambda: server.lens_account("MainX", identity_only=True),
+     b'{"id": 1, "query": "account", "args": ["MainX", "--slim"]}\n'),
+    (lambda: server.lens_inventory("Someone"),
+     b'{"id": 1, "query": "inventory", "args": ["Someone"]}\n'),
+    (lambda: server.lens_inventory("SOMEONE"),
+     b'{"id": 1, "query": "inventory", "args": ["SOMEONE"]}\n'),
+    (lambda: server.lens_inventory("MainX"),
+     b'{"id": 1, "query": "inventory", "args": ["MainX"]}\n'),
     # digits are an index, even when a label is spelled the same
     (lambda: server.lens_account("501"),
      b'{"id": 1, "query": "account", "args": ["501"]}\n'),
@@ -241,6 +260,26 @@ def test_a_key_that_is_not_a_label_is_sent_as_before(
     call()
     assert len(fake_socket.made) == 1
     assert fake_socket.made[-1].sent == sent
+
+
+def test_an_address_stays_an_address_even_when_a_label_is_spelled_so(
+        roster, fake_socket, monkeypatch):
+    """A label may be any alphanumeric string, so one can be spelled
+    like a 0x address (stored lower-case, as every label is). The key is
+    still the address: lens_account sends it as it is, not the label's
+    own wallet, and lens_inventory sends it as before instead of
+    refusing it."""
+    shaped = "0x" + "ab" * 20
+    monkeypatch.setitem(server._accounts, shaped,
+                        server._Account(shaped, KEY_B, KEY_A))
+    server.lens_account(shaped)
+    server.lens_inventory(shaped)
+    assert [s.sent for s in fake_socket.made] == [
+        b'{"id": 1, "query": "account", "args": ["' + shaped.encode()
+        + b'"]}\n',
+        b'{"id": 1, "query": "inventory", "args": ["' + shaped.encode()
+        + b'"]}\n',
+    ]
 
 
 # ---------------------------------------------------------------------------
