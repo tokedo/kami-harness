@@ -119,22 +119,24 @@ index)".
 
 ### Tests
 
-`executor/tests/test_h440_own_account.py`, 37 tests on the
+`executor/tests/test_h440_own_account.py`, 47 tests on the
 unix-socket stub daemon and the raw-bytes socket double: the label's
 own address sent and its envelope returned, never the named player's;
 the owner-less label by its operator; an operator match on someone
 else's account, the comparison by value, an answer without the field;
 the unregistered label in both wordings after exactly one request;
-twelve keys that are not labels sent byte for byte as before; the
-`lens_inventory` refusal in every case with no request; `MAIN` /
-`Main`; `NOT_READY`, a starting daemon, a dropped connection,
-`NOT_APPLIED` and other codes on the label's read; no daemon; both
-descriptions; the deferred row. Against 4.3.0's server 24 failed and
-13 passed — the twelve unchanged-bytes guards and the no-daemon guard
-hold on 4.3.0 by construction. `test_lens_wrappers.py`: the stub daemon
-can close a connection without answering, and the two tests that send
-a name pin the roster, so a developer's own labels cannot change what
-they send. 1013 tests, 4 skipped.
+twenty-one keys that are not labels — names in any case, digits, an
+address, empty — sent byte for byte as before, and an address that a
+label is spelled like still sent as an address; the `lens_inventory`
+refusal in every case with no request; `MAIN` / `Main`; `NOT_READY`, a
+starting daemon, a dropped connection, `NOT_APPLIED` and other codes on
+the label's read; no daemon; both descriptions; the deferred row.
+Against 4.3.0's server 24 failed and 23 passed — the twenty-one
+unchanged-bytes guards, the address-shaped label and the no-daemon
+guard hold on 4.3.0 by construction. `test_lens_wrappers.py`: the stub
+daemon can close a connection without answering, and the two tests
+that send a name pin the roster, so a developer's own labels cannot
+change what they send. 1023 tests, 4 skipped.
 
 ### Known, not changed
 
