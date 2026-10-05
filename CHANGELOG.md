@@ -183,7 +183,7 @@ spelled like still sent as an address; `MAIN` / `Main`; `NOT_READY`, a
 starting daemon, a dropped connection, `NOT_APPLIED` and other codes on
 the label's read; no daemon; both label descriptions.
 
-`executor/tests/test_h440_no_account.py` (75, part 2): for each read
+`executor/tests/test_h440_no_account.py` (83, part 2): for each read
 that needs an account, `main`'s index resolved once (two requests in
 order, then one), the plain error with no second request and nothing
 kept, then the same call succeeding once the wallet registers;
@@ -191,7 +191,8 @@ kept, then the same call succeeding once the wallet registers;
 the other three, `main`'s index once registered, the old request (no
 error, asked again next time) while it is not, and every daemon failure
 on the resolution read raised; the ownership check on the resolution
-read; flags after the index exactly as the daemon's prefill puts them;
+read; an answer whose index is not an integer (`true`, a string, a
+float, none) not used, cached or followed by a second request; flags after the index exactly as the daemon's prefill puts them;
 an explicit index, 0 included, sent with nothing resolved; a daemon
 default operator changing nothing while `main` exists; a label's own
 inventory, `MAIN`, an unregistered label, an owner-less label, one
@@ -199,14 +200,14 @@ wallet's index never answering for another; without a `main` entry,
 fourteen requests byte for byte as 4.3.0 sent them; name-free
 presentation; the seven descriptions.
 
-Against 4.3.0's server 18 of the first file's 39 fail and 55 of the
-second's 75; the 41 that pass are the unchanged-bytes, explicit-index,
+Against 4.3.0's server 18 of the first file's 39 fail and 63 of the
+second's 83; the 41 that pass are the unchanged-bytes, explicit-index,
 address-shaped-label and no-daemon guards, which hold on 4.3.0 by
 construction. `conftest.py`:
 every test starts with an empty roster and an empty index cache, so a
 developer's own labels cannot change what a test sends.
 `test_lens_wrappers.py`: the stub daemon can close a connection without
-answering. 1090 tests, 4 skipped.
+answering. 1098 tests, 4 skipped.
 
 ### Known, not changed
 
