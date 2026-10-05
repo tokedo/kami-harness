@@ -169,18 +169,23 @@ is running, the 27 raise
 never return an empty result in its place. ACT and META
 tools do not depend on it.
 
-This server version is built against kami-lens release **1.0.0**,
-commit `0ffc8a7`, as declared in [`SPEC.md`](SPEC.md) D1. Several 4.0.0 parameters
-(`at_least_block`, `equipment`, the node and feed selectors) and two
-tools (`lens_receipts`, `lens_pool_history`) need 1.0.0: an older daemon
-refuses them with an error, so upgrade the daemon first. kami-lens is
-not published to npm or a container registry, so build it from the
-repository:
+This server version is pinned to kami-lens release **1.0.3**, commit
+`7f9be7b`, as declared in [`SPEC.md`](SPEC.md) D1. **1.0.1 or newer is
+required for correct reads:** when several transactions in one block
+wrote the same value (an account's item balance, a kami's state), a
+1.0.0 daemon could keep an earlier write and serve that wrong value as
+current; 1.0.1 fixes it. A daemon already running 1.0.0 needs the
+upgrade and a restart. Several 4.0.0 parameters (`at_least_block`,
+`equipment`, the node and feed selectors) and two tools
+(`lens_receipts`, `lens_pool_history`) need 1.0.0 or newer: an older
+daemon refuses them with an error, so upgrade the daemon first.
+kami-lens is not published to npm or a container registry, so build it
+from the repository:
 
 ```bash
 git clone https://github.com/tokedo/kami-lens
 cd kami-lens
-git checkout 0ffc8a7        # kami-lens 1.0.0, the pin this server version is built against
+git checkout 7f9be7b        # kami-lens 1.0.3, the pin this server version runs against
 npm install && npm run build
 node dist/cli.js daemon      # long-running: sync daemon + query socket
 ```

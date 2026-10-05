@@ -31,6 +31,27 @@ at all.
 
 ## [4.3.0] — 2026-10-04 — the last release before the freeze
 
+**Documentation correction, 2026-10-05.** Since 4.0.0, `SETUP.md`, the
+README's `Current:` line, `executor/README.md` and SPEC D1 named
+kami-lens **1.0.0** (`0ffc8a7`) as the lens this server runs against,
+and SETUP's install step checked out `0ffc8a7`. kami-lens 1.0.0 has a
+correctness defect, fixed in 1.0.1: when several transactions in one
+block wrote the same value (an account's item balance, a kami's state),
+the daemon could keep an earlier write and serve that wrong value as
+current. They now name kami-lens **1.0.3**
+(`7f9be7b67d9884c19422ec27c330633f2f257a10`) and say that 1.0.1 or
+newer is required for correct reads. **What to do:** a deployment whose
+daemon is on 1.0.0 upgrades it to 1.0.1 or newer — 1.0.3 recommended
+(`git checkout 7f9be7b`, rebuild) — and restarts it; a normal restart
+is enough. Nothing in this server changed: no code, tool description or
+test; `SCHEMA_VERSION` stays 4.3.0, and the tool count, registry mass
+and `tools_hash` below are unchanged. kami-lens 1.0.1–1.0.3 are
+additive for this server: no query, option, error code or envelope key
+it sends or reads changed, and their new fields
+(`status.sync.reconcileRepairs` and `lastRepair`; `unregistered: true`
+on an inventory row whose item the registry does not hold) pass through
+verbatim.
+
 MINOR. **100 tools**; three new *optional* parameters (`dry_run` on
 `portal_deposit`, `portal_claim`, `portal_cancel`), no tool, parameter
 or result field removed or renamed. Registry mass **70,523** (69,572 at
