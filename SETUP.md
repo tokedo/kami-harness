@@ -328,6 +328,10 @@ lens_account(account_key="main")      # PERCEIVE: identity, room, stamina, roste
 lens_party(account_index=<index>)     # PERCEIVE: your kamis with full vitals
 ```
 
+`main` is your roster label (steps 4-5), so `lens_account` reads your own
+account — or says `no account is registered` until it is — and its
+`index` is the `<index>` the next line takes.
+
 If `lens_status()` errors instead of answering, the daemon from step 7
 is not reachable — no other read will work until it is.
 

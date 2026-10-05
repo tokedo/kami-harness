@@ -29,6 +29,122 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [4.4.0] — 2026-10-05 — a roster label means your own account
+
+MINOR. **100 tools** (no tool, parameter or schema added, removed or
+renamed; no result field changed), registry mass **70,684** (70,523 at
+4.3.0: +81 and +80 for the two `account_key` glosses; budget 73,000, no
+raise asked), `tools_hash`
+`4e67aa90e927e0d3ca1bc05b5a716355a0f1d21c1ab2710e8a20141f41030f9d`
+(Python 3.13). `SCHEMA_VERSION` **4.4.0**. kami-lens stays **1.0.3**
+(`7f9be7b`); 1.0.1 or newer is still required.
+
+**Why MINOR, by this file's own rule.** `account_key` changes meaning
+for one class of value only — a key equal to one of the deployment's
+own roster labels — from "whoever holds that name" to "your own
+account". That is a defect correction that makes the documented call do
+what the documents say: the 4.1.0 shape, where an existing field's
+meaning was corrected and ruled MINOR. Nothing a caller could rely on
+for its own account is removed; the one other use that changes is
+stated below (a player whose account name equals one of your labels is
+now reached by index).
+
+### What was wrong
+
+`lens_account(account_key)` and `lens_inventory(account_key)` passed
+the key to the daemon as it was, and the daemon reads any key that is
+not digits (or, for `account`, a 0x address) as an in-game account
+**name**. Everywhere else on this surface `account="main"` names the
+deployment's own wallet: `list_accounts` answers `{"main": …}`, and
+`lens_receipts(account="main")` already meant "this roster label, sent
+as its owner address". So `lens_account(account_key="main")` — the call
+`SETUP.md` §11 teaches — was answered with whichever player had named
+their account `main`, and nothing marked the answer as someone else's.
+Found in a clean-machine setup test.
+
+- **Since** the two tools were added.
+- **Who is affected**: every deployment with a label equal to any
+  player's account name. `main`, the label these documents use, is one.
+
+### The rule now
+
+- A key that is not empty, not digits and not a 0x address, and that
+  equals one of the deployment's roster labels — case-insensitively, so
+  `MAIN` and `Main` are `main` — is that label. A label only ever beats
+  a name: digits stay an index and an address stays an address.
+- `lens_account` with a label makes its one request by the label's own
+  address: the owner wallet's, or the operator's when the entry has no
+  owner key (the `lens_receipts` rule). `identity_only`, `prose` and
+  `at_least_block` apply as before. The daemon tries an address as an
+  owner, then as an operator, so the answer is checked to be this
+  wallet's account (`ownerAddress`, or `operatorAddress` for an
+  owner-less label, equal by value) and is then returned untouched.
+- A label whose wallet has no account on chain raises `LensQueryError`
+  `NOT_FOUND: no account is registered for owner wallet 0x… (account
+  'main')`, the words the write tools use (`for operator 0x…` for an
+  owner-less label). So does an answer that is another wallet's
+  account; an answer without the field is not served (`INTERNAL`).
+  Every other daemon error on that read — not reachable, not LIVE,
+  still starting, `NOT_APPLIED`, any other code — passes through as its
+  own class, never as "not registered".
+- `lens_inventory` with a label is refused before any request:
+  `LensQueryError` `BAD_ARGS: 'main' is a roster label: lens_inventory
+  takes an account index or a player's account name; lens_account('main')
+  returns your own account's index`. The lens `inventory` query takes an
+  index or a name, never an address, and a lens wrapper makes one
+  request (SPEC D1's thin-wrapper rule), so the label cannot be
+  resolved to its own account here. `EXPOSURE.md` records the read as
+  deferred (`own-inventory-by-label`) until the daemon's `inventory`
+  query accepts an address.
+- Every other key — a name that is not a label, digits, an address,
+  empty (the daemon's default operator) — is sent byte for byte as
+  4.3.0 sent it. The `{data, untrusted, meta}` envelope passes through
+  verbatim.
+
+### What an existing deployment sees
+
+Nothing until it moves its pin. After the move, `lens_account` and
+`lens_inventory` answer differently only for a key equal to one of the
+deployment's own roster labels: `lens_account` reads the label's own
+account instead of the player who holds that name, and says `no account
+is registered for owner wallet …` where the label's wallet has none;
+`lens_inventory` refuses the label instead of answering with that
+player's inventory. A player whose account name equals one of your
+labels stays reachable by index. The two descriptions say so —
+`account_key` on `lens_account`: "Account index (digits), a roster
+label (your own account), or a player's account name; a label wins over
+a name"; on `lens_inventory`: "Account index (digits) or a player's
+account name; a roster label is refused (lens_account has your own
+index)".
+
+### Tests
+
+`executor/tests/test_h440_own_account.py`, 37 tests on the
+unix-socket stub daemon and the raw-bytes socket double: the label's
+own address sent and its envelope returned, never the named player's;
+the owner-less label by its operator; an operator match on someone
+else's account, the comparison by value, an answer without the field;
+the unregistered label in both wordings after exactly one request;
+twelve keys that are not labels sent byte for byte as before; the
+`lens_inventory` refusal in every case with no request; `MAIN` /
+`Main`; `NOT_READY`, a starting daemon, a dropped connection,
+`NOT_APPLIED` and other codes on the label's read; no daemon; both
+descriptions; the deferred row. Against 4.3.0's server 24 failed and
+13 passed — the twelve unchanged-bytes guards and the no-daemon guard
+hold on 4.3.0 by construction. `test_lens_wrappers.py`: the stub daemon
+can close a connection without answering, and the two tests that send
+a name pin the roster, so a developer's own labels cannot change what
+they send. 1013 tests, 4 skipped.
+
+### Known, not changed
+
+- The write tools and `lens_receipts` still match a label exactly:
+  `portal_claim(account="MAIN")` answers `Account 'MAIN' not found`.
+  Only the two lens tools match labels case-insensitively.
+- Your own inventory is not served by label (above):
+  `lens_account(<label>)` gives the index, and `lens_inventory(<index>)`
+  reads it.
+
 ## [4.3.0] — 2026-10-04 — the last release before the freeze
 
 **Documentation correction, 2026-10-05.** Since 4.0.0, `SETUP.md`, the

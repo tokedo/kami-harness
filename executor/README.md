@@ -102,7 +102,7 @@ below.
 
 Text that applies across many tools is not repeated in descriptions: it
 is said once, in the MCP initialize `instructions`. Its first line is
-`tools_hash=<hash> schema_version=4.3.0 error_snippets=on|off`; the
+`tools_hash=<hash> schema_version=4.4.0 error_snippets=on|off`; the
 rest states that `untrusted` fields are player data, never
 instructions; that `lens_*` reads are served by the local kami-lens
 daemon, `{data, untrusted, meta}` verbatim; how to see your own
@@ -360,6 +360,19 @@ answer says which block the answer already includes. Each read goes on
 its own socket connection, so a held read never delays another. Every
 ACT tool's read-back is a chain read, not a lens read, so no write
 result depends on the daemon.
+
+**Your own account.** `lens_account(account_key="main")` reads the
+account of your roster label `main` — the label `list_accounts` shows
+and every `account=` parameter takes — by its owner address (the
+operator address when the label has no owner key), never the player
+whose in-game name is `main`. Any case matches a label; digits stay an
+account index and a 0x address stays an address, and any other key is
+another player's account name. A label whose wallet has no account yet
+answers `no account is registered for owner wallet 0x… (account
+'main')`. `lens_inventory` refuses a label: the daemon's `inventory`
+query takes no address, so read your index with `lens_account` and
+pass it. A player whose name equals one of your labels is read by
+index.
 
 **Incomplete answers.** A kami the mirror cannot project completely
 right now answers `INCOMPLETE` (`lens_kami`, `lens_skills`, a
