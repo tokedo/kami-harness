@@ -162,7 +162,8 @@ outside the client's tool surface.
 
 27 of the 34 PERCEIVE tools are thin wrappers over a **local**
 kami-lens daemon — one socket request each, passed straight back to the
-caller. The other 7 read the chain directly (or, for
+caller (a read that must first learn your own account's index makes
+one more, once per server process; §11). The other 7 read the chain directly (or, for
 `get_expected_objective`, the local quest catalog). Until the daemon
 is running, the 27 raise
 `LensUnavailableError` — they never fall back to a hosted service and
@@ -217,7 +218,10 @@ platform default:
 | Linux | `${XDG_DATA_HOME:-~/.local/share}/kami-lens/kami-lens.sock` |
 | Windows | `%LOCALAPPDATA%\kami-lens\kami-lens.sock` |
 
-A daemon started with the defaults needs no configuration here. Keep
+A daemon started with the defaults needs no configuration here, and
+no `default_operator`: a read called with no account is for your
+`main` roster label's own account (§11). Setting one is harmless; it
+applies only to a deployment without a `main` label. Keep
 the lens data directory's path short: an AF_UNIX socket path is capped
 by the OS (103 bytes on macOS, 107 on Linux), the daemon refuses a
 longer one with `SOCKET_PATH_TOO_LONG`, and this server reports the same
@@ -329,8 +333,12 @@ lens_party(account_index=<index>)     # PERCEIVE: your kamis with full vitals
 ```
 
 `main` is your roster label (steps 4-5), so `lens_account` reads your own
-account — or says `no account is registered` until it is — and its
-`index` is the `<index>` the next line takes.
+account, and its `index` is the `<index>` the next line takes. A read
+called with no account is for `main` as well: `lens_party()` and
+`lens_roster()` answer for your account. Before the account is
+registered they say `no account is registered for owner wallet 0x…
+(account 'main')`; after `register_account` they answer for it, with
+no configuration and no restart.
 
 If `lens_status()` errors instead of answering, the daemon from step 7
 is not reachable — no other read will work until it is.
@@ -354,6 +362,13 @@ Check that `MAIN_OPERATOR_KEY=…` (uppercased) is set in
 `security find-generic-password -s kami-mcp/MAIN_OPERATOR_KEY` finds it.
 The startup report on stderr names every secret it resolved and where
 each one came from.
+
+### `no account is registered for owner wallet 0x… (account 'main')`
+The label exists in your roster, but its wallet has no account on chain
+yet, so a read for your own account — by the label, or with no account
+given — has nothing to answer. `register_account` creates it (see the
+Onboarding section of [`executor/README.md`](executor/README.md)); the
+next read finds it. Not an error in the daemon.
 
 ### PERCEIVE reads fail with `LensUnavailableError`
 The kami-lens daemon from step 7 is not running, or the server is

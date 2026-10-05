@@ -338,7 +338,8 @@ World-state reads. They sign nothing and change no remote state.
 D1; 1.0.1 or newer is required for correct reads, see
 [`SETUP.md`](../SETUP.md) §7). A
 wrapper
-does argument mapping, exactly one socket request, and envelope
+does argument mapping, exactly one socket request (one named exception:
+learning your own account's index, below), and envelope
 pass-through: the daemon's `{data, untrusted, meta}` reaches the caller
 verbatim, with only the transport keys `id` and `ok` removed. Nothing is
 recomputed, reshaped, renamed, reordered, filtered, or defaulted
@@ -361,18 +362,33 @@ its own socket connection, so a held read never delays another. Every
 ACT tool's read-back is a chain read, not a lens read, so no write
 result depends on the daemon.
 
-**Your own account.** `lens_account(account_key="main")` reads the
-account of your roster label `main` — the label `list_accounts` shows
-and every `account=` parameter takes — by its owner address (the
-operator address when the label has no owner key), never the player
-whose in-game name is `main`. Any case matches a label; digits stay an
-account index and a 0x address stays an address, and any other key is
-another player's account name. A label whose wallet has no account yet
-answers `no account is registered for owner wallet 0x… (account
-'main')`. `lens_inventory` refuses a label: the daemon's `inventory`
-query takes no address, so read your index with `lens_account` and
-pass it. A player whose name equals one of your labels is read by
-index.
+**Your own account.** A roster label — `main`, the label
+`list_accounts` shows and every `account=` parameter defaults to — is
+your own account wherever a lens read takes an account key:
+`lens_account("main")` and `lens_inventory("main")` read that wallet's
+own account, found by its owner address (the operator address when the
+label has no owner key), never the player whose in-game name is
+`main`. Any case matches a label; digits stay an account index, a 0x
+address stays an address, and any other key is a player's account
+name. A player whose name equals one of your labels is read by index.
+
+A read called with no account is for `main` too, not for the daemon's
+configured default operator: `lens_account()`, `lens_inventory()`,
+`lens_party()` and `lens_roster()` answer for `main`'s account, and
+while `main`'s wallet has no account they say `no account is registered
+for owner wallet 0x… (account 'main')` — after `register_account` they
+answer for it. `lens_quests()`, `lens_market()` and `lens_trades()`
+send `main`'s index once it has an account, and otherwise mean what
+they always meant (the registry, the market, open trades). Without a
+`main` label the seven send exactly what they sent before, and the
+daemon's default operator applies, if set.
+
+A read that takes an account index learns your own account's index
+with one `account <address> --slim` read first — the one exception to
+the one-request rule — and keeps it for the life of the server process
+(an index never changes), so from then on it is one request again. "No
+account yet" is not kept: the next call asks again. `at_least_block`
+applies to both reads.
 
 **Incomplete answers.** A kami the mirror cannot project completely
 right now answers `INCOMPLETE` (`lens_kami`, `lens_skills`, a
@@ -535,7 +551,10 @@ carries at most 6 decimal places.
      passed through. The thin-wrapper rule is binding: no formula math,
      no multi-query composition, no cross-query joins, no derived fields
      harness-side. A read needing any of those is deferred with a
-     visible EXPOSURE.md row until the daemon serves it.
+     visible EXPOSURE.md row until the daemon serves it. One named
+     exception (SPEC D1): learning the index of one of the deployment's
+     own roster accounts with one `account <own address> --slim`
+     request (`_own_index`), cached once found.
 5. Add `account: str = "main"` parameter to all per-account tools
 6. Tag the tool: add its name to exactly one of `_ACT_TOOLS`,
    `_PERCEIVE_TOOLS`, `_META_TOOLS` in `server.py`.

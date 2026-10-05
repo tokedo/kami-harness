@@ -29,25 +29,31 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
-## [4.4.0] — 2026-10-05 — a roster label means your own account
+## [4.4.0] — 2026-10-05 — your own account, by label or by default
 
 MINOR. **100 tools** (no tool, parameter or schema added, removed or
-renamed; no result field changed), registry mass **70,684** (70,523 at
-4.3.0: +81 and +80 for the two `account_key` glosses; budget 73,000, no
-raise asked), `tools_hash`
-`4e67aa90e927e0d3ca1bc05b5a716355a0f1d21c1ab2710e8a20141f41030f9d`
-(Python 3.13). `SCHEMA_VERSION` **4.4.0**. kami-lens stays **1.0.3**
-(`7f9be7b`); 1.0.1 or newer is still required.
+renamed; no result field changed), registry mass **71,133** (70,523 at
+4.3.0: +610 for the account glosses of seven lens reads; budget
+73,000, no raise asked), `tools_hash`
+`fb65e0db8f875629d5091cacdbf54864c4548dcfb5bb8aaf6f8986899722fac0`
+(Python 3.13). `SCHEMA_VERSION` **4.4.0**. The handshake's standing
+text is unchanged. kami-lens stays **1.0.3** (`7f9be7b`); 1.0.1 or
+newer is still required. Two parts: a roster label is your own account
+(part 1), and a read with no account given is for your own account
+(part 2).
 
-**Why MINOR, by this file's own rule.** `account_key` changes meaning
-for one class of value only — a key equal to one of the deployment's
-own roster labels — from "whoever holds that name" to "your own
-account". That is a defect correction that makes the documented call do
-what the documents say: the 4.1.0 shape, where an existing field's
+**Why MINOR, by this file's own rule.** Two existing parameters change
+meaning for one class of value each — an account key equal to one of
+the deployment's own roster labels, and no account at all on a
+deployment whose roster has a `main` entry — from "whoever holds that
+name" and "the daemon's configured default operator" to "your own
+account". These are defect corrections that make the documented calls
+do what the documents say: the 4.1.0 shape, where an existing field's
 meaning was corrected and ruled MINOR. Nothing a caller could rely on
-for its own account is removed; the one other use that changes is
-stated below (a player whose account name equals one of your labels is
-now reached by index).
+for its own account is removed; the uses that do change are stated
+below (a player whose account name equals one of your labels is now
+reached by index; on a deployment with a `main` label, a no-account
+read no longer reaches the daemon's default operator).
 
 ### What was wrong
 
@@ -60,92 +66,159 @@ deployment's own wallet: `list_accounts` answers `{"main": …}`, and
 as its owner address". So `lens_account(account_key="main")` — the call
 `SETUP.md` §11 teaches — was answered with whichever player had named
 their account `main`, and nothing marked the answer as someone else's.
-Found in a clean-machine setup test.
 
-- **Since** the two tools were added.
+A read called with no account (`account_key=""`, `account_index=-1`)
+was filled by the daemon's configured default operator, an account
+index in the lens config. A new deployment has none — its account does
+not exist until it registers — so the first `lens_roster()` of a fresh
+session answered `BAD_ARGS: account index must be a non-negative
+integer`, which does not say "you have no account yet", and kept
+answering it until someone wrote the index into the lens config and
+restarted the daemon. The server knows its own wallet; it now names it.
+
+Both found in a clean-machine setup test.
+
+- **Since** the seven tools were added.
 - **Who is affected**: every deployment with a label equal to any
-  player's account name. `main`, the label these documents use, is one.
+  player's account name (`main`, the label these documents use, is
+  one), and every deployment that reads with no account.
 
 ### The rule now
 
-- A key that is not empty, not digits and not a 0x address, and that
-  equals one of the deployment's roster labels — case-insensitively, so
-  `MAIN` and `Main` are `main` — is that label. A label only ever beats
-  a name: digits stay an index and an address stays an address.
-- `lens_account` with a label makes its one request by the label's own
-  address: the owner wallet's, or the operator's when the entry has no
-  owner key (the `lens_receipts` rule). `identity_only`, `prose` and
-  `at_least_block` apply as before. The daemon tries an address as an
-  owner, then as an operator, so the answer is checked to be this
+- **A roster label is your own account.** In `lens_account` and
+  `lens_inventory`, a key that is not empty, not digits and not a 0x
+  address, and that equals one of the deployment's roster labels —
+  case-insensitively, so `MAIN` and `Main` are `main` — is that label.
+  A label only ever beats a name: digits stay an index and an address
+  stays an address.
+- **No account given is your own account** — the roster entry labelled
+  `main`, the label every `account=` parameter defaults to:
+  - `lens_account`, `lens_inventory`, `lens_party`, `lens_roster` read
+    `main`'s own account;
+  - `lens_quests`, `lens_market`, `lens_trades`, where no account
+    already means the registry, the market or open trades, send
+    `main`'s index once `main` has an account, and otherwise the
+    request they always sent — never an error for the missing argument;
+  - a roster with no `main` entry sends exactly the 4.3.0 request
+    (no account; the daemon's default operator, if set).
+- **How the account is read.** `lens_account` makes its one request by
+  the account's own address: the owner wallet's, or the operator's
+  when the entry has no owner key (the `lens_receipts` rule). The reads
+  that take an index learn it with one `account <address> --slim`
+  request first, then make the read with that index, flags after it in
+  the order the daemon's own prefill keeps them (`roster <index>
+  --stats --full`). The index is kept for the life of the server
+  process — an account's index never changes — so from then on each
+  call is one request. "No account yet" is never kept: the next call
+  asks again, so a wallet that registers during the session is found
+  on its next read. `at_least_block`, where the tool has it, holds
+  both reads (a registration and the read after it may share a block),
+  and holds the one read once the index is known.
+- **Ownership is checked.** The daemon tries an address as an owner,
+  then as an operator, so every read by address is checked to be this
   wallet's account (`ownerAddress`, or `operatorAddress` for an
-  owner-less label, equal by value) and is then returned untouched.
-- A label whose wallet has no account on chain raises `LensQueryError`
+  owner-less entry, equal by value) before it is used; the envelope
+  returned to the caller is the daemon's, untouched.
+- **A wallet with no account says so.** A label, or `main` for a
+  no-account read, whose wallet has no account raises `LensQueryError`
   `NOT_FOUND: no account is registered for owner wallet 0x… (account
   'main')`, the words the write tools use (`for operator 0x…` for an
-  owner-less label). So does an answer that is another wallet's
-  account; an answer without the field is not served (`INTERNAL`).
-  Every other daemon error on that read — not reachable, not LIVE,
-  still starting, `NOT_APPLIED`, any other code — passes through as its
-  own class, never as "not registered".
-- `lens_inventory` with a label is refused before any request:
-  `LensQueryError` `BAD_ARGS: 'main' is a roster label: lens_inventory
-  takes an account index or a player's account name; lens_account('main')
-  returns your own account's index`. The lens `inventory` query takes an
-  index or a name, never an address, and a lens wrapper makes one
-  request (SPEC D1's thin-wrapper rule), so the label cannot be
-  resolved to its own account here. `EXPOSURE.md` records the read as
-  deferred (`own-inventory-by-label`) until the daemon's `inventory`
-  query accepts an address.
-- Every other key — a name that is not a label, digits, an address,
-  empty (the daemon's default operator) — is sent byte for byte as
-  4.3.0 sent it. The `{data, untrusted, meta}` envelope passes through
-  verbatim.
+  owner-less entry). So does an answer that is another wallet's
+  account; an answer without the address or the index is not used
+  (`INTERNAL`). Every other daemon error on these reads — not
+  reachable, not LIVE, still starting, `NOT_APPLIED`, any other code —
+  passes through as its own class, never as "not registered", and for
+  `lens_quests`, `lens_market` and `lens_trades` it is raised, not
+  swallowed.
+- Every other key — a name that is not a label, digits (0 included),
+  an address — is sent byte for byte as 4.3.0 sent it. The
+  `{data, untrusted, meta}` envelope passes through verbatim.
+
+**Cost.** One extra local-socket read per server process for each own
+account read by index (per session, for a client that starts the
+server per session), plus one per call while the wallet has no
+account. This is the one named exception to SPEC D1's thin-wrapper
+rule (at most one request per call).
 
 ### What an existing deployment sees
 
-Nothing until it moves its pin. After the move, `lens_account` and
-`lens_inventory` answer differently only for a key equal to one of the
-deployment's own roster labels: `lens_account` reads the label's own
-account instead of the player who holds that name, and says `no account
-is registered for owner wallet …` where the label's wallet has none;
-`lens_inventory` refuses the label instead of answering with that
-player's inventory. A player whose account name equals one of your
-labels stays reachable by index. The two descriptions say so —
-`account_key` on `lens_account`: "Account index (digits), a roster
-label (your own account), or a player's account name; a label wins over
-a name"; on `lens_inventory`: "Account index (digits) or a player's
-account name; a roster label is refused (lens_account has your own
-index)".
+Nothing until it moves its pin. After the move:
+
+- a key equal to one of its roster labels reads that label's own
+  account (`lens_account`, `lens_inventory`), never the player who
+  holds that name; such a player stays reachable by index;
+- if its roster has a `main` entry, reads called with no account
+  answer for `main`'s own account instead of the daemon's
+  `default_operator` — the same answer wherever `default_operator` was
+  set to that account — and say `no account is registered` while
+  `main` has none; `lens_quests`, `lens_market` and `lens_trades` with
+  no account answer for `main`'s account once it has one;
+- if its roster has no `main` entry, no-account reads are unchanged.
+
+The lens config's `default_operator` is no longer needed by a
+deployment with a `main` label; setting it remains harmless.
+
+The seven descriptions say so. `account_key` on `lens_account` and
+`lens_inventory`: "Account index (digits), a roster label (your own
+account), or a player's account name; a label wins over a name. Empty:
+your own account (roster label main); without that label, the daemon
+default operator." `account_index` on `lens_party` and `lens_roster`:
+"-1: your own account (roster label main); without that label, the
+daemon default operator." On `lens_trades`, `lens_quests` and
+`lens_market`: "-1: your own account (roster label main) once
+registered; else open trades only / registry only / market only /
+daemon default operator" (each its own).
 
 ### Tests
 
-`executor/tests/test_h440_own_account.py`, 47 tests on the
-unix-socket stub daemon and the raw-bytes socket double: the label's
+`executor/tests/test_h440_own_account.py` (39, part 1, on the
+unix-socket stub daemon and the raw-bytes socket double): the label's
 own address sent and its envelope returned, never the named player's;
 the owner-less label by its operator; an operator match on someone
 else's account, the comparison by value, an answer without the field;
 the unregistered label in both wordings after exactly one request;
-twenty-one keys that are not labels — names in any case, digits, an
-address, empty — sent byte for byte as before, and an address that a
-label is spelled like still sent as an address; the `lens_inventory`
-refusal in every case with no request; `MAIN` / `Main`; `NOT_READY`, a
+nineteen keys that are not labels — names in any case, digits, an
+address — sent byte for byte as before, and an address that a label is
+spelled like still sent as an address; `MAIN` / `Main`; `NOT_READY`, a
 starting daemon, a dropped connection, `NOT_APPLIED` and other codes on
-the label's read; no daemon; both descriptions; the deferred row.
-Against 4.3.0's server 24 failed and 23 passed — the twenty-one
-unchanged-bytes guards, the address-shaped label and the no-daemon
-guard hold on 4.3.0 by construction. `test_lens_wrappers.py`: the stub
-daemon can close a connection without answering, and the two tests
-that send a name pin the roster, so a developer's own labels cannot
-change what they send. 1023 tests, 4 skipped.
+the label's read; no daemon; both label descriptions.
+
+`executor/tests/test_h440_no_account.py` (75, part 2): for each read
+that needs an account, `main`'s index resolved once (two requests in
+order, then one), the plain error with no second request and nothing
+kept, then the same call succeeding once the wallet registers;
+`at_least_block` on both reads and on the one cached read; for each of
+the other three, `main`'s index once registered, the old request (no
+error, asked again next time) while it is not, and every daemon failure
+on the resolution read raised; the ownership check on the resolution
+read; flags after the index exactly as the daemon's prefill puts them;
+an explicit index, 0 included, sent with nothing resolved; a daemon
+default operator changing nothing while `main` exists; a label's own
+inventory, `MAIN`, an unregistered label, an owner-less label, one
+wallet's index never answering for another; without a `main` entry,
+fourteen requests byte for byte as 4.3.0 sent them; name-free
+presentation; the seven descriptions.
+
+Against 4.3.0's server 18 of the first file's 39 fail and 55 of the
+second's 75; the 41 that pass are the unchanged-bytes, explicit-index,
+address-shaped-label and no-daemon guards, which hold on 4.3.0 by
+construction. `conftest.py`:
+every test starts with an empty roster and an empty index cache, so a
+developer's own labels cannot change what a test sends.
+`test_lens_wrappers.py`: the stub daemon can close a connection without
+answering. 1090 tests, 4 skipped.
 
 ### Known, not changed
 
 - The write tools and `lens_receipts` still match a label exactly:
   `portal_claim(account="MAIN")` answers `Account 'MAIN' not found`.
-  Only the two lens tools match labels case-insensitively.
-- Your own inventory is not served by label (above):
-  `lens_account(<label>)` gives the index, and `lens_inventory(<index>)`
-  reads it.
+  Only the lens reads match labels case-insensitively.
+- `lens_portal` and `lens_transfers` still require an account index;
+  they never relied on the daemon's default operator.
+- The cached index is the process's: a server process that outlives an
+  operator rebind made outside this server (the owner-less case only)
+  keeps the old index until it restarts, as the pre-send registration
+  cache already does.
 
 ## [4.3.0] — 2026-10-04 — the last release before the freeze
 

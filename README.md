@@ -85,7 +85,8 @@ no remote state. 27 of them are thin wrappers over the local
 Kamigotchi client that keeps a live mirror of on-chain state and
 projects it through the game's own formulas, so a read answers with what
 the official web client would show that player, without a browser. The
-wrapper does argument mapping, one socket request, and passes the
+wrapper does argument mapping, one socket request (one more, once per
+process, to learn your own account's index), and passes the
 daemon's `{data, untrusted, meta}` envelope through verbatim: nothing is
 recomputed, reshaped, or defaulted harness-side, and `meta.stale` marks
 answers served from last-synced state. The `untrusted` list names
