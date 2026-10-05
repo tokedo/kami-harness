@@ -46,7 +46,8 @@ def lens(short_dir, monkeypatch):
     sock_path = short_dir / "kami-lens.sock"
     state = {
         "requests": [],
-        # responder(req) -> dict merged over {id, ok}
+        # responder(req) -> dict merged over {id, ok}; None closes the
+        # connection without answering
         "responder": lambda req: {"ok": True, **ENVELOPE},
     }
 
@@ -71,7 +72,10 @@ def lens(short_dir, monkeypatch):
                     continue
                 req = json.loads(buf.split(b"\n", 1)[0])
                 state["requests"].append(req)
-                resp = {"id": req.get("id"), **state["responder"](req)}
+                out = state["responder"](req)
+                if out is None:
+                    continue
+                resp = {"id": req.get("id"), **out}
                 conn.sendall((json.dumps(resp) + "\n").encode())
 
     t = threading.Thread(target=serve, daemon=True)
@@ -138,7 +142,9 @@ class TestArgumentMapping:
         (lambda: server.lens_status(), "status", None),
     ]
 
-    def test_every_wrapper_maps_args(self, lens):
+    # `accounts` pins the roster: a name passes through only while it is
+    # not one of the deployment's own labels.
+    def test_every_wrapper_maps_args(self, lens, accounts):
         for call, query, args in self.CASES:
             lens["requests"].clear()
             call()
@@ -146,7 +152,7 @@ class TestArgumentMapping:
             assert req["query"] == query, query
             assert req.get("args") == args, (query, req.get("args"))
 
-    def test_prose_flag_passes_through(self, lens):
+    def test_prose_flag_passes_through(self, lens, accounts):
         server.lens_account("tokedo", prose=True)
         assert lens["requests"][-1].get("prose") is True
         server.lens_account("tokedo")
