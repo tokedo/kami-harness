@@ -1,7 +1,7 @@
 ---
 module: kami-harness
-version: 18
-describes: 21d7b0b
+version: 19
+describes: 9d76459
 ---
 
 # SPEC — contract registry
@@ -61,10 +61,12 @@ this registry says *what holds*, not *how it is built*.
   descriptions, 4,150 characters of registry mass.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **70,523 characters** at 4.3.0 (69,572 at 4.2.0, 69,351 at 4.0.0 and
-  4.1.0, 72,855 at 3.7.0), against a `REGISTRY_MASS_BUDGET` of 73,000.
-  4.3.0's three optional `dry_run` parameters, their description
-  sentences and `fund_operator`'s prepayment wording cost 485, and
+  **70,684 characters** at 4.4.0 (70,523 at 4.3.0, 69,572 at 4.2.0,
+  69,351 at 4.0.0 and 4.1.0, 72,855 at 3.7.0), against a
+  `REGISTRY_MASS_BUDGET` of 73,000. 4.4.0's two `account_key` glosses
+  (`lens_account`, `lens_inventory`) cost 161; 4.3.0's three optional
+  `dry_run` parameters, their description sentences and
+  `fund_operator`'s prepayment wording cost 485, and
   `get_gas_balance`'s sentence and the one sentence on four action tools
   466; 4.2.0's two description corrections (`lens_portal`, `lens_room`)
   cost 221; none asked for a raise. **4.0.0 asked for no raise**: its
@@ -132,7 +134,7 @@ this registry says *what holds*, not *how it is built*.
 - The MCP `initialize` handshake carries it in the `instructions` field
   as the exact string `tools_hash=<64 hex chars>`.
 - Value at this ref (Python 3.13):
-  `beb799424a4b2e3eee3e4753fd2b0f0e4ecf2ffae9274fd2e2fb34c984eb7958`.
+  `4e67aa90e927e0d3ca1bc05b5a716355a0f1d21c1ab2710e8a20141f41030f9d`.
 - The MCP `initialize` handshake additionally carries
   `schema_version=<SCHEMA_VERSION>` and `error_snippets=<on|off>` in the
   same `instructions` field, space-separated after the hash. The
@@ -143,7 +145,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "4.3.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "4.4.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -700,6 +702,26 @@ softened, and the pre-snippet text is unchanged.
   daemon answers one connection's requests in order), and the socket
   timeout outlasts the wait (30 s, or the wait plus 15 s). No other
   wrapper takes the parameter; `status` refuses it upstream.
+- **A roster label is your own account (4.4.0).** In `lens_account`
+  and `lens_inventory`, an `account_key` that is not empty, not digits
+  and not a 0x address, and that equals one of the deployment's roster
+  labels case-insensitively, is that label — never an in-game name.
+  `lens_account` makes its one request by the label's own address (the
+  owner's; the operator's when the entry has no owner key, the
+  `lens_receipts` rule) and returns the envelope verbatim once its
+  `data.ownerAddress` (`data.operatorAddress` for an owner-less label)
+  equals that address by value. A `NOT_FOUND` on that read, or an
+  answer for another wallet's account, raises `LensQueryError`
+  `NOT_FOUND: no account is registered for owner wallet 0x… (account
+  '<label>')` (`for operator 0x…` for an owner-less label); an answer
+  without the field raises `INTERNAL`; every other error on that read
+  — `LensUnavailableError`, `LensNotReadyError`, `LensNotAppliedError`,
+  any other code — passes through as itself. `lens_inventory` refuses
+  a label before any request (`LensQueryError` `BAD_ARGS`, naming
+  `lens_account`): the lens `inventory` query takes no address, and
+  D1's thin-wrapper rule allows one request (EXPOSURE deferred row
+  `own-inventory-by-label`). Every other key — a name, digits, an
+  address, empty — is sent byte for byte as at 4.3.0.
 - **Incomplete answers pass through as they are.** An `INCOMPLETE`
   error passes through as a `LensQueryError`; a row with
   `incomplete: true` (no `vitals`/`liquidation` on node rows) reaches
@@ -1050,6 +1072,7 @@ writer; no other module opens the keys file or the Keychain.
 | Portal receipt ids are returned in the lens's 0x-hex form, and both forms are accepted; the harvest SIZE refusal names the RPC node; an item that acts on HP reads the kami's stored HP back before and after | `test_400_surface.py::test_portal_withdraw_to_operator_is_operator_signed_and_decodes_the_receipt`, `::test_portal_cancel_returns_the_items_but_not_the_tax`, `::test_the_size_refusal_names_the_rpc_node_not_a_harvest_node`, `::test_use_item_batch_reads_hp_back_for_an_item_that_acts_on_hp`, `::test_an_item_that_does_not_act_on_hp_reads_no_hp`, `::test_feed_kami_reads_hp_back`, `::test_feed_level_allocate_batch_reads_hp_back_on_the_feed`, `::test_the_hp_effect_rule_reads_the_catalog` |
 | `at_least_block` is on exactly the seven verify reads, absent by default and sent as `--at-least=<block>`; `NOT_APPLIED` is `LensNotAppliedError` carrying `applied_through`; every read opens its own connection, with a socket timeout that outlasts the wait | `test_400_lens.py::test_at_least_block_holds_the_read_for_that_block`, `::test_defaults_send_none_of_the_new_options`, `::test_the_verify_set_carries_at_least_block_and_status_does_not`, `::test_not_applied_is_its_own_error_and_carries_applied_through`, `::test_every_read_opens_its_own_connection`, `::test_the_socket_timeout_outlasts_the_wait` |
 | The lens 1.0.0 options reach the daemon: `equipment`, roster `full`, node targets and occupant account, feed `limit` and account, `receipts` by the roster account's owner address, `pool-history` | `test_400_lens.py::test_the_1_0_0_options_reach_the_daemon`, `::test_lens_receipts_reads_the_roster_accounts_owner_address`, `::test_lens_receipts_falls_back_to_the_operator_address` |
+| A key equal to a roster label (any case; never digits or a 0x address) makes `lens_account` read the label's own account: one request by its owner address (operator address when there is no owner key), returned verbatim only when the answer's address equals it by value; a label with no account, or another wallet's account, raises `no account is registered for …`; `lens_inventory` refuses a label with no request; `NOT_READY`, a starting or unreachable daemon, a dropped connection, `NOT_APPLIED` and other codes on the label's read keep their own classes; every other key is sent byte for byte as at 4.3.0 | `test_h440_own_account.py` (all), `test_lens_wrappers.py::TestArgumentMapping` |
 | `INCOMPLETE`, `incomplete: true` rows, the 1.0.0 `meta` fields and a `status` without its head sample pass through verbatim, nothing filled in | `test_400_lens.py::test_incomplete_passes_through_as_a_query_error`, `::test_incomplete_rows_and_the_new_meta_pass_through_verbatim`, `::test_status_without_the_head_sample_passes_through` |
 | The instructions say once how to verify a write and what an incomplete answer means; `portal_claim`/`portal_cancel` point to `lens_receipts`; `lens_feed` states its default; no lens quote wrapper exists | `test_400_lens.py::test_the_agent_is_told_once_how_to_verify_and_what_incomplete_means`, `::test_portal_claim_and_cancel_point_to_lens_receipts`, `::test_lens_feed_states_its_new_default`, `::test_there_is_no_lens_quote_wrapper`, `test_tool_surface.py::test_standing_text_is_said_once_in_the_instructions` |
 | The offline suite reaches no network: the module's client is a dead loopback port unless a test installs its own fake | `conftest.py::_offline_rpc` (autouse) |
@@ -1104,7 +1127,7 @@ writer; no other module opens the keys file or the Keychain.
 | A snippet states no advice, never lengthens past its bound, never hides a subject silently, reports only facts it read, and never introduces the `-32000` marker retry routes on | `test_error_snippets.py::TestSnippetGuards`, `::TestSnippetBehaviour` |
 | The three snippets an agent sees are the pinned wordings | `test_error_snippets.py::TestSnippetExamples` (harvest_start on a HARVESTING kami, harvest_collect on a RESTING kami, a dry-run revert — asserted verbatim) |
 | An `allow_partial` return keeps its documented shape with the flag on | `test_error_snippets.py::TestSnippetBehaviour::test_batch_error_leaves_the_returned_payload_untouched` |
-| `SCHEMA_VERSION == "4.3.0"` | `test_tool_surface.py::test_schema_version` |
+| `SCHEMA_VERSION == "4.4.0"` | `test_tool_surface.py::test_schema_version` |
 | The default secrets backend is `envfile`, and no code path reaches the Keychain under it — not load, not get, not put, not with a manifest present | `test_secrets_store.py::TestEnvfileIsTheDefault` (the Keychain helpers are replaced with raisers) |
 | An unrecognised `KAMI_SECRETS_BACKEND` fails loudly instead of resolving to a backend | `test_secrets_store.py::TestEnvfileIsTheDefault::test_unknown_backend_fails_loudly` |
 | The protected-names manifest is the keys file's name with a trailing `.env` removed plus `.secrets.names`, alongside it; an absent manifest protects nothing | `test_secrets_store.py::TestManifestPath` |
@@ -1316,3 +1339,4 @@ each entry is expected to land; it records what it would cost.
 | 16 | 2026-10-04 | Re-pinned to `c313d20` (SCHEMA_VERSION **4.2.0**). **MINOR**: no tool, parameter or schema added, removed or renamed, and no result field removed or renamed — count 100, classes unchanged — but results gain content and two descriptions change: P1 mass **69,351 -> 69,572** (no raise), P2 `tools_hash` `907899dc...b2be` -> `bfb39aab...4dca`. The fixes of a live test stage on the public test account (89 transactions) and the first live claim, each failing first against `d56782b` and proven on its real receipts (`executor/tests/fixtures/receipts_20261004/`): `harvest_stop`, `harvest_collect` and `act_sequence` stop rows carry `payouts` per kami (the amount from the game's `HARVEST_STOP` / `HARVEST_COLLECT` event, the item from the inventory write before it, by kami entity — 2, 2, 2, 622, 630 of item 2 and a collect of 0); every write result, leg and sequence row carries `fee_wei` (the gas token's prepayment at log 0 minus its refund at the last log, legs identified by counterparty; null on a revert); a gas-token deposit is refused before signing unless it leaves the gas gate's fee bound, and that bound — for every send, and for the balance checks of `fund_operator`, `buy_kami` and `newbie_vendor_buy` — is the prepayment, gas limit x price + 1 wei (review ruling); a lane notice says whether this server or another process using the key signed the entry it names; `lens_portal` and `lens_room` say what `openWithdrawals` and `exits` are. P4 gains the fee, gas-gate-bound, payout, gas-token-deposit and whose-transaction rules; six invariant rows (`test_h420_families.py`, the payout row pinned by three attribution tests a review's mutations required); X10 no longer says the fee cannot be derived read-only (the floor is unchanged); the mass row's stale 3.7.0 figure is corrected. Not built: a static feed-inside-a-kill-cooldown refusal (CHANGELOG [4.2.0]). 932 tests. |
 | 17 | 2026-10-04 | Re-pinned to `071dbfb` (SCHEMA_VERSION **4.3.0**), the last release before the freeze, both parts. **MINOR**: three new *optional* parameters (`dry_run` on `portal_deposit`, `portal_claim`, `portal_cancel`), no tool, parameter, schema or result field removed or renamed — count 100, classes unchanged; P1 mass **69,572 -> 70,523** (no raise), P2 `tools_hash` `bfb39aab...4dca` -> `beb79942...7958`. Part 1: the portal dry runs sign nothing (a deposit not even its approve), quote the call and refuse exactly as it would (P4's dry-run rule); `travel_to_room` states a `fee_wei` total (null, never a partial sum, when a leg that spent gas states none) and gap-fill rows carry `block` / `gas_used` / `fee_wei`, the one-by-one receipt fallback now reading them; `LaneBlockedError` and the late-mined notice name who signed; `fund_operator`'s description states the prepayment. Part 2 (the second live round): `get_gas_balance` states exact wei and its read block; the three harvest tools return one key set on both paths (`_send_batch_tx` states `account`); start / stop / collect results and sequence start/stop rows state per-kami `cooldown_until` from the receipt; four action tools say calls on one key run in turn and name `act_sequence`. Review amendment: J8 — an allowance-short gas-token deposit is refused before its approve unless it covers the approve's bound + an estimated deposit bound (1,712,649 gas: the limit the recorded live deposit was sent with), the exact check after the approve unchanged; the last-cooldown-write rule and the dry runs' gas gate pinned by tests. Eight invariant rows (`test_h430_families.py`); the version and mass rows. 976 tests. |
 | 18 | 2026-10-05 | Re-pinned to `21d7b0b` (SCHEMA_VERSION **4.3.0**, unchanged): a documentation correction, and like revisions 2 and 4 a spec revision with no new SCHEMA_VERSION. No code, test, tool, parameter, schema or description change — count 100, classes unchanged, P1 mass **70,523** and P2 `tools_hash` `beb79942...7958` byte-identical; the code is `071dbfb`'s. D1 advances `0ffc8a7` (kami-lens 1.0.0) -> `7f9be7b` (1.0.3) and states 1.0.1 as the floor for correct reads: a 1.0.0 daemon could keep an earlier write when several transactions in one block wrote the same value and serve it as current, fixed in 1.0.1. The advance was checked read-only against the lens repository: no query, option, error code or envelope key this module sends or reads changed between 1.0.0 and 1.0.3, and the additions pass through verbatim. D1 keeps the 1.0.0 pin as one history clause and gains the 1.0.0 -> 1.0.3 bullet; its single-declaration sentence now names the three documents that repeat the version (SETUP's checkout step, the README's `Current:` line, `executor/README.md`), the copies that had kept saying 1.0.0. `SETUP.md`, `README.md` and `executor/README.md` corrected with it; CHANGELOG [4.3.0] gains the dated correction note. 976 tests. |
+| 19 | 2026-10-05 | Re-pinned to `9d76459` (SCHEMA_VERSION **4.4.0**). **MINOR**, by the CHANGELOG's own rule and the 4.1.0 precedent: no tool, parameter, schema or result field added, removed or renamed — count 100, classes unchanged — but `account_key` on `lens_account` and `lens_inventory` changes meaning for one class of value, a key equal to one of the deployment's roster labels: `lens_account` reads the label's own account by its address instead of the player who holds that name, and `lens_inventory` refuses the label instead of answering that player's inventory; such a player stays reachable by index. Both descriptions say so: P1 mass **70,523 -> 70,684** (no raise), P2 `tools_hash` `beb79942...7958` -> `4e67aa90...0f9d`, P3 4.4.0. P5 gains the roster-label bullet and the Invariants table its row; D1 (pin `7f9be7b`, kami-lens 1.0.3, 1.0.1 or newer required) and its thin-wrapper rule unchanged — the rule is why `lens_inventory` refuses rather than resolves, with an EXPOSURE deferred row. 1013 tests. |
