@@ -4853,6 +4853,73 @@ def _at(at_least_block: int) -> int | None:
     return at_least_block if at_least_block >= 0 else None
 
 
+# A roster label is this deployment's name for one of its own wallets.
+# The daemon reads every key that is not digits or a 0x address as an
+# in-game account NAME, so a label sent as it is reaches whichever
+# player chose that name. Digits stay an index and an address stays an
+# address: a label only ever beats a name. Labels are stored lower-case
+# and matched here case-insensitively, so a key that differs from a
+# label only by case never reaches the daemon as a name either.
+_LENS_INDEX_OR_ADDRESS = re.compile(r"[0-9]+|0x[0-9a-fA-F]{40}")
+
+
+def _roster_label(account_key: str) -> _Account | None:
+    """The roster account `account_key` names, or None for every key the
+    daemon reads as it is (empty, an index, an address, a name)."""
+    if not account_key or _LENS_INDEX_OR_ADDRESS.fullmatch(account_key):
+        return None
+    return _accounts.get(account_key.lower())
+
+
+def _own_account(
+    acct: _Account, identity_only: bool, prose: bool, at_least: int | None,
+) -> dict:
+    """lens_account for a roster label: one read, by the label's own
+    wallet address — the owner's; the operator's when the entry has no
+    owner key (the lens_receipts rule).
+
+    The daemon tries an address as an owner, then as an operator, so an
+    account that names this wallet only as its operator would be served
+    for it. The answer is checked to be this wallet's account, by value,
+    and is then returned untouched. A wallet with no account says so in
+    the words the write tools use; every other daemon error (not
+    reachable, not LIVE, NOT_APPLIED, ...) passes through as itself."""
+    if acct.owner_addr:
+        addr, wallet, field = acct.owner_addr, "owner wallet", "ownerAddress"
+    elif acct._operator_addr:
+        addr, wallet, field = acct._operator_addr, "operator", "operatorAddress"
+    else:
+        raise ValueError(f"account '{acct.label}' has no wallet address")
+    absent = LensQueryError(
+        "NOT_FOUND",
+        f"no account is registered for {wallet} {addr} "
+        f"(account '{acct.label}')",
+    )
+    args: list = [addr]
+    if identity_only:
+        args.append("--slim")
+    try:
+        envelope = _lens_request("account", args, prose=prose,
+                                 at_least=at_least)
+    except LensQueryError as e:
+        if e.code == "NOT_FOUND":
+            raise absent from None
+        raise
+    data = envelope.get("data")
+    served = data.get(field) if isinstance(data, dict) else None
+    try:
+        same = int(served, 16) == int(addr, 16)
+    except (TypeError, ValueError):
+        raise LensQueryError(
+            "INTERNAL",
+            f"the daemon's account answer has no {field}; cannot confirm "
+            f"it is account '{acct.label}'",
+        ) from None
+    if not same:
+        raise absent
+    return envelope
+
+
 @mcp.tool()
 def lens_kami(
     kami_index: int, stats: bool = False, equipment: bool = False,
@@ -4900,11 +4967,15 @@ def lens_account(
     (current/total), kami roster. identity_only omits the roster.
 
     Args:
-        account_key: Account index (digits) or account name. Empty:
-            the daemon's default operator, if set.
+        account_key: Account index (digits), a roster label (your own
+            account), or a player's account name; a label wins over a
+            name. Empty: the daemon's default operator, if set.
         prose: If true, includes player-authored prose fields (bio).
         identity_only: Identity, room and stamina only; no roster.
     """
+    acct = _roster_label(account_key)
+    if acct is not None:
+        return _own_account(acct, identity_only, prose, _at(at_least_block))
     args: list = [account_key] if account_key else []
     if identity_only:
         args.append("--slim")
@@ -5038,9 +5109,22 @@ def lens_inventory(account_key: str = "", at_least_block: int = -1) -> dict:
     item index).
 
     Args:
-        account_key: Account index (digits) or account name. Empty:
-            the daemon's default operator, if set.
+        account_key: Account index (digits) or a player's account
+            name; a roster label is refused (lens_account has your own
+            index). Empty: the daemon's default operator, if set.
     """
+    # The daemon's `inventory` query takes an index or a name, never an
+    # address, and a wrapper makes at most one request (SPEC D1), so a
+    # label cannot be resolved here. It is refused before any request:
+    # sent as a name it would read whichever player chose that name.
+    acct = _roster_label(account_key)
+    if acct is not None:
+        raise LensQueryError(
+            "BAD_ARGS",
+            f"'{acct.label}' is a roster label: lens_inventory takes an "
+            f"account index or a player's account name; "
+            f"lens_account('{acct.label}') returns your own account's index",
+        )
     return _lens_request("inventory", [account_key] if account_key else [],
                          at_least=_at(at_least_block))
 
