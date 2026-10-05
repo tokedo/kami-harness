@@ -3804,8 +3804,13 @@ def _pick_sp_item(
 #
 # World-state READ tools are thin wrappers over the per-machine
 # kami-lens daemon: argument mapping + one JSON-lines request over its
-# unix socket + envelope pass-through. Every answer is the daemon's
-# envelope {data, untrusted: [paths], meta{servedAt, blockNumber,
+# unix socket + envelope pass-through. One named exception (4.4.0, SPEC
+# D1): a read that takes an account index, made for one of this
+# deployment's own roster accounts, may first learn that index with one
+# `account <own address> --slim` request, cached once found (see "Your
+# own account" below); nothing from it reaches the caller. Every
+# answer is the daemon's envelope {data, untrusted: [paths],
+# meta{servedAt, blockNumber,
 # stale, mode, suppressed?}} — values verbatim, nothing recomputed
 # here; meta.stale=true marks answers served from last-synced state
 # while the daemon is degraded or catching up.
@@ -4853,6 +4858,8 @@ def _at(at_least_block: int) -> int | None:
     return at_least_block if at_least_block >= 0 else None
 
 
+# ---- Your own account (4.4.0) ----
+#
 # A roster label is this deployment's name for one of its own wallets.
 # The daemon reads every key that is not digits or a 0x address as an
 # in-game account NAME, so a label sent as it is reaches whichever
@@ -4860,7 +4867,27 @@ def _at(at_least_block: int) -> int | None:
 # address: a label only ever beats a name. Labels are stored lower-case
 # and matched here case-insensitively, so a key that differs from a
 # label only by case never reaches the daemon as a name either.
+#
+# A read called with no account is for the roster account labelled
+# `main` (the label every account= parameter defaults to), not for the
+# daemon's configured default operator. Without a `main` entry the
+# request is exactly the one 4.3.0 sent.
+#
+# The one exception to the thin-wrapper rule (SPEC D1): a read that
+# takes an account INDEX, made for one of this deployment's own roster
+# accounts, first learns that index with one `account <own address>
+# --slim` request, checked like lens_account's (the ownership guard
+# below). Nothing from it reaches the caller. The index is cached for
+# the life of the process once found — an account's index never
+# changes — so from then on the call is one request again. "No account
+# yet" is never cached: a wallet that registers later is found on the
+# next call. Lookups and stores hold _own_index_lock (tool bodies run
+# on worker threads); the read itself does not, so two first calls at
+# once may both ask, and both store the same index.
 _LENS_INDEX_OR_ADDRESS = re.compile(r"[0-9]+|0x[0-9a-fA-F]{40}")
+_OWN_LABEL = "main"
+_own_index_cache: dict[str, int] = {}
+_own_index_lock = threading.Lock()
 
 
 def _roster_label(account_key: str) -> _Account | None:
@@ -4871,39 +4898,54 @@ def _roster_label(account_key: str) -> _Account | None:
     return _accounts.get(account_key.lower())
 
 
-def _own_account(
-    acct: _Account, identity_only: bool, prose: bool, at_least: int | None,
-) -> dict:
-    """lens_account for a roster label: one read, by the label's own
-    wallet address — the owner's; the operator's when the entry has no
-    owner key (the lens_receipts rule).
+def _own_default() -> _Account | None:
+    """The roster account a read called with no account is for: the
+    entry labelled `main`, if the roster has one."""
+    return _accounts.get(_OWN_LABEL)
 
-    The daemon tries an address as an owner, then as an operator, so an
-    account that names this wallet only as its operator would be served
-    for it. The answer is checked to be this wallet's account, by value,
-    and is then returned untouched. A wallet with no account says so in
-    the words the write tools use; every other daemon error (not
-    reachable, not LIVE, NOT_APPLIED, ...) passes through as itself."""
+
+def _own_wallet(acct: _Account) -> tuple[str, str, str]:
+    """(address, how the error names it, the envelope field that must
+    carry it): the owner wallet; the operator when the entry has no
+    owner key (the lens_receipts rule)."""
     if acct.owner_addr:
-        addr, wallet, field = acct.owner_addr, "owner wallet", "ownerAddress"
-    elif acct._operator_addr:
-        addr, wallet, field = acct._operator_addr, "operator", "operatorAddress"
-    else:
-        raise ValueError(f"account '{acct.label}' has no wallet address")
-    absent = LensQueryError(
+        return acct.owner_addr, "owner wallet", "ownerAddress"
+    if acct._operator_addr:
+        return acct._operator_addr, "operator", "operatorAddress"
+    raise ValueError(f"account '{acct.label}' has no wallet address")
+
+
+def _no_account(acct: _Account) -> LensQueryError:
+    """The error for a roster account whose wallet has no account, in
+    the words the write tools use."""
+    addr, wallet, _ = _own_wallet(acct)
+    return LensQueryError(
         "NOT_FOUND",
         f"no account is registered for {wallet} {addr} "
         f"(account '{acct.label}')",
     )
-    args: list = [addr]
-    if identity_only:
-        args.append("--slim")
+
+
+def _own_account_read(
+    acct: _Account, args: list, prose: bool = False,
+    at_least: int | None = None,
+) -> dict | None:
+    """One `account <own address> [args]` read for a roster account;
+    None when its wallet has no account.
+
+    The daemon tries an address as an owner, then as an operator, so an
+    account that names this wallet only as its operator would be served
+    for it. The answer is checked to be this wallet's account, by value,
+    and is then returned untouched. A NOT_FOUND, or another wallet's
+    account, is None; every other daemon error (not reachable, not LIVE,
+    NOT_APPLIED, ...) passes through as itself."""
+    addr, _, field = _own_wallet(acct)
     try:
-        envelope = _lens_request("account", args, prose=prose,
+        envelope = _lens_request("account", [addr, *args], prose=prose,
                                  at_least=at_least)
     except LensQueryError as e:
         if e.code == "NOT_FOUND":
-            raise absent from None
+            return None
         raise
     data = envelope.get("data")
     served = data.get(field) if isinstance(data, dict) else None
@@ -4915,9 +4957,48 @@ def _own_account(
             f"the daemon's account answer has no {field}; cannot confirm "
             f"it is account '{acct.label}'",
         ) from None
-    if not same:
-        raise absent
-    return envelope
+    return envelope if same else None
+
+
+def _own_index(acct: _Account, at_least: int | None) -> int | None:
+    """A roster account's index, or None while its wallet has no
+    account: the cache, else one `account <own address> --slim` read
+    (at_least on it, as on the read it serves). Only a found index is
+    cached."""
+    key = _own_wallet(acct)[0].lower()
+    with _own_index_lock:
+        index = _own_index_cache.get(key)
+    if index is not None:
+        return index
+    envelope = _own_account_read(acct, ["--slim"], at_least=at_least)
+    if envelope is None:
+        return None
+    index = envelope["data"].get("index")
+    if isinstance(index, bool) or not isinstance(index, int):
+        raise LensQueryError(
+            "INTERNAL",
+            f"the daemon's account answer has no index; cannot read "
+            f"account '{acct.label}'",
+        )
+    with _own_index_lock:
+        _own_index_cache[key] = index
+    return index
+
+
+def _own_index_arg(at_least: int | None, required: bool) -> list:
+    """The positional a no-account read sends: [main's index]; [] (the
+    4.3.0 request) without a `main` entry. While main's wallet has no
+    account a read that needs an account (required) raises the plain
+    error, and one where no account has a meaning sends []."""
+    acct = _own_default()
+    if acct is None:
+        return []
+    index = _own_index(acct, at_least)
+    if index is None:
+        if required:
+            raise _no_account(acct)
+        return []
+    return [index]
 
 
 @mcp.tool()
@@ -4969,13 +5050,19 @@ def lens_account(
     Args:
         account_key: Account index (digits), a roster label (your own
             account), or a player's account name; a label wins over a
-            name. Empty: the daemon's default operator, if set.
+            name. Empty: your own account (roster label main); without
+            that label, the daemon default operator.
         prose: If true, includes player-authored prose fields (bio).
         identity_only: Identity, room and stamina only; no roster.
     """
-    acct = _roster_label(account_key)
+    acct = _roster_label(account_key) if account_key else _own_default()
     if acct is not None:
-        return _own_account(acct, identity_only, prose, _at(at_least_block))
+        envelope = _own_account_read(
+            acct, ["--slim"] if identity_only else [], prose=prose,
+            at_least=_at(at_least_block))
+        if envelope is None:
+            raise _no_account(acct)
+        return envelope
     args: list = [account_key] if account_key else []
     if identity_only:
         args.append("--slim")
@@ -4992,16 +5079,19 @@ def lens_party(
     kami index; kamisTotal/kamisServed count them.
 
     Args:
-        account_index: Account index (-1: daemon default operator).
+        account_index: Account index. -1: your own account (roster
+            label main); without that label, the daemon default operator.
         full: Serve every kami, not the first 50.
         stats: Add the stat block (as lens_kami) per kami.
     """
-    args: list = [account_index] if account_index >= 0 else []
+    at = _at(at_least_block)
+    args: list = ([account_index] if account_index >= 0
+                  else _own_index_arg(at, required=True))
     if full:
         args.append("--full")
     if stats:
         args.append("--stats")
-    return _lens_request("party", args, at_least=_at(at_least_block))
+    return _lens_request("party", args, at_least=at)
 
 
 @mcp.tool()
@@ -5013,17 +5103,20 @@ def lens_roster(
     the account is. Uncapped, until stats caps it.
 
     Args:
-        account_index: Account index (-1: daemon default operator).
+        account_index: Account index. -1: your own account (roster
+            label main); without that label, the daemon default operator.
         stats: Add the stat block (as lens_kami) per row. Caps the
             list at 50 rows, with kamisTotal/kamisServed.
         full: Lift the 50-row cap stats brings.
     """
-    args: list = [account_index] if account_index >= 0 else []
+    at = _at(at_least_block)
+    args: list = ([account_index] if account_index >= 0
+                  else _own_index_arg(at, required=True))
     if stats:
         args.append("--stats")
     if full:
         args.append("--full")
-    return _lens_request("roster", args, at_least=_at(at_least_block))
+    return _lens_request("roster", args, at_least=at)
 
 
 @mcp.tool()
@@ -5109,22 +5202,21 @@ def lens_inventory(account_key: str = "", at_least_block: int = -1) -> dict:
     item index).
 
     Args:
-        account_key: Account index (digits) or a player's account
-            name; a roster label is refused (lens_account has your own
-            index). Empty: the daemon's default operator, if set.
+        account_key: Account index (digits), a roster label (your own
+            account), or a player's account name; a label wins over a
+            name. Empty: your own account (roster label main); without
+            that label, the daemon default operator.
     """
     # The daemon's `inventory` query takes an index or a name, never an
-    # address, and a wrapper makes at most one request (SPEC D1), so a
-    # label cannot be resolved here. It is refused before any request:
-    # sent as a name it would read whichever player chose that name.
-    acct = _roster_label(account_key)
+    # address: a roster account's own inventory is read by its index,
+    # resolved once (the D1 exception above).
+    acct = _roster_label(account_key) if account_key else _own_default()
     if acct is not None:
-        raise LensQueryError(
-            "BAD_ARGS",
-            f"'{acct.label}' is a roster label: lens_inventory takes an "
-            f"account index or a player's account name; "
-            f"lens_account('{acct.label}') returns your own account's index",
-        )
+        at = _at(at_least_block)
+        index = _own_index(acct, at)
+        if index is None:
+            raise _no_account(acct)
+        return _lens_request("inventory", [index], at_least=at)
     return _lens_request("inventory", [account_key] if account_key else [],
                          at_least=_at(at_least_block))
 
@@ -5248,11 +5340,13 @@ def lens_trades(account_index: int = -1, full: bool = False) -> dict:
     account_index, that account's trade history and open offers.
 
     Args:
-        account_index: Account index (-1: open trades only / daemon
-            default operator).
+        account_index: Account index. -1: your own account (roster
+            label main) once registered; else open trades only / daemon
+            default operator.
         full: Serve every open trade, with maker/taker/item names.
     """
-    args: list = [account_index] if account_index >= 0 else []
+    args: list = ([account_index] if account_index >= 0
+                  else _own_index_arg(None, required=False))
     if full:
         args.append("--full")
     return _lens_request("trades", args)
@@ -5280,12 +5374,14 @@ def lens_quests(account_index: int = -1, full: bool = False) -> dict:
     whose objectives are unfinished, without a separate probe.
 
     Args:
-        account_index: Account index (-1: registry only / daemon
-            default operator).
+        account_index: Account index. -1: your own account (roster
+            label main) once registered; else registry only / daemon
+            default operator.
         full: Serve the uncompacted registry shape instead of the
             compact rows.
     """
-    args: list = [account_index] if account_index >= 0 else []
+    args: list = ([account_index] if account_index >= 0
+                  else _own_index_arg(None, required=False))
     if full:
         args.append("--full")
     return _lens_request("quests", args)
@@ -5298,11 +5394,13 @@ def lens_market(account_index: int = -1, full: bool = False) -> dict:
     account_index, that account's order history.
 
     Args:
-        account_index: Account index (-1: market only / daemon default
-            operator).
+        account_index: Account index. -1: your own account (roster
+            label main) once registered; else market only / daemon
+            default operator.
         full: Serve every listing and bid, with account names.
     """
-    args: list = [account_index] if account_index >= 0 else []
+    args: list = ([account_index] if account_index >= 0
+                  else _own_index_arg(None, required=False))
     if full:
         args.append("--full")
     return _lens_request("market", args)

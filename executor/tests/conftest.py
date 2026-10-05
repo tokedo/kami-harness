@@ -59,6 +59,19 @@ def _isolated_lanes(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "_HEAD_SEEN", [0])
 
 
+@pytest.fixture(autouse=True)
+def _isolated_roster(monkeypatch):
+    """Every test starts with an empty roster and no cached own index.
+
+    Since 4.4.0 a lens read called with no account is for the roster's
+    `main` entry, and a resolved index is cached for the process. A test
+    must not see the labels the developer's own secret store loaded at
+    import, nor an index another test resolved. Tests that need a roster
+    install one (`accounts`, or their own)."""
+    monkeypatch.setattr(server, "_accounts", {})
+    monkeypatch.setattr(server, "_own_index_cache", {})
+
+
 @pytest.fixture()
 def secret_store(tmp_path, monkeypatch):
     """Point the secret store at a temp keys file for the whole test.

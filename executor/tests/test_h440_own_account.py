@@ -10,9 +10,9 @@ K1  `lens_account` with a label reads the label's own account: one
     the entry has no owner key), checked to be that wallet's account
     before it is returned untouched. A label whose wallet has no
     account says so in the write tools' words.
-    `lens_inventory` with a label is refused before any request: the
-    daemon's `inventory` query takes no address, and one wrapper makes
-    at most one request.
+    `lens_inventory` with a label reads that label's own inventory, and
+    reads called with no account are for the roster's `main` entry:
+    test_h440_no_account.py (part 2).
 K2  the two descriptions say it.
 K3  every other key is sent exactly as before; daemon errors on the
     label's read pass through as their own classes.
@@ -24,9 +24,6 @@ local-dev throwaway keys).
 """
 
 from __future__ import annotations
-
-import re
-from pathlib import Path
 
 import pytest
 
@@ -53,10 +50,6 @@ def _env(index, name, owner, operator):
 
 # The player who chose the name "main", index 501.
 STRANGER = _env(501, "main", STRANGER_OWNER, STRANGER_OPERATOR)
-STRANGER_INVENTORY = {
-    "data": {"index": 501, "items": [{"balance": 9, "item": {"index": 1}}]},
-    "untrusted": [], "meta": {"servedAt": "t", "stale": False},
-}
 
 
 @pytest.fixture()
@@ -248,10 +241,9 @@ UNCHANGED = [
     (lambda: server.lens_account(STRANGER_OWNER),
      b'{"id": 1, "query": "account", "args": ["' + STRANGER_OWNER.encode()
      + b'"]}\n'),
-    # empty: the daemon's default operator
-    (lambda: server.lens_account(""), b'{"id": 1, "query": "account"}\n'),
-    (lambda: server.lens_inventory(""), b'{"id": 1, "query": "inventory"}\n'),
 ]
+# (An empty key is the roster's `main` entry when it has one; without one
+# it is sent as before — test_h440_no_account.py guards those bytes.)
 
 
 @pytest.mark.parametrize("call, sent", UNCHANGED)
@@ -267,8 +259,8 @@ def test_an_address_stays_an_address_even_when_a_label_is_spelled_so(
     """A label may be any alphanumeric string, so one can be spelled
     like a 0x address (stored lower-case, as every label is). The key is
     still the address: lens_account sends it as it is, not the label's
-    own wallet, and lens_inventory sends it as before instead of
-    refusing it."""
+    own wallet, and lens_inventory sends it as before instead of reading
+    the label's own inventory."""
     shaped = "0x" + "ab" * 20
     monkeypatch.setitem(server._accounts, shaped,
                         server._Account(shaped, KEY_B, KEY_A))
@@ -280,31 +272,6 @@ def test_an_address_stays_an_address_even_when_a_label_is_spelled_so(
         b'{"id": 1, "query": "inventory", "args": ["' + shaped.encode()
         + b'"]}\n',
     ]
-
-
-# ---------------------------------------------------------------------------
-# K3.5 (as ruled) — lens_inventory refuses a label before any request
-# ---------------------------------------------------------------------------
-
-@pytest.mark.parametrize("key", ["main", "MAIN", "Main", "op"])
-def test_lens_inventory_refuses_a_label_and_asks_nothing(lens, roster, key):
-    lens["responder"] = _daemon({("inventory", key): STRANGER_INVENTORY})
-    label = key.lower()
-    with pytest.raises(server.LensQueryError) as ei:
-        server.lens_inventory(key)
-    assert ei.value.code == "BAD_ARGS"
-    assert str(ei.value) == (
-        f"BAD_ARGS: '{label}' is a roster label: lens_inventory takes an "
-        f"account index or a player's account name; "
-        f"lens_account('{label}') returns your own account's index")
-    assert lens["requests"] == []
-
-
-def test_lens_inventory_refuses_a_label_with_at_least_block_too(lens, roster):
-    lens["responder"] = _daemon({("inventory", "main"): STRANGER_INVENTORY})
-    with pytest.raises(server.LensQueryError, match="roster label"):
-        server.lens_inventory("main", at_least_block=88)
-    assert lens["requests"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +359,7 @@ def test_no_daemon_is_no_daemon(roster, short_dir, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# K2 — the descriptions say it; the refused read is a visible deferral
+# K2 — the descriptions say it
 # ---------------------------------------------------------------------------
 
 def test_lens_account_says_a_label_is_your_own_account():
@@ -401,12 +368,7 @@ def test_lens_account_says_a_label_is_your_own_account():
     assert "a label wins over a name" in d
 
 
-def test_lens_inventory_says_a_label_is_refused():
+def test_lens_inventory_says_a_label_is_your_own_account():
     d = _desc("lens_inventory")
-    assert "a roster label is refused" in d
-    assert "lens_account has your own index" in d
-
-
-def test_own_inventory_by_label_is_a_visible_deferral():
-    text = (Path(server._REPO) / "EXPOSURE.md").read_text()
-    assert re.search(r"^\| own-inventory-by-label \| deferred \|", text, re.M)
+    assert "a roster label (your own account)" in d
+    assert "a label wins over a name" in d
