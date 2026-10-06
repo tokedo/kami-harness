@@ -170,17 +170,21 @@ No description changes: `act_sequence`'s already lists the four states
 
 ### Tests
 
-`executor/tests/test_h450_failed_waits.py` (21), on the fake node (a
+`executor/tests/test_h450_failed_waits.py` (23), on the fake node (a
 real Web3 over a simulated JSON-RPC node, virtual clock) and the
 scripted chain of the 3.5.0 tests. F1: `_await_receipt` turns every
 exception class web3 and `requests` define, seven builtins and this
 module's untyped ones into `TxUnconfirmedError` with hash and reason; a
 `-32000` body and the
 readiness class persisting through the read retry during a mined
-feed's wait leave exactly one transaction, reported success; a broken
-transport through the wait and its re-check raises `TxUnconfirmedError`
-with hash and reason, one transaction, and the next call reports it
-mined. K1 to K3: the live shape — two kills and two feeds whose waits
+feed's wait leave exactly one transaction, reported success; the same
+two bodies through the wait AND its re-check of a mined
+`use_account_item` (a single send through `_send_tx_retry`) raise
+`TxUnconfirmedError` whose text carries the retry-routing marker, and
+still exactly one transaction goes out — it is a post-broadcast type,
+re-raised before any marker is read; a broken transport through the
+wait and its re-check raises `TxUnconfirmedError` with hash and reason,
+one transaction, and the next call reports it mined. K1 to K3: the live shape — two kills and two feeds whose waits
 fail (an error body; an error body through the re-check too; the
 readiness class) — every row `success` with receipt fields, `landed`
 5, each kill's spoils its own; an endpoint that stays down (an error
@@ -195,13 +199,13 @@ four). K3b: the kill after an unconfirmed kill has `spoils: null` with
 the step named, and the one after it its own. The surface fingerprint
 pinned at 4.4.0's (hash, mass, standing text sha256).
 
-Against 4.4.0's server 16 of the 21 fail; the 5 that pass are the four
+Against 4.4.0's server 18 of the 23 fail; the 5 that pass are the four
 typed-outcome guards and the surface pin, which hold on 4.4.0 by
 construction. `conftest.py`: the suite's import no longer reads the
 developer's keys file — `KAMI_KEYS_FILE` defaults to a path in a fresh
 temp directory before `server` is imported (its `_load_accounts()`
 reads the secret store at import). `test_tool_surface.py`:
-`SCHEMA_VERSION` 4.5.0. 1119 tests, 4 skipped.
+`SCHEMA_VERSION` 4.5.0. 1121 tests, 4 skipped.
 
 ### Known, not changed
 
