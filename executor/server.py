@@ -805,15 +805,21 @@ class TxUnconfirmedError(RuntimeError):
     """No receipt within the timeout — the transaction outcome is UNKNOWN.
 
     Neither a success nor a failure: the transaction was broadcast and
-    may still be included and spend gas."""
+    may still be included and spend gas.
 
-    def __init__(self, tx_hash: str, timeout: int):
+    `reason` (4.5.0) is set when the receipt wait itself failed — the
+    endpoint answered an error, or the transport failed — and says how;
+    None when the wait simply ran out of time."""
+
+    def __init__(self, tx_hash: str, timeout: int, reason: str | None = None):
         self.tx_hash = tx_hash
+        self.reason = reason
         super().__init__(
             f"transaction {tx_hash} is UNCONFIRMED: it was broadcast, but "
             f"no receipt arrived within {timeout}s. It may still be "
             f"included and spend gas later. Check its on-chain status "
             f"before retrying — a blind retry can execute the action twice."
+            + (f" The receipt wait failed: {reason}" if reason else "")
         )
 
 
@@ -1226,6 +1232,17 @@ def _await_receipt(
     `account` and `ceiling_key` feed the mechanics snippet only: the live
     state of the kamis this call names, and the _GAS_CEILINGS entry it
     provisioned when the revert was out-of-gas.
+
+    4.5.0 (F1): the WAIT ITSELF can fail — web3 raises the provider's
+    own error out of wait_for_transaction_receipt when the endpoint
+    answers an error body, and the transport's when it cannot be
+    reached. The transaction was broadcast all the same, so that is
+    never a pre-send failure: the receipt is read once more, and a
+    readable one is this transaction's outcome (success, or a revert
+    raised as one); otherwise TxUnconfirmedError carries the failure as
+    `reason`. Before 4.5.0 the exception escaped untyped: a sequence
+    row read "error", and _send_tx_retry, finding "-32000" or the
+    readiness text in it, sent the action a second time.
     """
     slices = max(1, math.ceil(timeout / _RESOLVE_EVERY_S))
     receipt = None
@@ -1241,6 +1258,17 @@ def _await_receipt(
             if found:
                 receipt = _format_receipt(found)
                 break
+        except Exception as e:
+            reason = _err_text(e)[:300]
+            try:
+                raw = _rpc("eth_getTransactionReceipt", [_hex_hash(tx_hash)])
+            except _RpcUnavailable:
+                raw = None
+            if not raw:
+                raise TxUnconfirmedError(
+                    _hex_hash(tx_hash), timeout, reason=reason) from e
+            receipt = _format_receipt(raw)
+            break
     if receipt is None:
         raise TxUnconfirmedError(_hex_hash(tx_hash), timeout)
     return _receipt_outcome(receipt, built, account, ceiling_key)
