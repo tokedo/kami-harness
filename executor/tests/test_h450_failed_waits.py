@@ -288,3 +288,253 @@ def test_a_wait_the_transport_broke_is_unconfirmed_and_the_next_call_resolves_it
     game.xp[server._kami_entity_id(5)] = 1_000
     note = server.run_tool("level_up_kami", kami_id=5, account="testa")["notice"]
     assert h in note.lower() and f"has since mined at nonce {base}" in note, note
+
+
+# ---------------------------------------------------------------------------
+# K1 / K3 — the shape found in the live session
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("body, failing_reads", [
+    (INTERNAL, 1),                     # the wait fails; its re-check reads
+    (INTERNAL, 2),                     # both fail; the pass reads it
+    (READINESS_ERROR, 2 * READINESS_READ),
+], ids=["wait-only", "wait-and-recheck", "readiness"])
+def test_failed_receipt_waits_are_rechecked_and_each_kill_keeps_its_spoils(
+    chain_env, monkeypatch, body, failing_reads,  # noqa: F811
+):
+    """Two kills and the feeds behind them mined and succeeded while the
+    endpoint failed their receipt waits. Every row lands with its own
+    receipt fields, `landed` counts them, and the third kill's spoils are
+    its own — not its own plus the two before it."""
+    node, game, clock, op = chain_env
+    Kills(node)
+    game.inv[11301] = 10
+    _no_batched_receipts(monkeypatch)
+    base = node.pending_count(op)
+    _receipts_fail(node, range(base, base + 4), failing_reads, body)
+
+    out = server.act_sequence(
+        [_liq(41), FEED, _liq(42), FEED, _liq(43)], account="testa")
+
+    rows = out["steps"]
+    statuses = [r["status"] for r in rows]
+    spoils = [r.get("spoils") for r in rows if r["op"] == "liquidate"]
+    assert (statuses, spoils) == (["success"] * 5, [700, 650, 600]), (
+        statuses, spoils)
+    for r in rows:
+        assert {"tx_hash", "block", "gas_used", "fee_wei"} <= set(r), r
+        assert r["tx_hash"].lower() in node.receipts, r
+        assert "reason" not in r, r            # no stale wait failure
+    assert out["landed"] == out["sent"] == 5
+    assert out["status"] == "complete"
+    # Every scripted failure was met: the wait (and, where scripted, its
+    # re-check) really failed before the row landed.
+    assert all(f.times == 0 for f in node.faults), node.faults
+    assert "receipt wait failed" not in out.get("notice", "")
+
+
+@pytest.mark.parametrize("kind", ["error-body", "transport"])
+def test_an_endpoint_that_stays_down_leaves_rows_unconfirmed_with_a_reason(
+    chain_env, monkeypatch, kind,  # noqa: F811
+):
+    """The wait fails, its re-check fails, the end-of-budget pass fails:
+    the rows are `unconfirmed` with their hashes and the failure as
+    `reason`, never `error`; `landed` excludes them; `notice` names them."""
+    node, game, clock, op = chain_env
+    game.inv[11301] = 10
+    _no_batched_receipts(monkeypatch)
+    base = node.pending_count(op)
+    down = [base + 1, base + 2]
+    if kind == "error-body":
+        _receipts_fail(node, down, 10 ** 6, INTERNAL)
+        text = "internal error"
+    else:
+        _receipts_unreachable(node, down, 10 ** 6)
+        text = "connection refused by the endpoint"
+
+    out = server.act_sequence(_feeds(4), account="testa")
+
+    rows = out["steps"]
+    assert [r["status"] for r in rows] == [
+        "success", "unconfirmed", "unconfirmed", "success"], [
+        (r["status"], r.get("reason")) for r in rows]
+    for i in (1, 2):
+        r = rows[i]
+        assert r["tx_hash"].lower() == node.by_nonce[op.lower()][base + i]
+        assert text in r["reason"] and len(r["reason"]) <= 300, r
+        assert "block" not in r and "gas_used" not in r, r
+    assert out["landed"] == 2 and out["sent"] == 4
+    assert out["status"] == "partial"
+    assert out["notice"].startswith(
+        "The receipt wait failed for 2 step(s) (steps 1, 2)"), out["notice"]
+
+
+@pytest.mark.parametrize("exc", [
+    OSError("lane state could not be written"),
+    KeyError("entry"),
+    AttributeError("receipt has no field"),
+], ids=lambda e: type(e).__name__)
+def test_a_wait_that_fails_for_any_other_reason_is_unconfirmed_not_error(
+    seq_env, exc,  # noqa: F811
+):
+    chain = FakeChain(["ok"] * 3)
+    _install_waits(seq_env, chain, ["ok", exc, "ok"])
+    out = server.act_sequence(_steps(3), account="testa")
+    rows = out["steps"]
+    assert [r["status"] for r in rows] == [
+        "success", "unconfirmed", "success"], [r["status"] for r in rows]
+    assert rows[1]["tx_hash"] == _seq_hash(1)
+    assert rows[1]["reason"] == server._err_text(exc)[:300]
+    assert out["landed"] == 2 and out["sent"] == 3
+    assert out["notice"].startswith(
+        "The receipt wait failed for 1 step(s) (step 1)"), out["notice"]
+
+
+# ---------------------------------------------------------------------------
+# K4 (4) — the typed outcomes keep their labels
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("make, expect", [
+    (lambda h: server.OnChainRevertError(h, 901, 1001, "kami lacks violence"),
+     {"status": "reverted", "block": 901, "gas_used": 1001, "fee_wei": None,
+      "reason": "kami lacks violence"}),
+    (lambda h: server.TxUnconfirmedError(h, 30),
+     {"status": "unconfirmed"}),
+    (lambda h: server.TxDroppedError(h, 101, "two null lookups"),
+     {"status": "not_sent"}),
+    (lambda h: server.TxNonceCollisionError(h, 101, "0x" + "ab" * 32, True),
+     {"status": "not_sent", "consumed_by": "0x" + "ab" * 32,
+      "signed_by_harness": True}),
+], ids=["revert", "unconfirmed", "dropped", "collision"])
+def test_the_typed_wait_outcomes_keep_their_labels(seq_env, make, expect):  # noqa: F811
+    h = _seq_hash(1)
+    chain = FakeChain(["ok"] * 3)
+    _install_waits(seq_env, chain, ["ok", make(h), "ok"])
+    out = server.act_sequence(_steps(3), account="testa")
+    row = out["steps"][1]
+    assert {k: row.get(k) for k in expect} == expect, row
+    assert row["tx_hash"] == h
+    if expect["status"] == "unconfirmed":
+        assert "block" not in row and "reason" not in row, row
+    assert "receipt wait failed" not in out.get("notice", "")
+
+
+def test_a_step_that_mines_after_its_wait_gave_up_is_rechecked_and_lands(
+    chain_env, monkeypatch,  # noqa: F811
+):
+    """The fallback's budget-exhausted rows go through the same
+    end-of-budget re-check as the batched path's: a step whose
+    transaction mines just after its wait gave up lands."""
+    node, game, clock, op = chain_env
+    game.inv[11301] = 10
+    _no_batched_receipts(monkeypatch)
+    node.hold_mining = True
+    real = server._await_receipt
+
+    def wait_then_mine(*a, **k):
+        try:
+            return real(*a, **k)
+        except server.TxUnconfirmedError:
+            node.release_mining()       # it mines just after the wait gave up
+            raise
+
+    monkeypatch.setattr(server, "_await_receipt", wait_then_mine)
+    out = server.act_sequence(_feeds(2), account="testa")
+    rows = out["steps"]
+    assert [r["status"] for r in rows] == ["success", "success"], [
+        r["status"] for r in rows]
+    assert rows[0]["block"] == node.txs[rows[0]["tx_hash"].lower()].mined_block
+    assert out["landed"] == 2
+
+
+# ---------------------------------------------------------------------------
+# K2 / K4 (5) — no sequence row can be `error`
+# ---------------------------------------------------------------------------
+
+def test_no_exception_class_makes_a_sequence_row_anything_but_a_state(
+    seq_env, tmp_path,  # noqa: F811
+):
+    classes = _exception_classes()
+    tried, wrong = 0, []
+    for cls in classes:
+        exc = _instance(cls)
+        if exc is None:
+            continue
+        tried += 1
+        # A fresh lane each time: the scripted chain restarts at nonce 100.
+        seq_env.setenv("KAMI_LANE_DIR", str(tmp_path / f"lanes-{tried}"))
+        seq_env.setattr(server, "_LANES", {})
+        seq_env.setattr(server, "_INFLIGHT", {})
+        _install_waits(seq_env, FakeChain(["ok"] * 2), [exc, "ok"])
+        out = server.act_sequence(_steps(2), account="testa")
+        labels = [r["status"] for r in out["steps"]]
+        if not set(labels) <= STATES or labels[0] != "unconfirmed" \
+                or out["steps"][0].get("reason") != server._err_text(exc)[:300]:
+            wrong.append((cls.__name__, labels))
+    assert tried >= 40, tried
+    assert wrong == [], wrong
+
+
+TYPED = {"OnChainRevertError", "TxUnconfirmedError", "TxNotExecutedError",
+         "TxNonceCollisionError", "TxDroppedError"}
+
+
+def _handler_names(handler: ast.ExceptHandler) -> set[str]:
+    t = handler.type
+    elts = t.elts if isinstance(t, ast.Tuple) else [t] if t is not None else []
+    return {e.id if isinstance(e, ast.Name) else getattr(e, "attr", "?")
+            for e in elts}
+
+
+def _status_literals(node) -> list:
+    """Literal values given to a `status` key: dict displays and
+    subscript assignments, through a conditional expression."""
+    def consts(v):
+        if isinstance(v, ast.Constant):
+            return [v.value]
+        if isinstance(v, ast.IfExp):
+            return consts(v.body) + consts(v.orelse)
+        return []
+    out = []
+    keys = {k.value for k in getattr(node, "keys", ()) if isinstance(k, ast.Constant)}
+    if isinstance(node, ast.Dict) and "steps" not in keys:
+        # (A display that also carries `steps` is the call's own result,
+        # whose `status` is complete / partial, not a row's.)
+        for k, v in zip(node.keys, node.values):
+            if isinstance(k, ast.Constant) and k.value == "status":
+                out += consts(v)
+    if isinstance(node, ast.Assign):
+        for t in node.targets:
+            if (isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Constant)
+                    and t.slice.value == "status"):
+                out += consts(node.value)
+    return out
+
+
+def test_no_sequence_code_path_can_label_a_row_error():
+    """The grep-style guard. In act_sequence and every _seq_ helper:
+    `_failed_tx_fields` is called only inside a handler of the typed
+    outcomes (its catch-all, `error`, is the per-item word for "no
+    transaction known" and is never a sequence state), and every literal
+    status is one of the four."""
+    fns = [server.act_sequence] + [
+        obj for name, obj in vars(server).items()
+        if name.startswith("_seq_") and inspect.isfunction(obj)]
+    bad = []
+    for fn in fns:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+        parent = {c: p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "_failed_tx_fields"):
+                p = node
+                while p is not None and not isinstance(p, ast.ExceptHandler):
+                    p = parent.get(p)
+                names = _handler_names(p) if p is not None else set()
+                if not names or not names <= TYPED:
+                    bad.append((fn.__name__, node.lineno, sorted(names)))
+            for value in _status_literals(node):
+                if value not in STATES:
+                    bad.append((fn.__name__, node.lineno, value))
+    assert len(fns) > 10
+    assert bad == [], bad

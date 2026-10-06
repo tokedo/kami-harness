@@ -1397,6 +1397,12 @@ def _failed_tx_fields(e: Exception) -> dict:
     that evidence and makes any tx-keyed reconciliation come up short.
     A failure that never reached the chain has no hash to report, and
     says so by omitting the field rather than inventing one.
+
+    The catch-all `error` is the per-item word for "no transaction known"
+    (a pre-send refusal, nothing signed): the per-item payloads of the
+    multi-transaction tools use it. It is never an `act_sequence` row
+    state — a sequence row only ever reaches this with a typed outcome
+    (4.5.0; tests/test_h450_failed_waits.py guards it).
     """
     if isinstance(e, OnChainRevertError):
         return {
@@ -13589,7 +13595,13 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
 
     for i in sorted(receipts):
         _row_from_receipt(i, receipts[i])
+    # 4.5.0 (K1): rows whose receipt WAIT failed — the endpoint answered
+    # an error, the transport broke, anything but running out of time.
+    wait_failed: set[int] = set()
     if not batch_ok:
+        # Every row leaves `pend` once its label is a fact (success,
+        # reverted, not_sent). What is still unconfirmed stays in it for
+        # the re-check below, exactly as the batched path's rows do.
         for i in list(pend):
             remaining = max(1, int(deadline - time.monotonic()))
             try:
@@ -13600,12 +13612,30 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
             except TxNotExecutedError as e:
                 _seq_not_executed(rows[i], e)
                 _lane_release(lane, entries[i], str(e))
+                pend.remove(i)
+                continue
+            except OnChainRevertError as e:
+                rows[i].update(_failed_tx_fields(e))
+                if e.reason:
+                    rows[i]["reason"] = e.reason
+                pend.remove(i)
+                continue
+            except TxUnconfirmedError as e:
+                rows[i].update(_failed_tx_fields(e))
+                if e.reason:
+                    rows[i]["reason"] = e.reason
+                    wait_failed.add(i)
                 continue
             except Exception as e:
-                rows[i].update(_failed_tx_fields(e))
-                reason = getattr(e, "reason", None)
-                if reason:
-                    rows[i]["reason"] = reason
+                # Not one of the typed outcomes. The transaction WAS
+                # broadcast, so the row is `unconfirmed` with its hash and
+                # the failure as `reason` — never `error`, which is
+                # _failed_tx_fields' word for "no transaction known" and
+                # not a state a sequence row has (found in a live play
+                # session: six mined rows reported `error`).
+                rows[i]["status"] = "unconfirmed"
+                rows[i]["reason"] = _err_text(e)[:300]
+                wait_failed.add(i)
                 continue
             receipts[i] = receipt
             rows[i].update({
@@ -13615,7 +13645,7 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
                 "gas_used": receipt.gasUsed,
                 "fee_wei": _fee_wei(receipt),
             })
-        pend = []
+            pend.remove(i)
         # 4.3.0 (J2): the fills too, one read each (the batched path reads
         # them with the steps; this fallback never read them before).
         for f in list(fill_open):
@@ -13628,6 +13658,8 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
     for i in pend:
         # The budget ended. Labels are facts: `unconfirmed` only while the
         # node still holds the hash (or nothing can be proven either way).
+        # Since 4.5.0 this is also the one re-check of every fallback row
+        # still open: its wait ran out of time or failed.
         h = hash_by_step[i]
         try:
             st = _tx_status(h)
@@ -13644,6 +13676,9 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
                 except _RpcUnavailable:
                     raw = None
             if raw:
+                # A wait failure is not what this receipt says.
+                if i in wait_failed:
+                    rows[i].pop("reason", None)
                 _row_from_receipt(i, _format_receipt(raw))
             continue
         if st == "consumed":
@@ -13656,6 +13691,21 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
                 hashes[i], n, "accepted at broadcast, no longer held"))
             _lane_release(lane, entries[i], "no longer held by the node")
 
+    # 4.5.0 (K1): the steps whose wait failed and that the re-check could
+    # not settle either, numbered as the other notices number steps.
+    still = sorted(i for i in wait_failed if rows[i]["status"] == "unconfirmed")
+    if still:
+        which = (f"step {still[0]}" if len(still) == 1
+                 else "steps " + ", ".join(str(i) for i in still))
+        notices.append(
+            f"The receipt wait failed for {len(still)} step(s) ({which}) and "
+            f"a re-check before this call returned could not confirm them: "
+            f"each was broadcast and may still be included; its row is "
+            f"unconfirmed with its tx_hash and the failure as reason."
+        )
+        notice = " ".join(notices)
+
+    # Bookkeeping over the FINAL labels, in step order (4.5.0, K3).
     for i, row in enumerate(rows):
         if row["status"] in ("success", "reverted") and i in entries:
             _lane_mined(lane, entries[i].hash, nonce_by_step[i])
