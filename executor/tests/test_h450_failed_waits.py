@@ -264,6 +264,45 @@ def test_a_failed_receipt_wait_is_never_a_second_send(chain_env, body, reads):  
     assert out["used"] == 1
 
 
+@pytest.mark.parametrize("body, reads, marker", [
+    (SERVER_ERROR, 2, "-32000"),
+    (READINESS_ERROR, 2 * READINESS_READ, "jsonrpc readiness error"),
+], ids=["-32000", "readiness"])
+def test_an_unconfirmed_send_carrying_a_retry_marker_is_never_sent_again(
+    chain_env, body, reads, marker,  # noqa: F811
+):
+    """The mechanism that stops the second send, pinned. The action mined;
+    the endpoint fails the wait's read AND its re-check with a body whose
+    text _send_tx_retry routes on. The TxUnconfirmedError that results
+    carries that text in its reason — so the retry-routing marker IS in
+    str(e) — and still never routes to a retry: it is a post-broadcast
+    type (_POST_BROADCAST), re-raised before any marker is read.
+    use_account_item is a single send through _send_tx_retry that lets
+    the error out as itself (feed_kami does not retry; use_item_batch
+    wraps the error in its batch outcome)."""
+    node, game, clock, op = chain_env
+    game.inv[21201] = 3
+    base = node.pending_count(op)
+    _receipts_fail(node, [base], reads, body)
+
+    try:
+        out = server.use_account_item(21201, account="testa")
+        e = None
+    except server.TxUnconfirmedError as raised:
+        out, e = None, raised
+
+    sent = _sender_txs(node, op)
+    # The transactions first: a retried send shows here as a second nonce.
+    assert [t.nonce for t in sent] == [base], (
+        [(t.nonce, t.hash) for t in sent], out)
+    assert node.latest[op.lower()] == base + 1 and not node.pool[op.lower()]
+    assert all(f.times == 0 for f in node.faults)     # wait AND re-check failed
+    assert isinstance(e, server.TxUnconfirmedError), out
+    assert body["message"] in e.reason, e.reason
+    assert marker in str(e), str(e)         # the text a retry would route on
+    assert e.tx_hash.lower() == sent[0].hash
+
+
 def test_a_wait_the_transport_broke_is_unconfirmed_and_the_next_call_resolves_it(
     chain_env,  # noqa: F811
 ):
