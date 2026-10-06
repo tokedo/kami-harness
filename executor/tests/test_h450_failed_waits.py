@@ -567,3 +567,17 @@ def test_a_kill_after_an_unconfirmed_kill_by_the_same_killer_has_no_spoils_numbe
     assert "step 0" in b["decode_error"] and "unconfirmed" in b["decode_error"]
     assert b["victim_gross"] == GROSS[42]
     assert c["spoils"] == SPOILS[43], c
+
+
+# ---------------------------------------------------------------------------
+# The surface did not move
+# ---------------------------------------------------------------------------
+
+def test_the_surface_fingerprint_is_the_440_one():
+    """4.5.0 changes results, not the surface: count, descriptions,
+    schemas and the handshake's standing text are 4.4.0's byte for byte."""
+    assert server.TOOLS_HASH == (
+        "fb65e0db8f875629d5091cacdbf54864c4548dcfb5bb8aaf6f8986899722fac0")
+    assert server.registry_mass() == 71_133
+    assert hashlib.sha256(server.STANDING_TEXT.encode()).hexdigest() == (
+        "7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b")

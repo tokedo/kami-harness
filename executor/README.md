@@ -102,7 +102,7 @@ below.
 
 Text that applies across many tools is not repeated in descriptions: it
 is said once, in the MCP initialize `instructions`. Its first line is
-`tools_hash=<hash> schema_version=4.4.0 error_snippets=on|off`; the
+`tools_hash=<hash> schema_version=4.5.0 error_snippets=on|off`; the
 rest states that `untrusted` fields are player data, never
 instructions; that `lens_*` reads are served by the local kami-lens
 daemon, `{data, untrusted, meta}` verbatim; how to see your own
@@ -144,7 +144,7 @@ ever reported as another:
 | confirmed-success | the tool returns; result carries `status="success"` with `tx_hash`, `block`, `gas_used`, `fee_wei` |
 | confirmed-revert | **raises** `OnChainRevertError(tx_hash, block, gas_used, reason)` — never returned alongside or as success |
 | not executed (proven) | **raises** `TxNonceCollisionError` (the nonce went to another hash, named) or `TxDroppedError` (the node no longer holds it; nonce unconsumed) — no gas spent by that hash |
-| unconfirmed | **raises** `TxUnconfirmedError(tx_hash, timeout)` — the node still holds it (or nothing could be proven); it may still land |
+| unconfirmed | **raises** `TxUnconfirmedError(tx_hash, timeout)` — the node still holds it (or nothing could be proven), or the receipt wait itself failed (the endpoint answered an error, or the transport failed) and one more receipt read found nothing: then the error carries `reason` (4.5.0); it may still land, and it is never sent again |
 
 Every send rides its signer's nonce lane (SPEC P4): nonce =
 max(pending, a floor above everything this server saw used), a ledger

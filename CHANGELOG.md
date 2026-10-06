@@ -29,6 +29,194 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [4.5.0] — 2026-10-06 — a failed receipt wait is unconfirmed: never `error`, never a second send
+
+MINOR. **100 tools** (no tool, parameter, schema or description added,
+removed, renamed or reworded), registry mass **71,133**, `tools_hash`
+`fb65e0db8f875629d5091cacdbf54864c4548dcfb5bb8aaf6f8986899722fac0`
+(Python 3.13) — a 4.4.0 deployment and a 4.5.0 one have the same
+surface fingerprint, and the handshake's standing text is unchanged.
+`SCHEMA_VERSION` **4.5.0**. kami-lens stays **1.0.3** (`7f9be7b`); 1.0.1
+or newer is still required.
+
+**Why MINOR and not PATCH, by this file's own rule.** The build brief
+labelled this 4.4.1, but what an agent sees at runtime changes: an
+`act_sequence` row that read `error` now reads `unconfirmed` with a
+`reason`, or `success` with its receipt fields; the call's `notice` can
+carry a new sentence; a single send whose receipt wait failed raises
+`TxUnconfirmedError` with a `reason` where it raised the RPC library's
+own error — or sent the action a second time. PATCH is reserved for
+changes with no agent-visible effect at all; a result corrected to what
+the documents say is the 4.1.0 shape, ruled MINOR.
+
+### What was wrong
+
+Found in a live play session: one `act_sequence` call reported six
+consecutive rows — two liquidates and the feeds around them — as
+`"status": "error"`, each with a `tx_hash` and no `block`, `gas_used`,
+`fee_wei` or `reason`, inside a `partial` result. All six had mined and
+succeeded. `landed` under-counted them by six, and the next liquidate
+reported `spoils` that included the two kills before it.
+
+`error` is not a state the contract has. What had failed was the
+receipt WAIT. When the endpoint answers a receipt read with an error
+body, web3 raises its own provider error out of
+`wait_for_transaction_receipt` (it absorbs only "not found" and
+"indexing in progress"); when the transport cannot reach the endpoint,
+the `requests` exception comes out. `_await_receipt` handled only
+running out of time. In `act_sequence`'s one-by-one receipt fallback
+(taken when the endpoint will not batch reads) the untyped exception
+went through `_failed_tx_fields`, whose catch-all — the per-item word
+for "no transaction known" — is `{"status": "error"}`. The kill
+bookkeeping keys on `success`, so the two mislabelled kills were skipped
+and the next kill's pre-value was stale.
+
+The same exception escaped the single-send path, with a worse effect.
+`_send_tx_retry` retries a failure it reads as pre-send: any text with
+`-32000`, `account sequence mismatch` or the replica readiness text,
+which survives the read retry's three attempts while a replica lags. A
+receipt-read error carrying one of them was taken for a pre-send
+failure: the action was sent AGAIN at the next nonce, while the lane
+recorded the first as mined without a word (it was the same call's). A
+feed or a level-up could execute twice, and the first hash appeared
+nowhere in the result. Without such a text the tool reported the item
+as an error with the hash lost.
+
+- **Since** 3.5.0 for `act_sequence` (its rows have gone through the
+  catch-all since the tool's first release). For the re-send, since at
+  least 2.0.0 on a `-32000` text (the wait and the retry have had this
+  shape since then), and since 4.0.0 on the readiness text too.
+- **Who is affected**: a call whose receipt wait met a failing
+  endpoint. `act_sequence` on the one-by-one fallback only (the batched
+  path reads receipts without the wait). For the re-send, every tool
+  that sends through `_send_tx_retry`: `travel_to_room`,
+  `listing_buy`, `allocate_skills`, `level_to`,
+  `level_and_allocate_batch`, `feed_level_allocate_batch`,
+  `use_item_batch`, `use_account_item`, `equip_all_batch`,
+  `unequip_all_batch`, `speed_craft_batch`, `sacrifice_kami_batch`. For
+  the lost hash, every send.
+
+### The rule now
+
+- **A failed receipt wait is unconfirmed.** In every send's receipt
+  wait (`_await_receipt`), an exception out of the wait that is not
+  running out of time is followed by one more receipt read. A readable
+  receipt is the transaction's outcome — success, or a confirmed revert
+  raised as `OnChainRevertError` — exactly as any landing, ledger and
+  progress included. Otherwise it raises `TxUnconfirmedError` with the
+  hash, its usual text, and `reason`: the failure, trimmed to 300
+  characters, also appended to the message as "The receipt wait failed:
+  ...". `TxUnconfirmedError` is a post-broadcast type, which
+  `_send_tx_retry` never retries: a broadcast transaction is never sent
+  again. When it mines, the next call's lane resolution says so, as for
+  any unconfirmed send.
+- **An `act_sequence` row is one of four states.** In the one-by-one
+  receipt fallback each typed outcome keeps its label (`reverted`,
+  `not_sent`, `unconfirmed`); any other failure of a step's wait makes
+  the row `unconfirmed` with its `tx_hash` and the failure as `reason`.
+  Every row still `unconfirmed` — its wait failed or ran out of time —
+  is re-checked before the call returns by the end-of-budget re-check
+  the batched path's rows always had: a receipt makes it `success` or
+  `reverted` with its receipt fields (and drops the wait failure's
+  `reason`), a node that proves it never executed makes it `not_sent`,
+  and otherwise it stays `unconfirmed`.
+- **`notice` names what the endpoint left unconfirmed**, numbering steps
+  as the other notices do: "The receipt wait failed for N step(s)
+  (steps i, j) and a re-check before this call returned could not
+  confirm them: each was broadcast and may still be included; its row
+  is unconfirmed with its tx_hash and the failure as reason."
+- **Bookkeeping follows the final label.** `landed`, `sent`, the decoded
+  kill, `harvest_stop` payouts and cooldowns are computed after the
+  re-check, in step order: a kill that lands late is decoded from its
+  own receipt, and its spoils are its own.
+- **A kill after an unconfirmed kill states no spoils number.** An
+  unconfirmed liquidate may have executed, so the killer's bounty after
+  it is unknown: the next liquidate by the same killer in the sequence
+  reports `spoils: null` with a `decode_error` naming the unconfirmed
+  step, never a difference that may include that kill's share. Its own
+  post-value carries on to the kill after it. A reverted or not-sent
+  kill changed nothing on chain and leaves the carried value alone.
+- `_failed_tx_fields`' catch-all `error` is unchanged for the
+  multi-transaction tools' per-item payloads, where it means a pre-send
+  refusal (nothing signed). No `act_sequence` path reaches it.
+
+### What an existing deployment sees
+
+Nothing until it moves its pin. After the move:
+
+- an `act_sequence` row never reads `error`. A step whose receipt wait
+  failed reads `success` or `reverted` with its receipt fields when the
+  re-check reads its receipt, and `unconfirmed` with `tx_hash` and
+  `reason` when it cannot; `landed` counts the late landings; the kill
+  after a late-landed kill reports its own spoils, and the kill after
+  one still unconfirmed reports `spoils: null`;
+- a step whose wait ran out of time on the one-by-one path is
+  re-checked as the batched path's are, and can now read `success` or
+  `not_sent` where it read `unconfirmed`;
+- `notice` can carry the sentence above;
+- a single send whose receipt wait failed returns its success when the
+  receipt is readable right after, and otherwise raises
+  `TxUnconfirmedError` with `reason` where it raised the RPC library's
+  error; it is never sent twice. In the multi-transaction tools'
+  payloads that send now carries its `tx_hash`: an `unconfirmed` leg or
+  item where the tool states the transaction's state (`txs` legs,
+  travel hops, the level / skill / feed rows, `use_item_batch`), and
+  the tool's own `error` item status, now with the hash, in
+  `equip_all_batch`, `unequip_all_batch`, `sacrifice_kami_batch` and
+  `complete_all_trades`.
+
+No description changes: `act_sequence`'s already lists the four states
+(success, reverted, unconfirmed, not_sent).
+
+### Tests
+
+`executor/tests/test_h450_failed_waits.py` (21), on the fake node (a
+real Web3 over a simulated JSON-RPC node, virtual clock) and the
+scripted chain of the 3.5.0 tests. F1: `_await_receipt` turns every
+exception class web3 and `requests` define, seven builtins and this
+module's untyped ones into `TxUnconfirmedError` with hash and reason; a
+`-32000` body and the
+readiness class persisting through the read retry during a mined
+feed's wait leave exactly one transaction, reported success; a broken
+transport through the wait and its re-check raises `TxUnconfirmedError`
+with hash and reason, one transaction, and the next call reports it
+mined. K1 to K3: the live shape — two kills and two feeds whose waits
+fail (an error body; an error body through the re-check too; the
+readiness class) — every row `success` with receipt fields, `landed`
+5, each kill's spoils its own; an endpoint that stays down (an error
+body; a broken transport): `unconfirmed` with hash and reason, `landed`
+excluding them, the notice; a non-RPC exception in the wait (three
+classes): the same; the four typed outcomes unchanged; a step that
+mines just after its wait gave up lands through the re-check; every
+exception class leaves a row in one of the four states; an AST guard
+over `act_sequence` and every `_seq_` helper (`_failed_tx_fields` only
+inside a handler of the typed outcomes, every literal status one of the
+four). K3b: the kill after an unconfirmed kill has `spoils: null` with
+the step named, and the one after it its own. The surface fingerprint
+pinned at 4.4.0's (hash, mass, standing text sha256).
+
+Against 4.4.0's server 16 of the 21 fail; the 5 that pass are the four
+typed-outcome guards and the surface pin, which hold on 4.4.0 by
+construction. `conftest.py`: the suite's import no longer reads the
+developer's keys file — `KAMI_KEYS_FILE` defaults to a path in a fresh
+temp directory before `server` is imported (its `_load_accounts()`
+reads the secret store at import). `test_tool_surface.py`:
+`SCHEMA_VERSION` 4.5.0. 1119 tests, 4 skipped.
+
+### Known, not changed
+
+- `travel_to_room` still appends a hop row `{"status": "error"}`
+  without a hash when a hop is refused before signing, where SPEC P4
+  says a failure that never reached the chain adds no row.
+- The end-of-budget re-check is not bounded by the call's wall-clock
+  box, on either receipt path: against an endpoint that hangs rather
+  than refuses, each read can take the HTTP client's own timeout and
+  retries.
+- An untyped exception from the ledger's own work between wait slices
+  (`_check_inflight`), as opposed to the wait, still leaves
+  `_await_receipt` untyped: `act_sequence` labels that row
+  `unconfirmed`; a single send reports it as an error.
+
 ## [4.4.0] — 2026-10-05 — your own account, by label or by default
 
 MINOR. **100 tools** (no tool, parameter or schema added, removed or
