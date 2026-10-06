@@ -538,3 +538,32 @@ def test_no_sequence_code_path_can_label_a_row_error():
                     bad.append((fn.__name__, node.lineno, value))
     assert len(fns) > 10
     assert bad == [], bad
+
+
+# ---------------------------------------------------------------------------
+# K3b — an unconfirmed kill leaves the next kill without a spoils number
+# ---------------------------------------------------------------------------
+
+def test_a_kill_after_an_unconfirmed_kill_by_the_same_killer_has_no_spoils_number(
+    chain_env, monkeypatch,  # noqa: F811
+):
+    """Step 0's kill mined, but nothing could read it: whether its spoils
+    are in the killer's bounty is unknown, so step 1's spoils cannot be a
+    difference and is null with a decode_error naming step 0 — not 1,350.
+    Step 1's own post-value restores the chain for step 2."""
+    node, game, clock, op = chain_env
+    Kills(node)
+    _no_batched_receipts(monkeypatch)
+    base = node.pending_count(op)
+    _receipts_fail(node, [base], 10 ** 6, INTERNAL)
+
+    out = server.act_sequence([_liq(41), _liq(42), _liq(43)], account="testa")
+
+    a, b, c = out["steps"]
+    assert (a["status"], b["status"], c["status"]) == (
+        "unconfirmed", "success", "success"), (
+        [r["status"] for r in out["steps"]], b.get("spoils"))
+    assert b["spoils"] is None, b
+    assert "step 0" in b["decode_error"] and "unconfirmed" in b["decode_error"]
+    assert b["victim_gross"] == GROSS[42]
+    assert c["spoils"] == SPOILS[43], c

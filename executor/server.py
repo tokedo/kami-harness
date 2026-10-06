@@ -12090,8 +12090,13 @@ def _decode_kill(
     victim_kami_id: int,
     killer_kami_id: int,
     killer_bounty_before: int | None,
+    unknown_before: str | None = None,
 ) -> dict:
     """The decoded kill for one landed liquidation.
+
+    `unknown_before` (4.5.0) is the decode_error to state when
+    `killer_bounty_before` is None for a reason the caller knows — in a
+    sequence, an earlier kill by the same killer that is unconfirmed.
 
     Returns victim_gross, spoils, attacker_hp_after, cooldown_until,
     and killer_bounty_after (the value a following liquidate step in the
@@ -12193,7 +12198,8 @@ def _decode_kill(
         out["killer_bounty_after"] = after
         if killer_bounty_before is None:
             errors.append(
-                "killer bounty before the send was not read, so spoils "
+                unknown_before
+                or "killer bounty before the send was not read, so spoils "
                 "cannot be a difference"
             )
         else:
@@ -13706,17 +13712,33 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
         notice = " ".join(notices)
 
     # Bookkeeping over the FINAL labels, in step order (4.5.0, K3).
+    # killer -> the unconfirmed liquidate step that left its bounty unknown.
+    unknown_since: dict[int, int] = {}
     for i, row in enumerate(rows):
         if row["status"] in ("success", "reverted") and i in entries:
             _lane_mined(lane, entries[i].hash, nonce_by_step[i])
             _INFLIGHT.pop(hashes.get(i, "").lower(), None)
         if i in hashes:
             ctl.step(row.get("tx_hash", hashes[i]), row["status"])
+        if row["status"] == "unconfirmed" and parsed[i]["op"] == "liquidate":
+            # 4.5.0 (K3b): this kill may have executed, so the killer's
+            # bounty after it is unknown. A later kill by the same killer
+            # states no spoils number rather than one that may hold this
+            # kill's share. A reverted or not-sent kill changed nothing on
+            # chain and leaves the carried value alone.
+            killer_bounty[parsed[i]["kami_id"]] = None
+            unknown_since[parsed[i]["kami_id"]] = i
         if row["status"] == "success" and parsed[i]["op"] == "liquidate":
             killer = parsed[i]["kami_id"]
+            since = unknown_since.get(killer)
             decoded = _decode_kill(
                 receipts[i], parsed[i]["victim_kami_id"], killer,
                 killer_bounty.get(killer),
+                unknown_before=None if since is None else (
+                    f"step {since}, an earlier liquidate by this killer in "
+                    f"this sequence, is unconfirmed, so the killer bounty "
+                    f"before this kill is unknown and spoils cannot be a "
+                    f"difference"),
             )
             after = decoded.pop("killer_bounty_after", None)
             if after is not None:
@@ -13726,6 +13748,7 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
                 # — hp_before for step i would have to have been read
                 # before step i-1 landed, which never happened.
                 killer_bounty[killer] = after
+                unknown_since.pop(killer, None)
             rows[i].update(decoded)
         if row["status"] == "success" and parsed[i]["op"] == "harvest_stop":
             # 4.2.0 (H1): from the step's own receipt, as harvest_stop.
