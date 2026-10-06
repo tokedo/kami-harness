@@ -7,6 +7,7 @@ transaction access is monkeypatched per test.
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,6 +19,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # to start without it). Give the test process a loopback placeholder so
 # the module imports keyless; nothing in the offline suite connects to it.
 os.environ.setdefault("MAINNET_RPC_URL", "http://127.0.0.1:9/offline-test")
+# The module loads its account roster from the secret store AT IMPORT
+# (_load_accounts). Without this the suite's import read the developer's
+# own keys file (~/.blocklife-keys/.env, the store's default) before any
+# fixture could re-point it. A path in a fresh temp directory, which does
+# not exist: the import loads no account, and reads nothing of the user's.
+os.environ.setdefault("KAMI_KEYS_FILE", os.path.join(tempfile.mkdtemp(prefix="kami-suite-"), ".env"))
 
 import secrets_store  # noqa: E402
 import server  # noqa: E402
