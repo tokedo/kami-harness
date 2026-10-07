@@ -1,7 +1,7 @@
-"""Offline tests for the batch-wrapper tools.
+"""Offline tests for the batch-wrapper tools and Kamibots status read.
 
 Covers feed_level_allocate_batch, equip_all_batch, unequip_all_batch,
-and speed_craft_batch. No network, keys, or
+speed_craft_batch, and get_all_strategy_statuses. No network, keys, or
 chain access.
 """
 
@@ -229,6 +229,27 @@ class TestSpeedCraftBatch:
             server.speed_craft_batch(29, 0, account="testa")
 
 
+class TestGetAllStrategyStatuses:
+    def test_happy_path_endpoint(self, accounts, monkeypatch):
+        seen = {}
+
+        async def fake_api(method, path, body, account):
+            seen["method"] = method
+            seen["path"] = path
+            seen["account"] = account
+            return {"strategies": []}
+
+        monkeypatch.setattr(server, "_strategy_api", fake_api)
+        r = asyncio.run(server.get_all_strategy_statuses(account="testa"))
+        assert seen["method"] == "GET"
+        assert seen["path"] == "/api/strategies/status/all"
+        assert r == {"strategies": []}
+
+    def test_unregistered_account_raises(self, accounts):
+        # Fabricated accounts have no Kamibots API key; the real
+        # _strategy_api must raise before any network access.
+        with pytest.raises(ValueError, match="No Kamibots API key"):
+            asyncio.run(server.get_all_strategy_statuses(account="testa"))
 
 
 class TestLevelPathNeedsNoKamibotsKey:
@@ -244,16 +265,25 @@ class TestLevelPathNeedsNoKamibotsKey:
 
     @staticmethod
     def _forbid_api(monkeypatch):
-        async def boom(path, account):
+        """The level path must reach no strategy service: its client and
+        the async HTTP client both raise if touched. (Until 4.0.0 this
+        patched `_api_get`, the internal read that is gone for good.)"""
+        async def boom(method, path, body, account):
             raise AssertionError(
-                f"the level path reached the Kamibots API: {path}"
+                f"the level path reached the strategy service: {method} {path}"
             )
 
-        monkeypatch.setattr(server, "_api_get", boom)
+        def no_client(*a, **k):
+            raise AssertionError("the level path opened an HTTP client")
+
+        monkeypatch.setattr(server, "_strategy_api", boom)
+        monkeypatch.setattr(server.httpx, "AsyncClient", no_client)
 
     def test_level_to_keyless(
         self, accounts, validation_ok, sent, monkeypatch
     ):
+        assert accounts["noown"].api_key is None
+        self._forbid_api(monkeypatch)
         # The level read before the loop is 3; read back after it, the
         # chain shows the two level-ups the stub sender landed.
         monkeypatch.setattr(server, "_kami_level", lambda k: 3 + len(sent))
@@ -264,6 +294,7 @@ class TestLevelPathNeedsNoKamibotsKey:
     def test_level_and_allocate_batch_keyless(
         self, accounts, validation_ok, sent, monkeypatch
     ):
+        self._forbid_api(monkeypatch)
         monkeypatch.setattr(server, "_kami_level", lambda k: 1 + len(sent))
         r = asyncio.run(server.level_and_allocate_batch(
             [{"kami_id": 5, "target_level": 3}], account="noown"
@@ -276,6 +307,7 @@ class TestLevelPathNeedsNoKamibotsKey:
     def test_feed_level_allocate_batch_keyless(
         self, accounts, validation_ok, sent, monkeypatch
     ):
+        self._forbid_api(monkeypatch)
         monkeypatch.setattr(server, "_kami_level", lambda k: 4 + len(sent))
         r = asyncio.run(server.feed_level_allocate_batch(
             [{"kami_id": 5, "target_level": 6}], account="noown"
@@ -289,6 +321,7 @@ class TestLevelPathNeedsNoKamibotsKey:
     ):
         """A level that cannot be read is never defaulted: it decides
         how many transactions get sent."""
+        self._forbid_api(monkeypatch)
 
         def boom(kami_index):
             raise ConnectionError("RPC refused")
@@ -303,6 +336,7 @@ class TestLevelPathNeedsNoKamibotsKey:
     def test_unreadable_level_is_a_per_kami_row_in_a_batch(
         self, accounts, validation_ok, sent, monkeypatch
     ):
+        self._forbid_api(monkeypatch)
 
         def boom(kami_index):
             raise ConnectionError("RPC refused")

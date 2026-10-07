@@ -609,14 +609,19 @@ def test_a_kill_after_an_unconfirmed_kill_by_the_same_killer_has_no_spoils_numbe
 
 
 # ---------------------------------------------------------------------------
-# The surface did not move
+# The surface fingerprint, and the standing text that does not move
 # ---------------------------------------------------------------------------
 
-def test_the_surface_fingerprint_is_the_440_one():
-    """4.5.0 changes results, not the surface: count, descriptions,
-    schemas and the handshake's standing text are 4.4.0's byte for byte."""
+def test_the_surface_fingerprint_and_the_standing_text():
+    """4.5.0 changed results, not the surface (4.4.0's `fb65e0db...fac0`,
+    71,133). 4.6.0 restores the nine strategy-service tools, so the
+    fingerprint and mass are pinned at its values; the handshake's
+    standing text stays 4.4.0's byte for byte (957 characters at the
+    default KAMI_CALL_BUDGET_S): kami-agent pairs on its sha256."""
     assert server.TOOLS_HASH == (
-        "fb65e0db8f875629d5091cacdbf54864c4548dcfb5bb8aaf6f8986899722fac0")
-    assert server.registry_mass() == 71_133
+        "5a31220d88c24ea03f39e55ea3d32e9393870288702bd5d2ab65cdd7f35621a4")
+    assert server.registry_mass() == 76_197
+    assert server.CALL_BUDGET_S == 90
+    assert len(server.STANDING_TEXT) == 957
     assert hashlib.sha256(server.STANDING_TEXT.encode()).hexdigest() == (
         "7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b")

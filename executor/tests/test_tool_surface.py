@@ -1,9 +1,11 @@
-"""Tool-contract surface checks for the 4.0.0 interface.
+"""Tool-contract surface checks for the 4.6.0 interface.
 
-Verifies the advertised tool count (100: 3.7.0's 104 less the nine
-strategy-service tools and stop_harvest_batch, plus the four token-portal
-tools and the two lens 1.0.0 reads), the surface taxonomy (ACT/PERCEIVE/META), the EXPOSURE.md row
-coverage for READ tools (with the deferred rows), the standing text in
+Verifies the advertised tool count (109: 3.7.0's 104 less
+stop_harvest_batch, plus the four token-portal tools and the two lens
+1.0.0 reads; the nine strategy-service tools left at 4.0.0 and returned
+at 4.6.0), the surface taxonomy (ACT/PERCEIVE/OUTSOURCE/META), the
+EXPOSURE.md row coverage for READ tools (with the deferred rows), the
+standing text in
 the MCP instructions (not on descriptions), schema portability
 (SPEC §5.1: no anyOf/oneOf/allOf/$ref), the registry-mass budget, the
 tools_hash, and the earlier per-release schema pins.
@@ -79,12 +81,22 @@ REMOVED_TOOLS = {
     # 2.0.0 budget trim (pre-approved): superseded by lens_quests /
     # quest_state
     "get_active_quests", "get_quest_status",
-    # 4.0.0: the strategy-service family left the surface, and
-    # stop_harvest_batch (harvest_stop does the same in one transaction)
+    # 4.0.0: stop_harvest_batch (harvest_stop does the same in one
+    # transaction). The nine strategy-service tools that left with it
+    # returned at 4.6.0 (OUTSOURCE_TOOLS below).
+    "stop_harvest_batch",
+}
+
+# The strategy-service family: removed at 4.0.0, restored at 4.6.0.
+OUTSOURCE_TOOLS = {
     "register_kamibots", "kamibots_enable_strategies", "start_strategy",
     "stop_strategy", "get_tier", "get_all_strategies",
     "get_all_strategy_statuses", "get_strategy_status",
-    "get_strategy_logs", "stop_harvest_batch",
+    "get_strategy_logs",
+}
+OUTSOURCE_READS = {
+    "get_tier", "get_all_strategies", "get_all_strategy_statuses",
+    "get_strategy_status", "get_strategy_logs",
 }
 
 PORTAL_TOOLS = {"portal_withdraw", "portal_claim", "portal_cancel",
@@ -116,7 +128,8 @@ def test_tool_surface_count():
     assert H3_ACT_TOOLS <= names
     assert "store_operator_key" not in names
     assert PORTAL_TOOLS <= names
-    assert len(names) == 100
+    assert OUTSOURCE_TOOLS <= names
+    assert len(names) == 109
 
 
 def test_removed_tools_absent():
@@ -137,9 +150,14 @@ def test_taxonomy_covers_registry_exactly():
     counts = {}
     for cls in server.TOOL_CLASSES.values():
         counts[cls] = counts.get(cls, 0) + 1
-    assert counts == {"ACT": 59, "PERCEIVE": 34, "META": 7}
-    assert len(server.READ_TOOLS) == 37
+    assert counts == {"ACT": 59, "PERCEIVE": 34, "OUTSOURCE": 9, "META": 7}
+    assert len(server.READ_TOOLS) == 42
     assert server.READ_TOOLS <= names
+    # the strategy-service family is OUTSOURCE; its five reads are READ
+    # tools, its four writes are not
+    for n in OUTSOURCE_TOOLS:
+        assert server.TOOL_CLASSES[n] == "OUTSOURCE", n
+    assert OUTSOURCE_TOOLS & server.READ_TOOLS == OUTSOURCE_READS
     # every lens wrapper is PERCEIVE
     for n in LENS_TOOLS:
         assert server.TOOL_CLASSES[n] == "PERCEIVE"
@@ -235,6 +253,21 @@ def test_lens_wrapper_schema_shapes():
     assert account["prose"]["default"] is False
 
 
+
+
+def test_enable_strategies_docstring_facts():
+    """The operator-key tool states the grant and the counterparty
+    identity as facts, names the hard line, and carries no endorsement
+    language (neutral framing: facts, no endorsement)."""
+    d = _tools()["kamibots_enable_strategies"].description
+    assert "operator" in d.lower()
+    assert "signs operator-wallet transactions server-side" in d
+    assert "kami transfers" in d
+    assert "Asphodel" in d
+    assert "docs.asphodel.io" in d
+    assert "Owner keys are never sent" in d
+    for banned in ("trusted", "safe", "secure", "reliable"):
+        assert banned not in d.lower(), banned
 
 
 def test_commit_ids_are_string_arrays():
@@ -416,7 +449,7 @@ def test_surface_identical_across_capability_flags():
         )
         if baseline is None:
             baseline = payload
-            assert payload["count"] == 100
+            assert payload["count"] == 109
             assert payload["tools_hash"] == server.TOOLS_HASH
             continue
         assert json.dumps(payload, sort_keys=True) == json.dumps(

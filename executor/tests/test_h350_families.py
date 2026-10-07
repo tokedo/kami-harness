@@ -603,8 +603,9 @@ def test_lens_skills_passes_the_index_through(monkeypatch):
 
 def test_surface_at_350():
     tools = {t.name for t in server.mcp._tool_manager.list_tools()}
-    # 104 at 3.5.0-3.7.0; 100 at 4.0.0 (test_tool_surface pins the count).
-    assert len(tools) == 100
+    # 104 at 3.5.0-3.7.0; 100 at 4.0.0-4.5.0; 109 at 4.6.0 (the nine
+    # strategy-service tools returned; test_tool_surface pins the count).
+    assert len(tools) == 109
     assert {"act_sequence", "lens_skills"} <= tools
     assert server.TOOL_CLASSES["act_sequence"] == "ACT"
     assert server.TOOL_CLASSES["lens_skills"] == "PERCEIVE"
@@ -613,7 +614,9 @@ def test_surface_at_350():
 
 
 def test_registry_mass_within_the_raised_budget():
-    assert server.REGISTRY_MASS_BUDGET == 73_000
+    # 73,000 -> 77,000 on 2026-10-07 for the strategy-service family's
+    # return (the named capability; see the budget's comment in server.py).
+    assert server.REGISTRY_MASS_BUDGET == 77_000
     mass = server.registry_mass()
     assert mass <= server.REGISTRY_MASS_BUDGET, mass
 

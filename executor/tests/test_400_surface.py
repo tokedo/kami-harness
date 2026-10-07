@@ -599,17 +599,11 @@ def test_a_single_transaction_is_never_cut_by_the_box(chain_env, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# B1 — no third party; the droptable comes from chain
+# B1 — the droptable comes from chain, never from the strategy service
 # ---------------------------------------------------------------------------
 
-def test_no_strategy_service_remains():
-    src = (server._REPO / "executor" / "server.py").read_text()
-    assert "kamibots" not in src.lower()
-    assert not hasattr(server, "_api_get")
-
-
-def test_the_droptable_is_read_from_chain(chain_env):
-    node, game, clock, op = chain_env
+def _droptable_chain(node, game):
+    """Node 53's scavenge registry with one ITEM_DROPTABLE reward."""
     reg = server._scavenge_registry_id(53)
     anchor = int.from_bytes(server.Web3.solidity_keccak(
         ["string", "uint256"], ["scavenge.reward", reg]), "big")
@@ -627,6 +621,38 @@ def test_the_droptable_is_read_from_chain(chain_env):
                 lambda n, c, a, k: Result(output=eth_abi.encode(
                     ["uint256[]"], [[9, 7, 4]])))
     game.commits[reg] = 300                       # component.value(reg)
+
+
+def test_no_strategy_service_reaches_the_droptable(chain_env, monkeypatch):
+    """4.6.0: the strategy service is back for the nine OUTSOURCE tools
+    only (SPEC D2, zero internal reads). `_api_get`, the internal read the
+    droptable used until 4.0.0, stays gone, and the droptable read
+    touches no HTTP client and no strategy-service call."""
+    node, game, clock, op = chain_env
+    _droptable_chain(node, game)
+    reached = []
+
+    def boom(*a, **k):
+        reached.append((a, k))
+        raise AssertionError(
+            f"get_scavenge_droptable reached the strategy service: {a} {k}")
+
+    for name in ("AsyncClient", "Client", "get", "post", "put", "delete",
+                 "request", "stream"):
+        monkeypatch.setattr(server.httpx, name, boom)
+    monkeypatch.setattr(server, "_strategy_api", boom, raising=False)
+    monkeypatch.setattr(server, "_headers", boom, raising=False)
+
+    out = server.run_tool("get_scavenge_droptable", node_index=53)
+
+    assert reached == []
+    assert out["tier_cost"] == 300 and len(out["droptables"]) == 1
+    assert not hasattr(server, "_api_get")
+
+
+def test_the_droptable_is_read_from_chain(chain_env):
+    node, game, clock, op = chain_env
+    _droptable_chain(node, game)
     out = server.get_scavenge_droptable(53)
     assert out["node_name"] == "Blooming Tree" and out["tier_cost"] == 300
     (table,) = out["droptables"]

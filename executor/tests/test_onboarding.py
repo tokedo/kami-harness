@@ -33,7 +33,8 @@ def onboard_env(secret_store, tmp_path, monkeypatch):
     roster = tmp_path / "roster.yaml"
     monkeypatch.setattr(server, "_ROSTER_PATH", roster)
     monkeypatch.setattr(server, "_accounts", {})
-    for suffix in ("_OWNER_KEY", "_OPERATOR_KEY"):
+    for suffix in ("_OWNER_KEY", "_OPERATOR_KEY",
+                   "_KAMIBOTS_API_KEY", "_PRIVY_ID"):
         monkeypatch.delenv(f"{_UP}{suffix}", raising=False)
     return SimpleNamespace(keys=keys, roster=roster)
 
@@ -132,6 +133,7 @@ class TestCreateOperatorWallet:
         # entry must upgrade in place, not conflict or duplicate.
         monkeypatch.setenv(f"{_UP}_OWNER_KEY", KEY_A)
         owner_only = server._Account(_LABEL, None, KEY_A)
+        owner_only.api_key = "kb-live-credential"  # in-memory only
         server._accounts[_LABEL] = owner_only
 
         r = server.create_operator_wallet(_LABEL)
@@ -141,7 +143,28 @@ class TestCreateOperatorWallet:
         assert acct.has_operator
         assert acct.operator_addr == r["operator_address"]
         assert acct.owner_addr == owner_only.owner_addr
+        assert acct.api_key == "kb-live-credential"  # survives the upgrade
         assert r["roster"] == "created"
+
+    def test_stored_strategy_credentials_survive_the_upgrade(
+        self, onboard_env, monkeypatch
+    ):
+        # 4.6.0: register_kamibots needs only the owner key, so it can run
+        # before the operator exists. Credentials the store holds (and the
+        # in-memory entry lacks) are carried into the rebuilt entry too.
+        monkeypatch.setenv(f"{_UP}_OWNER_KEY", KEY_A)
+        monkeypatch.setenv(f"{_UP}_KAMIBOTS_API_KEY", "kb-stored")
+        monkeypatch.setenv(f"{_UP}_PRIVY_ID", "did:privy:stored")
+        server._accounts[_LABEL] = server._Account(_LABEL, None, KEY_A)
+
+        server.create_operator_wallet(_LABEL)
+
+        acct = server._accounts[_LABEL]
+        assert acct.has_operator
+        assert acct.api_key == "kb-stored"
+        assert acct.privy_id == "did:privy:stored"
+        assert server.list_accounts()["accounts"][_LABEL][
+            "kamibots_registered"] is True
 
     def test_rejects_existing_operator_and_names_address(
         self, onboard_env, monkeypatch
