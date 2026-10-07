@@ -1,8 +1,9 @@
-"""Smoke tests for quest_state — uses chain reads against bpeon's known state.
+"""Smoke tests for quest_state — chain reads against one snapshot
+account's known state.
 
 These assertions match the state observed 2026-07-27 (re-recorded from
-the 2026-04-30 session-70 snapshot after bpeon's live state advanced —
-Q49 was completed in play, unlocking Q50):
+an earlier field-session snapshot after the account's live state
+advanced — Q49 was completed in play, unlocking Q50):
 - Q48 ("Pipe Dream") completed
 - Q49 ("Community Service") completed
 - Q50 ("You Smelt It…") owned but blocked on objs_not_met
@@ -25,12 +26,12 @@ import server  # noqa: E402
 
 
 class TestQuestState(unittest.TestCase):
-    ACCOUNT = "bpeon"
+    ACCOUNT = "acct_a"  # the snapshot account's roster label, if configured
 
     @classmethod
     def setUpClass(cls):
         # Skip the whole class if the snapshot account isn't loaded — these
-        # tests are state-snapshots against bpeon's chain state from session 70.
+        # tests are state-snapshots against that account's chain state.
         try:
             server._get_account(cls.ACCOUNT)
         except Exception as e:
