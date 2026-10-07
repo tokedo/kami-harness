@@ -29,6 +29,182 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [4.6.0] — 2026-10-07 — the strategy-service family returns
+
+MINOR. **109 tools** — ACT 59 / PERCEIVE 34 / **OUTSOURCE 9** / META 7;
+nine tools added, none removed or renamed, no existing parameter or
+schema changed — and 42 `READ_TOOLS`. Registry mass **76,197** against a
+budget raised from 73,000 to **77,000** (Python 3.13), `tools_hash`
+`5a31220d88c24ea03f39e55ea3d32e9393870288702bd5d2ab65cdd7f35621a4`. The
+handshake's standing text is unchanged: 957 characters, sha256
+`7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b`.
+`SCHEMA_VERSION` **4.6.0**. kami-lens stays **1.0.3** (`7f9be7b`); 1.0.1
+or newer is still required.
+
+**Why MINOR, by this file's own rule.** Nine new tools, one new result
+field (`list_accounts.kamibots_registered`) and one description that
+says so again; nothing an existing caller relies on changes.
+
+**Why the family returns.** A maintainer ruling of 2026-10-07, not a
+defect fix: the environment interface must let an agent that runs no
+daemon of its own delegate a standing routine (a harvest-and-rest loop,
+feeding, crafting), and without these tools such an agent has no way
+to. 4.0.0 removed the family
+because one of its tools sends the operator private key to a third
+party. That is still what it does, and it is said in plain words below
+and in the tool's own description.
+
+### The nine tools
+
+| tool | what it does |
+|---|---|
+| `register_kamibots(account)` | signs a registration message with the account's OWNER key (a signature, not a key), registers with the service, and saves the API key and privy id it returns as `{LABEL}_KAMIBOTS_API_KEY` / `{LABEL}_PRIVY_ID` through the secret store |
+| `kamibots_enable_strategies(account)` | stores the account's OPERATOR private key with the service (the escrow); strategy starts fail until it has |
+| `start_strategy(strategy_type, kami_id, node_id, config, account)` | starts a strategy the service runs and signs: harvestAndRest, harvestAndFeed, rest_v3, auto_v2, bodyguard or craft |
+| `stop_strategy(kami_id, permanent, account)` | stops a kami's strategy — deletes it by default, pauses it with `permanent=false`; the only way to revoke one |
+| `get_tier(account)` | the account's tier, tax rate and strategy slots |
+| `get_all_strategies(account)` | the account's active strategies |
+| `get_all_strategy_statuses(account, full)` | container status, one row per strategy for the account's own kamis (an on-chain ownership read filters the service's global answer; `full=true` returns it whole) |
+| `get_strategy_status(kami_id, account)` | one kami's strategy status |
+| `get_strategy_logs(container_id, tail, account)` | a strategy container's recent log lines |
+
+Names, parameters, defaults, descriptions, results, error classes
+(`OutsourceUnavailableError` on a connection failure or a 5xx,
+`StrategyServiceError` on a 4xx) and messages, request paths and bodies
+are 3.7.0's. The five reads are READ tools with their EXPOSURE rows
+again. The standing sentence 3.7.0 appended to their descriptions is
+not: since 4.0.0 it is said once, in the MCP instructions.
+
+**The escrow, in plain words.** `kamibots_enable_strategies` sends this
+account's operator private key to the Kamibots service, which keeps it
+and signs with it: anything the operator wallet can sign — harvests,
+feeds, moves, and kami transfers to other accounts. A started strategy
+keeps signing, and spending the operator wallet's gas, after the session
+that started it has ended; stopping a strategy does not withdraw the
+key. No tool sends an owner key anywhere.
+
+### Behaviour of the restored tools
+
+- **No credential comes back.** Text the service sends back — an error
+  body, a 5xx answer, a connection error, a result — reaches an
+  exception or a result only after every credential of the account (the
+  API key, the privy id, the operator key and the owner key) and, in
+  `register_kamibots`, the signed registration are replaced by
+  `[redacted]`: with or without `0x`, in any case, before the
+  300-character cut. What is sent is unchanged. Before this, a service
+  that echoed its request in an error would have put the operator key in
+  the text the agent reads; the rule that a secret value enters no
+  result and no exception (3.1.0) now holds on this path too.
+- **One lock for the account entry.** `register_kamibots` writes the two
+  credentials under the lock `create_operator_wallet` holds while it
+  rebuilds the same entry, and writes to the live entry.
+- **Registration can come first.** `register_kamibots` needs only the
+  owner key, so it can run before the operator exists;
+  `create_operator_wallet` keeps the credentials across its rebuild,
+  from memory or from the store.
+- **Per-account names only.** `{LABEL}_KAMIBOTS_API_KEY` and
+  `{LABEL}_PRIVY_ID` are read for each label. The unprefixed 2.0.0-era
+  names `KAMIBOTS_API_KEY` / `PRIVY_ID` are not read;
+  `register_kamibots(account=...)` creates per-account credentials.
+  (3.7.0 migrated the bare names to the first account lacking one, and
+  with only the key set it handed the same key to every such account.)
+- **No world-state read goes through the service.**
+  `get_scavenge_droptable` stays chain-only (4.0.0); the internal read it
+  once made is not restored.
+
+### What an existing deployment sees
+
+Nothing until it moves its pin. After the move:
+
+- nine more tools and a fourth class in its handshake's registry: the
+  `tools_hash` changes, the standing text does not;
+- `list_accounts` gains `kamibots_registered` per account, and its
+  description says so;
+- the startup report on stderr adds `Kamibots registered: <labels>`
+  when a label has an API key;
+- `{LABEL}_KAMIBOTS_API_KEY` / `{LABEL}_PRIVY_ID` are read again when
+  present, so a 3.7.0 deployment's saved credentials work unchanged;
+- network egress to `api.kamibots.xyz`, and only when an OUTSOURCE tool
+  is called — no other tool contacts it.
+
+### The budget
+
+73,000 -> 77,000 by a maintainer ruling of 2026-10-07, for the named
+capability *the strategy-service family restored*: the nine tools cost
+5,018 characters (their 3.7.0 descriptions and schemas, without the
+appended sentence) and `list_accounts`' restored clause 46. Mass 71,133
+-> 76,197, 803 characters of headroom. No trim funded it.
+
+### Text corrections (no surface change)
+
+- The `_GAS_PRICE` comment said Yominet "refunds nothing": it meant the
+  price over-offer. Unused gas IS refunded, at the offered price (the
+  receipt's prepayment and refund legs, `_fee_wei`).
+- "A pruned node (~1M blocks of history)" (a server comment, the
+  trade-cache error text, SETUP §10) is log retention, not state: the
+  public RPC keeps about 1M blocks of logs, roughly 23-27 days;
+  historical state is pruned far sooner.
+- SPEC's registry-mass invariant row stated 70,523 (4.3.0's figure); it
+  states the current one.
+- SPEC's harvest-cap invariant row cited
+  `test_docstring_caps_match_the_arithmetic` and its old meaning; it
+  cites `test_docstring_caps_match_the_measured_admission`: each harvest
+  description states the measured admission, 10, which is at most
+  `_harvest_max_per_call`.
+
+### Tests
+
+`test_outsource.py` restored unchanged (10): the escrow body, the
+owner-key hard line on a split account, the address echo, the
+owner-only refusal, the missing-key step, `OutsourceUnavailableError` on
+every tool. Restored with it: `TestStrategyStatusSummary` (5),
+`TestGetAllStrategyStatuses` (2), the operator-key docstring facts,
+`kamibots_registered` on an owner-only account, and the carry-over
+across `create_operator_wallet` (plus one new test for credentials only
+the store holds). `TestLevelPathNeedsNoKamibotsKey`'s guard forbids
+`_strategy_api` and the async HTTP client.
+
+New, `test_h460_outsource.py` (21): no standing sentence — 3.7.0's
+wordings or today's — on the nine descriptions; `list_accounts` says
+registered and never a value; `register_kamibots` posts the owner
+address, a signature that recovers to it, the message and the label,
+with no key and no `X-Agent-Key`, and writes both names through
+`secrets_store.put` under the lock; the escrow refuses an owner-only
+account through the `operator_key` property and sends nothing; six echo
+cases (`TestNoSecretComesBack`); the wire per tool (method, path, body,
+header; `stop_strategy`'s body, and `?permanent=true` only when
+permanent); `_load_accounts` reads the labelled credentials and no bare
+name.
+
+Renamed: `test_no_strategy_service_remains` ->
+`test_no_strategy_service_reaches_the_droptable` (`_api_get` stays gone;
+the droptable opens no HTTP client); `test_the_surface_fingerprint_is_the_440_one`
+-> `test_the_surface_fingerprint_and_the_standing_text` (this release's
+hash and mass; the standing text's sha256 and length, unchanged). The
+selector table gains the two chain reads behind the summary
+(`component.id.kami.owns` `getEntitiesWithValue(uint256)`,
+`component.index.kami` `safeGet(uint256[])`), both in the vendored
+upstream ABI. Pins: 109 tools, the four classes, 42 READ tools, budget
+77,000, `SCHEMA_VERSION` 4.6.0.
+
+Fixture hygiene: `test_quest_state.py`'s snapshot account is a neutral
+roster label (`acct_a`) and its docstring names no session.
+
+Against 4.5.0's server, 30 fail and 25 error (the version pin and the
+selector table among them). 1161 tests, 4 skipped.
+
+### Known, not changed
+
+- The reveal window: three scavenge and droptable descriptions say "256
+  blocks (~6 min)", three gacha descriptions "~4 min", and the measured
+  average block time (about 2 s, bursty) makes both short. They are
+  descriptions, the surface is pinned at the values above, and which
+  figure to state is not settled; left as they are.
+- The service is pinned by request path and response shape only; there
+  is no upstream version to record (SPEC D2).
+- `integration/kamibots/README.md` keeps the service's own read
+  endpoints (§6) as reference; the harness reads none of them.
+
 ## [4.5.0] — 2026-10-06 — a failed receipt wait is unconfirmed: never `error`, never a second send
 
 MINOR. **100 tools** (no tool, parameter, schema or description added,
