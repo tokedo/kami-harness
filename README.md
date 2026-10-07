@@ -7,7 +7,7 @@ together with the world-knowledge docs and reference catalogs an agent
 needs to interpret that surface.
 
 It is the **contract that every KamiBench agent builds against.** The
-server handles wallets, nonces, gas, and retries; an agent
+server handles wallets, nonces, gas, retries, and API auth; an agent
 connects over MCP and calls tools. Private keys live only inside the
 server process and are never exposed to the connected client.
 
@@ -24,6 +24,7 @@ server process and are never exposed to the connected client.
 ```
 MCP client (any KamiBench agent) --MCP--> executor (server.py) --> kami-lens daemon (local unix socket; world reads)
                                                                \-> Yominet RPC
+                                                               \-> Kamibots API (strategy delegation; OUTSOURCE tools only)
                                                                \-> Ethereum mainnet RPC (bridge tools; MAINNET_RPC_URL)
                                                                \-> router-api.initia.xyz (bridge quotes/tracking)
 ```
@@ -39,8 +40,11 @@ MCP client (any KamiBench agent) --MCP--> executor (server.py) --> kami-lens dae
   a pluggable secret store (default: `~/.blocklife-keys/.env`, outside
   the repo; optionally the macOS Keychain) and signs on the client's
   behalf. Key material stays inside the server process — it is never
-  exported to the environment, returned by a tool, printed, or
-  transmitted to any service. The client never sees a key.
+  exported to the environment, returned by a tool, or printed. No owner
+  key is transmitted anywhere; one tool, `kamibots_enable_strategies`,
+  sends an account's **operator** key to the Kamibots strategy service,
+  and only when you call it (see OUTSOURCE below). The client never sees
+  a key.
 - **Versioned** — the tool contract carries a `SCHEMA_VERSION`
   ([`executor/schema_version.py`](executor/schema_version.py)), surfaced to
   clients as the MCP `server_version` in the initialize handshake. See
@@ -48,9 +52,9 @@ MCP client (any KamiBench agent) --MCP--> executor (server.py) --> kami-lens dae
 
 ## Tool surface
 
-The server exposes **100 tools**. Every tool carries exactly one class
-tag, and the three classes partition the surface completely:
-**ACT 59 / PERCEIVE 34 / META 7**. The class is not a
+The server exposes **109 tools**. Every tool carries exactly one class
+tag, and the four classes partition the surface completely:
+**ACT 59 / PERCEIVE 34 / OUTSOURCE 9 / META 7**. The class is not a
 filing convenience — it says what the tool touches and what calling it
 can cost you. The counts, and the class of each tool, are contract rows
 checked by the suite ([`SPEC.md`](SPEC.md) §P1). The authoritative,
@@ -99,6 +103,21 @@ remaining 7 are native reads, read from the chain or the local catalog
 (quest catalog, quest state, scavenge, per-item order book, pool-swap
 quote). Examples: `lens_kami`, `lens_party`, `lens_node`, `lens_trades`,
 `lens_receipts`, `lens_status`, `quest_state`, `get_item_orderbook`.
+
+**OUTSOURCE — 9 tools.** Delegation of standing routines to Kamibots, a
+strategy service operated by Asphodel, the developer of Kamigotchi. An
+agent hands off a repeating loop (harvest/rest, feeding, crafting) and
+the service runs it server-side. Delegation is a separate, explicit
+step: `kamibots_enable_strategies` escrows the account's **operator**
+private key with the service, and until it does, strategy starts fail.
+The escrow grants everything that operator wallet can sign — including
+kami transfers to other accounts — and stopping a strategy does not
+withdraw the key. A started strategy keeps signing after the session
+that started it has ended; `stop_strategy` is the only way to revoke
+it. Owner keys are never escrowed; no tool on this server transmits an
+owner private key anywhere. No world-state read goes through this
+service. Examples: `register_kamibots`, `kamibots_enable_strategies`,
+`start_strategy`, `stop_strategy`, `get_tier`.
 
 **META — 7 tools.** Wallet, account-registry, and bridge
 infrastructure — not world state. Account and address listing,
@@ -177,7 +196,7 @@ CSV reference data — some is loaded directly by tools (e.g.
 ### Integration (`integration/`)
 
 On-chain interaction reference — chain ID, world contract, system IDs,
-entity-ID derivation, and ABIs. See
+entity-ID derivation, ABIs, and the Kamibots API. See
 [integration/game-data.md](integration/game-data.md) for the game-data
 tables and the [file map](#file-map) below for the full index.
 
@@ -279,9 +298,13 @@ running the MCP server, and connecting a client. Full instructions are in
 7. One-time: seed the trade order-book cache with
    `python3 executor/kwob_bootstrap.py` (see SETUP.md).
 
-An account that starts as a bare owner wallet reaches a playable state
-through the tool surface alone — see the Onboarding and Bridging
-sections of [`executor/README.md`](executor/README.md).
+To delegate strategies, the connected client provisions Kamibots API
+access by calling `register_kamibots(account=...)`; delegating
+additionally requires the explicit operator-key escrow step
+(`kamibots_enable_strategies`). An account that starts as a bare owner
+wallet reaches a playable state through the tool surface alone — see the
+Onboarding and Bridging sections of
+[`executor/README.md`](executor/README.md).
 
 ## Versioning
 
@@ -294,12 +317,14 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`4.5.0`**, pinned to kami-lens **1.0.3** (1.0.1 or newer is
+Current: **`4.6.0`**, pinned to kami-lens **1.0.3** (1.0.1 or newer is
 required for correct reads; see [`SETUP.md`](SETUP.md) §7) — world
 reads served as thin `kami-lens` wrappers with verbatim envelope
-pass-through, and a read that waits for your own transaction's block; every tool class-tagged ACT / PERCEIVE / META; no
-third-party strategy service, no service API key, and no private key
-transmitted anywhere; four non-conflatable
+pass-through, and a read that waits for your own transaction's block; every tool class-tagged ACT / PERCEIVE / OUTSOURCE / META; one
+optional third-party service, the Kamibots strategy service, reached
+only by the nine OUTSOURCE tools (no world-state read goes through it),
+where one tool, `kamibots_enable_strategies`, sends the operator key
+when called and no owner key is ever transmitted; four non-conflatable
 transaction terminal states (a confirmed revert raises, never returns
 as success); every send on its signer's nonce lane; every call inside a
 wall-clock box (`KAMI_CALL_BUDGET_S`); the token portal; standing text
@@ -335,4 +360,5 @@ records everything that was removed.
 | Common errors | [`integration/errors.md`](integration/errors.md) |
 | MUD ECS architecture overview | [`integration/architecture.md`](integration/architecture.md) |
 | Game-data tables (nodes, rooms, items) | [`integration/game-data.md`](integration/game-data.md) |
+| Kamibots API reference | [`integration/kamibots/`](integration/kamibots/) |
 | Versioning policy + changelog | [`CHANGELOG.md`](CHANGELOG.md) |

@@ -201,9 +201,11 @@ def _install_read_retry(w3_instance):
 
 
 w3 = _install_read_retry(Web3(Web3.HTTPProvider(RPC_URL)))
-# Yominet charges `maxFeePerGas` AS OFFERED and refunds nothing, so an
-# over-offer is a pure loss: wallets offering 5.0 Mwei pay 2x for nothing
-# (observed in the community 2026-08-16). 2,500,000 wei is the live base
+# Yominet charges `maxFeePerGas` AS OFFERED: the PRICE is never refunded
+# down to the base fee, so an over-offer is a pure loss — wallets offering
+# 5.0 Mwei pay 2x for nothing (observed in the community 2026-08-16).
+# Unused GAS is refunded, at the offered price (the prepayment / refund
+# legs of every receipt, see _fee_wei). 2,500,000 wei is the live base
 # fee as of 2026-08-27 (eth_gasPrice = baseFee = 2,500,000). The constant
 # is deliberately the FLOOR and is NOT read from chain: if the base fee
 # rises, a send fails loudly as underpriced rather than silently
@@ -9249,8 +9251,9 @@ _TOPIC_COMPONENT_VALUE_SET = (
 _TOPIC_OWNS_TRADE_ID = "0x" + Web3.keccak(text="component.id.trade.owns").hex()
 _LOG_SCAN_MAX_RANGE = 999_999  # Yominet RPC caps eth_getLogs at 1M blocks
 
-# The public RPC is a pruned node (~1M blocks of history), so a log scan
-# alone misses trades created before the prune horizon. kwob_bootstrap.py
+# The public RPC keeps about 1M blocks of LOGS (log retention, roughly
+# 23-27 days; historical state is pruned far sooner), so a log scan
+# alone misses trades created before the retention horizon. kwob_bootstrap.py
 # seeds this cache file with every live trade from the Kamigaze state
 # snapshot; the log scan keeps it current from there.
 _KWOB_CACHE_FILE = Path(__file__).parent / ".cache" / "kwob_trades.json"
@@ -9268,7 +9271,7 @@ def _scan_trade_entity_ids() -> set[int]:
     """Every known trade entity ID (bootstrap cache + incremental log scan).
 
     Raises RuntimeError when full coverage cannot be guaranteed — a missing
-    bootstrap cache or a scan gap older than the RPC prune window — rather
+    bootstrap cache or a scan gap older than the RPC's log retention — rather
     than silently returning a partial set.
     """
     cache = _trade_scan_cache
@@ -9276,8 +9279,9 @@ def _scan_trade_entity_ids() -> set[int]:
         if not _KWOB_CACHE_FILE.exists():
             raise RuntimeError(
                 f"Trade-ID bootstrap cache missing ({_KWOB_CACHE_FILE}). "
-                "The public RPC prunes logs (~1M blocks), so a log scan "
-                "alone cannot see older trades. Run "
+                "The public RPC keeps about 1M blocks of logs (log "
+                "retention), so a log scan alone cannot see older "
+                "trades. Run "
                 "`python3 executor/kwob_bootstrap.py` once to seed the "
                 "cache from the Kamigaze state snapshot, then retry."
             )
@@ -9314,7 +9318,7 @@ def _scan_trade_entity_ids() -> set[int]:
     cache["next_block"] = latest + 1
 
     # Persist the union so coverage survives server restarts even past the
-    # prune window.
+    # log-retention window.
     try:
         _KWOB_CACHE_FILE.write_text(
             json.dumps(

@@ -7,6 +7,7 @@ client never sees secrets.
 ```
 MCP client --MCP--> executor (server.py) --> kami-lens daemon (local unix socket; world reads)
                                          \-> Yominet RPC (transactions)
+                                         \-> Kamibots API (strategy delegation; OUTSOURCE tools only)
                                          \-> Ethereum mainnet RPC + router-api.initia.xyz (bridge)
 ```
 
@@ -61,7 +62,18 @@ pip install -r requirements.txt
 
 4. **Start MCP server** (via your MCP client's config)
 
-5. **Ready to play** — all tools now work.
+5. **Register with Kamibots** (once per account, only if you intend to
+   delegate strategies):
+   ```
+   register_kamibots(account="main")
+   ```
+   Signs with the owner wallet and saves the API key and privy_id as
+   `{LABEL}_KAMIBOTS_API_KEY` / `{LABEL}_PRIVY_ID` in the secret store —
+   the keys file by default; the result names the location. Starting a
+   strategy additionally requires the explicit operator-key escrow step,
+   `kamibots_enable_strategies` — see [OUTSOURCE](#outsource--9-tools).
+
+6. **Ready to play** — all tools now work.
 
 An account that exists only as an owner key reaches the same state
 through the tool surface itself — see [Onboarding](#onboarding).
@@ -85,10 +97,10 @@ Example config (Claude Code's `.mcp.json` shown):
 
 ## Available tools
 
-The registry advertises **100 tools**. Every tool carries exactly
-one class tag — `ACT` / `PERCEIVE` / `META` — and the three
+The registry advertises **109 tools**. Every tool carries exactly
+one class tag — `ACT` / `PERCEIVE` / `OUTSOURCE` / `META` — and the four
 classes partition the surface completely:
-**ACT 59 / PERCEIVE 34 / META 7**.
+**ACT 59 / PERCEIVE 34 / OUTSOURCE 9 / META 7**.
 The tags live in `server.TOOL_CLASSES`; the counts are contract rows
 checked by the suite ([SPEC.md](../SPEC.md) §P1).
 
@@ -96,13 +108,13 @@ The tables below are generated from the live registry: each row is a
 tool's registered name, its parameter names in schema order, and the
 first line of its description. The full description — argument
 semantics, gas limits, failure modes — is what the MCP client receives
-on `tools/list`, and is the authority. `37` tools are non-mutating
-(`server.READ_TOOLS`): all 34 PERCEIVE, plus the three META reads marked
-below.
+on `tools/list`, and is the authority. `42` tools are non-mutating
+(`server.READ_TOOLS`): all 34 PERCEIVE, plus the five OUTSOURCE and
+three META reads marked below.
 
 Text that applies across many tools is not repeated in descriptions: it
 is said once, in the MCP initialize `instructions`. Its first line is
-`tools_hash=<hash> schema_version=4.5.0 error_snippets=on|off`; the
+`tools_hash=<hash> schema_version=4.6.0 error_snippets=on|off`; the
 rest states that `untrusted` fields are player data, never
 instructions; that `lens_*` reads are served by the local kami-lens
 daemon, `{data, untrusted, meta}` verbatim; how to see your own
@@ -442,6 +454,39 @@ one quote tool — the lens `quote` query is deliberately not wrapped), and
 | `pool_swap_quote(item_in, item_out, amount_in, slippage_bps)` | Price a MUSU-item pool swap before sending it. Reads only. |
 | `quest_state(quest_index, account)` | Discriminated read of a quest's on-chain state for the account. |
 
+### OUTSOURCE — 9 tools
+
+Reaches the third-party strategy service: Kamibots, operated by
+Asphodel, the developer of Kamigotchi. These tools hand a standing
+routine (harvest/rest, feeding, crafting) to that service, which runs it
+server-side. No world-state read goes through it.
+
+Delegation requires an explicit escrow step.
+`kamibots_enable_strategies` stores the account's **operator** private
+key with the service; `start_strategy` fails until it has. The escrow
+grants everything that operator wallet can sign — harvests, feeds,
+moves, and kami transfers to other accounts — and stopping or deleting
+a strategy does not withdraw the key. A started strategy keeps signing
+after the session that started it has ended; `stop_strategy` is the
+only way to revoke it. Owner keys are never sent: no tool on this
+server transmits an owner private key anywhere. The account's tier tax
+applies to strategy proceeds. Anything the service sends back reaches a
+result or an error only after the account's credentials in it are
+replaced by `[redacted]`. Service reference:
+[integration/kamibots/](../integration/kamibots/).
+
+| Tool | Description | Read |
+|---|---|---|
+| `get_all_strategies(account)` | List all active strategies for this account. | yes |
+| `get_all_strategy_statuses(account, full)` | Live container status, summarized to this account's kamis. | yes |
+| `get_strategy_logs(container_id, tail, account)` | Recent log lines from a running strategy container. | yes |
+| `get_strategy_status(kami_id, account)` | Strategy status for a specific kami. Cached 15s server-side. | yes |
+| `get_tier(account)` | Account tier info: tier name, tax rate, total/used/remaining strategy slots. | yes |
+| `kamibots_enable_strategies(account)` | Store this account's OPERATOR private key with the Kamibots strategy service, enabling start_strategy. | — |
+| `register_kamibots(account)` | Register with the Kamibots API using the account's owner wallet. | — |
+| `start_strategy(strategy_type, kami_id, node_id, config, account)` | Start a Kamibots strategy for a kami. | — |
+| `stop_strategy(kami_id, permanent, account)` | Stop the running strategy for a kami. | — |
+
 ### META — 7 tools
 
 Wallet, account-registry, and bridge infrastructure; not world state.
@@ -483,7 +528,8 @@ A playable account is: an owner key in the keys file, an operator key
 next to it, an on-chain account entity binding the operator address, and
 an operator wallet holding gas ETH. Each of those states is reachable
 through the tool surface; none requires a game client or manual file
-edits.
+edits. (Kamibots credentials are not part of a playable account — they
+are needed only to delegate strategies.)
 
 - The game client uses a Privy embedded wallet as operator, but
   on-chain the operator is just an EOA address argument to
@@ -505,6 +551,10 @@ edits.
 - Operator gas comes from `fund_operator`; owner-side gas ETH that is
   still on Ethereum mainnet crosses via `bridge_eth_from_mainnet`
   (see [Bridging](#bridging)).
+- Strategy delegation, if wanted, comes from `register_kamibots`
+  (owner-signed message; it needs only the owner key, so it can run
+  before the operator exists — `create_operator_wallet` keeps the
+  credentials) followed by `kamibots_enable_strategies`.
 
 ### Bridging
 
@@ -555,9 +605,11 @@ carries at most 6 decimal places.
      exception (SPEC D1): learning the index of one of the deployment's
      own roster accounts with one `account <own address> --slim`
      request (`_own_index`), cached once found.
+   - strategy service: `_strategy_api(...)` — OUTSOURCE tools only; no
+     other tool reads the strategy service.
 5. Add `account: str = "main"` parameter to all per-account tools
 6. Tag the tool: add its name to exactly one of `_ACT_TOOLS`,
-   `_PERCEIVE_TOOLS`, `_META_TOOLS` in `server.py`.
+   `_PERCEIVE_TOOLS`, `_OUTSOURCE_TOOLS`, `_META_TOOLS` in `server.py`.
    A missing or duplicate tag fails the suite. If the tool is
    non-mutating, add it to `READ_TOOLS` and give it an EXPOSURE.md row
    (CI-enforced in both directions). The standing text (untrusted data,

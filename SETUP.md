@@ -40,6 +40,13 @@ Kamigotchi perception and action as tools; any MCP client can drive it.
   Node.js 20+ or Docker. Set it up in step 7. Without it, those tools
   raise `LensUnavailableError` and the rest of the surface is
   unaffected.
+- **Kamibots account** (optional): needed only to delegate standing
+  strategies to the Kamibots service (the 9 OUTSOURCE tools). The
+  client calls `register_kamibots(account=...)`, which signs with the
+  owner key and provisions an API key automatically; starting a
+  strategy additionally requires the explicit operator-key escrow step
+  `kamibots_enable_strategies`. No world-state read comes from this
+  service: every one comes from kami-lens or the chain.
 
 ## 2. Clone the repo
 
@@ -167,7 +174,7 @@ one more, once per server process; §11). The other 7 read the chain directly (o
 `get_expected_objective`, the local quest catalog). Until the daemon
 is running, the 27 raise
 `LensUnavailableError` — they never fall back to a hosted service and
-never return an empty result in its place. ACT and META
+never return an empty result in its place. ACT, OUTSOURCE, and META
 tools do not depend on it.
 
 This server version is pinned to kami-lens release **1.0.3**, commit
@@ -296,8 +303,9 @@ mean the Python environment from step 3 isn't set up correctly.
 ## 10. Seed the trade order-book cache (one-time)
 
 `get_item_orderbook` discovers trade entities from World event logs, but
-the public Yominet RPC is a pruned node (~1M blocks of history): trades
-created before the prune horizon are invisible to a log scan. Seed the
+the public Yominet RPC keeps about 1M blocks of logs (log retention,
+roughly 23-27 days; historical state is pruned far sooner): trades
+created before the retention horizon are invisible to a log scan. Seed the
 trade-ID cache once from the Kamigaze state snapshot:
 
 ```bash
@@ -309,10 +317,10 @@ cd ..
 Staleness behavior after the one-time bootstrap:
 
 - Every `get_item_orderbook` call scans new logs incrementally and
-  rewrites the cache file, so any call within the prune window (~1M
-  blocks) keeps coverage complete indefinitely — no re-runs needed in
+  rewrites the cache file, so any call within the log-retention window
+  (~1M blocks) keeps coverage complete indefinitely — no re-runs needed in
   normal operation.
-- If the server goes longer than the prune window without an order-book
+- If the server goes longer than the log-retention window without an order-book
   call, or the cache file is lost, the missing range can no longer be
   recovered from logs. `get_item_orderbook` then raises an error naming
   `executor/kwob_bootstrap.py` instead of silently returning an
@@ -342,6 +350,18 @@ no configuration and no restart.
 
 If `lens_status()` errors instead of answering, the daemon from step 7
 is not reachable — no other read will work until it is.
+
+Only if you intend to delegate standing strategies to Kamibots:
+
+```
+register_kamibots(account="main")          # OUTSOURCE: owner-signed, provisions API key
+kamibots_enable_strategies(account="main") # OUTSOURCE: escrows the OPERATOR key
+get_tier(account="main")                   # OUTSOURCE: tier, tax rate, slots
+```
+
+The escrow step hands the operator private key to a third-party service
+that then signs with it; read `kamibots_enable_strategies`'s description
+before calling it. Owner keys are never sent.
 
 After that, every other tool is available. An account that exists only
 as an owner key (no operator, no on-chain registration, funds still on
@@ -390,6 +410,11 @@ untouched. `lens_status()` says why. A cold start needs a minute.
 The quest catalogs are committed in `catalogs/quests/`. If they're
 missing, you have an incomplete clone — `git pull` to refresh.
 
+### `register_kamibots` fails with a signature error
+The owner key in the secret store (the keys file by default) doesn't
+match the owner address in `roster.yaml`, or the owner address isn't
+the on-chain owner of the operator. Recheck both.
+
 ### A large harvest batch is refused before it is sent
 `harvest_start`, `harvest_stop`, and `harvest_collect` take at most
 **10 kamis per call**. Yominet caps a single transaction's gas limit at
@@ -411,7 +436,7 @@ error says whether the batch SIZE or one kami (ITEM) failed.
 - [`README.md`](README.md) — the environment interface specification:
   tool surface, world-knowledge docs, and world model.
 - [`executor/README.md`](executor/README.md) — the full MCP tool
-  reference (100 tools, by class).
+  reference (109 tools, by class).
 - [`integration/system-ids.md`](integration/system-ids.md) and
   [`integration/entity-ids.md`](integration/entity-ids.md) — if you want
   to extend the interface with new tools.
