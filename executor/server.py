@@ -14,7 +14,8 @@ public addresses.
 All per-account tools accept an `account` label parameter (default "main").
 
 Architecture:
-  MCP client --MCP--> executor (server.py) ---> Yominet RPC / kami-lens
+  MCP client --MCP--> executor (server.py) ---> Yominet RPC / kami-lens /
+                                                 Kamibots API (OUTSOURCE)
 """
 
 import asyncio
@@ -79,6 +80,7 @@ secrets_store.load()
 # Constants
 # ---------------------------------------------------------------------------
 
+KAMIBOTS_BASE = "https://api.kamibots.xyz"
 WORLD_ADDRESS = Web3.to_checksum_address(
     "0x2729174c265dbBd8416C6449E0E813E88f43D0E7"
 )
@@ -615,10 +617,12 @@ _UINT32_VALUE_ABI = json.loads(
 class _Account:
     __slots__ = (
         "label", "_operator_key", "owner_key", "_operator_addr", "owner_addr",
+        "api_key", "privy_id",
     )
 
     def __init__(
         self, label: str, operator_key: str | None, owner_key: str | None,
+        api_key: str | None = None, privy_id: str | None = None,
     ):
         self.label = label
         self._operator_key = operator_key
@@ -630,6 +634,8 @@ class _Account:
         self.owner_addr = (
             w3.eth.account.from_key(owner_key).address if owner_key else None
         )
+        self.api_key = api_key
+        self.privy_id = privy_id
 
     # An account loaded from {LABEL}_OWNER_KEY alone has no operator
     # wallet yet. Every operator-signing/-reading path goes through
@@ -685,7 +691,9 @@ def _load_accounts() -> None:
         up = label.upper()
         op_key = secrets_store.get(f"{up}_OPERATOR_KEY")
         own_key = secrets_store.get(f"{up}_OWNER_KEY")
-        _accounts[label] = _Account(label, op_key, own_key)
+        api_key = secrets_store.get(f"{up}_KAMIBOTS_API_KEY")
+        privy_id = secrets_store.get(f"{up}_PRIVY_ID")
+        _accounts[label] = _Account(label, op_key, own_key, api_key, privy_id)
 
     # Cross-reference with roster.yaml
     if _ROSTER_PATH.exists():
@@ -701,12 +709,16 @@ def _load_accounts() -> None:
                   file=sys.stderr)
 
     if _accounts:
+        registered = [l for l, a in _accounts.items() if a.api_key]
         names = [
             l if a.has_operator else f"{l} (owner-only)"
             for l, a in _accounts.items()
         ]
         print(f"Loaded {len(_accounts)} account(s): {', '.join(names)}",
               file=sys.stderr)
+        if registered:
+            print(f"  Kamibots registered: {', '.join(registered)}",
+                  file=sys.stderr)
     else:
         print("WARNING: No accounts loaded. Fill .env with *_OWNER_KEY / "
               "*_OPERATOR_KEY entries.", file=sys.stderr)
@@ -3747,8 +3759,19 @@ def _parse_kamiden_trades(payload: bytes) -> list[dict]:
     return trades
 
 
+# ---------------------------------------------------------------------------
+# Kamibots API helpers
+# ---------------------------------------------------------------------------
 
 
+def _headers(account: str) -> dict:
+    acct = _get_account(account)
+    if not acct.api_key:
+        raise ValueError(
+            f"No Kamibots API key for account '{account}'. "
+            f"Call register_kamibots(account='{account}') first."
+        )
+    return {"X-Agent-Key": acct.api_key}
 
 
 # --- SP+ item catalog for travel_to_room -----------------------------------
@@ -3827,10 +3850,110 @@ def _pick_sp_item(
     return available[0]
 
 
+# ---------------------------------------------------------------------------
+# Strategy service (Kamibots) — class-level degradation mapping
+# ---------------------------------------------------------------------------
 
 
+class OutsourceUnavailableError(RuntimeError):
+    """The remote strategy service did not serve the request.
+
+    Raised for connection failures and 5xx answers from every
+    strategy-service tool, so an outage is always a distinct legible
+    error — never a silent failure or an empty success."""
+
+    def __init__(self, detail: str, status: int | None = None):
+        self.status = status
+        head = "OUTSOURCE_UNAVAILABLE"
+        if status is not None:
+            head += f" (upstream status {status})"
+        super().__init__(
+            f"{head}: {detail} The Kamibots strategy service is a remote "
+            f"dependency; direct game actions through the other tools are "
+            f"unaffected."
+        )
 
 
+class StrategyServiceError(ValueError):
+    """A 4xx answer from the strategy service (status + body preserved)."""
+
+    def __init__(self, status: int, body: str):
+        self.status = status
+        self.body = body
+        super().__init__(f"the strategy service answered HTTP {status}: {body}")
+
+
+# A credential is never copied back into an exception or a result (the
+# 3.1.0 rule: a secret value enters neither), even when the service's
+# own text echoes what it was sent: every occurrence is replaced by
+# "[redacted]" first. Hex secrets match with or without 0x, in any case.
+_REDACTED = "[redacted]"
+
+
+def _redactor(secrets):
+    """A function that redacts `secrets` from a string, and from every
+    key and value of a JSON-shaped answer."""
+    pats = set()
+    for s in secrets:
+        if not s:
+            continue
+        pats.add(str(s))
+        if str(s)[:2].lower() == "0x" and len(str(s)) > 2:
+            pats.add(str(s)[2:])
+    if not pats:
+        return lambda obj: obj
+    rx = re.compile(
+        "|".join(re.escape(p) for p in sorted(pats, key=len, reverse=True)),
+        re.IGNORECASE,
+    )
+
+    def scrub(obj):
+        if isinstance(obj, str):
+            return rx.sub(_REDACTED, obj)
+        if isinstance(obj, dict):
+            return {scrub(k): scrub(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [scrub(v) for v in obj]
+        return obj
+
+    return scrub
+
+
+def _account_secrets(acct: "_Account") -> tuple:
+    """Every credential an account holds: the ones a strategy-service
+    call sends (agent key, privy id, operator key) and the one none
+    ever sends (the owner key)."""
+    return (acct.api_key, acct.privy_id, acct._operator_key, acct.owner_key)
+
+
+async def _strategy_api(
+    method: str, path: str, body: dict | None, account: str
+) -> dict:
+    """HTTP call for the strategy-service tools.
+
+    Connection failures and 5xx answers raise OutsourceUnavailableError;
+    4xx answers raise StrategyServiceError carrying the upstream status
+    and body. The account's credentials are redacted from anything the
+    service sends back before it reaches an exception or the result."""
+    scrub = _redactor(_account_secrets(_get_account(account)))
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.request(
+                method,
+                f"{KAMIBOTS_BASE}{path}",
+                headers=_headers(account),
+                json=body if body is not None else None,
+            )
+    except httpx.HTTPError as e:
+        raise OutsourceUnavailableError(
+            scrub(f"cannot reach the strategy service: {e}.")
+        )
+    if r.status_code >= 500:
+        raise OutsourceUnavailableError(
+            scrub(r.text)[:300], status=r.status_code)
+    if r.status_code >= 400:
+        raise StrategyServiceError(r.status_code, scrub(r.text)[:300])
+    return scrub(r.json())
 
 
 # ---------------------------------------------------------------------------
@@ -4082,14 +4205,16 @@ mcp._mcp_server.version = SCHEMA_VERSION
 def list_accounts() -> dict:
     """List all configured accounts with labels and public addresses.
 
-    No private data. operator_address is null until
-    create_operator_wallet generates the keypair.
+    No private data; shows whether the Kamibots API is registered.
+    operator_address is null until create_operator_wallet generates
+    the keypair.
     """
     accts = {}
     for label, acct in _accounts.items():
         accts[label] = {
             "operator_address": acct._operator_addr,
             "owner_address": acct.owner_addr,
+            "kamibots_registered": acct.api_key is not None,
         }
     return {"accounts": accts}
 
@@ -4219,8 +4344,17 @@ def _create_operator_wallet(account: str) -> dict:
     # environment, where any child would inherit it.
     secrets_store.put(f"{up}_OPERATOR_KEY", op_key)
     # Upgrade in place: _load_accounts registers owner-only labels, so
-    # the label may already be live.
-    _accounts[label] = _Account(label, op_key, owner_key)
+    # the label may already be live. Its strategy-service credentials
+    # survive the rebuild: register_kamibots needs only the owner key,
+    # so it can run before the operator exists.
+    existing = _accounts.get(label)
+    _accounts[label] = _Account(
+        label, op_key, owner_key,
+        (existing.api_key if existing else None)
+        or secrets_store.get(f"{up}_KAMIBOTS_API_KEY"),
+        (existing.privy_id if existing else None)
+        or secrets_store.get(f"{up}_PRIVY_ID"),
+    )
     roster = _roster_add_account(
         label, _accounts[label].owner_addr, new.address
     )
@@ -4307,6 +4441,81 @@ def register_account(name: str, account: str = "main") -> dict:
     return result
 
 
+@mcp.tool()
+async def register_kamibots(account: str = "main") -> dict:
+    """Register with the Kamibots API using the account's owner wallet.
+
+    Signs a registration message (a signature, not a key), obtains the
+    API key and privy_id, and saves them to the keys file per account.
+    Next onboarding step: kamibots_enable_strategies.
+
+    Args:
+        account: Account label (owner key required).
+    """
+    acct = _get_account(account)
+    if not acct.owner_key:
+        raise ValueError(
+            f"Account '{account}' has no owner key. "
+            f"Set {account.upper()}_OWNER_KEY in "
+            f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
+        )
+
+    timestamp = int(time.time())
+    message = f"Register for Kamibots: {timestamp}"
+    signable = encode_defunct(text=message)
+    signed = w3.eth.account.sign_message(signable, private_key=acct.owner_key)
+    signature = "0x" + signed.signature.hex()
+    # The signed registration is itself a credential for the service; it
+    # and the account's own are redacted from any answer copied below.
+    scrub = _redactor(_account_secrets(acct) + (signature,))
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.post(
+                f"{KAMIBOTS_BASE}/api/agent/register",
+                json={
+                    "walletAddress": acct.owner_addr,
+                    "signature": signature,
+                    "message": message,
+                    "label": f"Agent ({account})",
+                },
+            )
+    except httpx.HTTPError as e:
+        raise OutsourceUnavailableError(
+            scrub(f"cannot reach the strategy service: {e}.")
+        )
+    if r.status_code >= 500:
+        raise OutsourceUnavailableError(
+            scrub(r.text)[:300], status=r.status_code)
+    if r.status_code >= 400:
+        raise StrategyServiceError(r.status_code, scrub(r.text)[:300])
+    data = r.json()
+
+    up = account.upper()
+    api_key = data.get("apiKey")
+    privy_id = data.get("privyId")
+
+    # Serialised with create_operator_wallet, which rebuilds this entry
+    # in place under the same lock: write to the live entry.
+    with _STATE_WRITE_LOCK:
+        acct = _get_account(account)
+        if api_key:
+            acct.api_key = api_key
+            secrets_store.put(f"{up}_KAMIBOTS_API_KEY", api_key)
+        if privy_id:
+            acct.privy_id = privy_id
+            secrets_store.put(f"{up}_PRIVY_ID", privy_id)
+
+    return {
+        "registered": True,
+        "is_new_user": data.get("isNewUser"),
+        "has_operator_key": data.get("hasOperatorKey"),
+        "api_key_saved": bool(api_key),
+        "privy_id_saved": bool(privy_id),
+        "message": f"Credentials saved as {up}_KAMIBOTS_API_KEY and "
+        f"{up}_PRIVY_ID in "
+        f"{secrets_store.where(f'{up}_KAMIBOTS_API_KEY')}.",
+    }
 
 
 # ---- Wallet / gas management ----
@@ -4862,21 +5071,167 @@ def bridge_status(tx_hash: str, account: str = "main") -> dict:
     }
 
 
+# ---- Kamibots API: state reads ----
 
 
+@mcp.tool()
+async def get_tier(account: str = "main") -> dict:
+    """Account tier info: tier name, tax rate, total/used/remaining strategy slots.
+    """
+    return await _strategy_api("GET", "/api/agent/tier", None, account)
 
 
+@mcp.tool()
+async def get_all_strategies(account: str = "main") -> dict:
+    """List all active strategies for this account.
+    """
+    return await _strategy_api("GET", "/api/agent/strategies", None, account)
 
 
+_ABI_COMP_SAFEGET_U32 = json.loads(
+    '[{"type":"function","name":"safeGet",'
+    '"inputs":[{"name":"entities","type":"uint256[]"}],'
+    '"outputs":[{"type":"uint32[]"}],"stateMutability":"view"}]'
+)
+
+# Row keys the strategy service uses for the kami a container serves,
+# and the fields worth one row each. Unrecognised shapes are never
+# reshaped — the whole upstream answer is returned instead.
+_STRATEGY_KAMI_KEYS = ("kami_id", "kamiId", "kami_index", "kamiIndex", "kami")
+_STRATEGY_ROW_FIELDS = ("status", "state", "health")
 
 
+def _owned_kami_indices(account_id: int) -> set[int]:
+    """Token indices of every kami this account owns, from chain state.
+
+    Reads the same IDOwnsKami reverse index the ownership gate reads,
+    then each entity's own index component. On-chain only: the strategy
+    service is the subject of this call, not a source about it, and the
+    lens daemon is deliberately not consulted so an OUTSOURCE tool keeps
+    working when the daemon is down.
+    """
+    owns = w3.eth.contract(
+        address=_resolve_component("component.id.kami.owns"),
+        abi=_ID_COMPONENT_ABI,
+    )
+    entities = owns.functions.getEntitiesWithValue(account_id).call()
+    if not entities:
+        return set()
+    idx = w3.eth.contract(
+        address=_resolve_component("component.index.kami"),
+        abi=_ABI_COMP_SAFEGET_U32,
+    )
+    return {int(i) for i in idx.functions.safeGet(entities).call() if i}
 
 
+def _summarize_strategy_statuses(payload, owned: set[int]) -> dict | None:
+    """One row per strategy for kamis in `owned`, or None if unrecognised.
+
+    The upstream endpoint answers globally — every container on the
+    service, for every account — and the full answer has run to hundreds
+    of kilobytes. Returning None rather than a guess is deliberate: a
+    shape this function does not recognise is passed through whole, so a
+    changed upstream costs verbosity, never data.
+    """
+    rows = payload
+    container = None
+    if isinstance(payload, dict):
+        for key in ("statuses", "strategies", "containers", "data", "results"):
+            if isinstance(payload.get(key), list):
+                rows, container = payload[key], key
+                break
+    if not isinstance(rows, list):
+        return None
+    summary: list[dict] = []
+    matched = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            return None
+        kid = None
+        for key in _STRATEGY_KAMI_KEYS:
+            v = row.get(key)
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, int):
+                kid = v
+                break
+            if isinstance(v, str) and v.isdigit():
+                kid = int(v)
+                break
+        if kid is None:
+            continue
+        matched += 1
+        if kid not in owned:
+            continue
+        summary.append({
+            "kami_id": kid,
+            **{f: row.get(f) for f in _STRATEGY_ROW_FIELDS if f in row},
+        })
+    if not matched:
+        return None
+    return {
+        "strategies": summary,
+        "shown": len(summary),
+        "upstream_rows": len(rows),
+        "upstream_field": container,
+        "note": (
+            "one row per strategy for kamis this account owns. The "
+            "upstream endpoint answers for every account on the service; "
+            "full=true returns it unsummarized, and get_strategy_status "
+            "carries one kami's container detail."
+        ),
+    }
 
 
+@mcp.tool()
+async def get_all_strategy_statuses(
+    account: str = "main", full: bool = False
+) -> dict:
+    """Live container status, summarized to this account's kamis.
+
+    The endpoint is GLOBAL — every container on the service, for every
+    account, in hundreds of kilobytes. This returns one row per
+    strategy whose kami this account owns. full=true returns the
+    upstream answer whole, as does an unrecognised shape.
+
+    Args:
+        full: If true, return the upstream response unsummarized.
+    """
+    payload = await _strategy_api(
+        "GET", "/api/strategies/status/all", None, account
+    )
+    if full:
+        return payload
+    aid = _safe_read(_account_entity_id, account)
+    owned = _safe_read(_owned_kami_indices, aid) if aid else None
+    if owned is None:
+        return payload
+    summary = _summarize_strategy_statuses(payload, owned)
+    return summary if summary is not None else payload
 
 
+@mcp.tool()
+async def get_strategy_status(kami_id: int, account: str = "main") -> dict:
+    """Strategy status for a specific kami. Cached 15s server-side.
+    """
+    return await _strategy_api(
+        "GET", f"/api/strategies/status/{kami_id}", None, account
+    )
 
+
+@mcp.tool()
+async def get_strategy_logs(
+    container_id: str, tail: int = 30, account: str = "main"
+) -> dict:
+    """Recent log lines from a running strategy container.
+
+    Args:
+        container_id: Strategy container ID (from start response or strategy list).
+        tail: Number of log lines to return (default 30).
+    """
+    return await _strategy_api(
+        "GET", f"/api/strategies/{container_id}/logs?tail={tail}", None, account
+    )
 
 
 # ---- kami-lens wrappers (world-state reads) ----
@@ -5556,12 +5911,151 @@ def lens_pool_history(item_a: int, item_b: int, from_ts: int = -1) -> dict:
     return _lens_request("pool-history", args)
 
 
+# ---- Kamibots API: strategy management ----
 
 
+@mcp.tool()
+async def kamibots_enable_strategies(account: str = "main") -> dict:
+    """Store this account's OPERATOR private key with the Kamibots
+    strategy service, enabling start_strategy.
+
+    Onboarding order is register_kamibots, then this tool, then
+    start_strategy — strategy starts fail until the service holds the
+    operator key. What this grants: the service keeps the operator
+    private key and signs operator-wallet transactions server-side
+    while running strategies — everything the operator wallet can sign,
+    including harvests, feeds, moves, and kami transfers to other
+    accounts. Stopping or deleting strategies does not withdraw the
+    key. The Kamibots service is operated by Asphodel, the developer of
+    Kamigotchi (docs.asphodel.io/architecture/bots-and-agents).
+
+    Owner keys are never sent: this tool reads only the operator key,
+    and no tool on this server transmits an owner private key anywhere.
+
+    Args:
+        account: Account label whose operator key is stored.
+    """
+    acct = _get_account(account)
+    operator_key = acct.operator_key  # raises if no operator wallet exists
+    result = await _strategy_api(
+        "POST", "/api/agent/operator-key", {"operatorKey": operator_key},
+        account,
+    )
+    reported = result.get("operatorAddress")
+    if reported and str(reported).lower() != acct.operator_addr.lower():
+        raise ValueError(
+            f"the service echoed operator address {reported}, but account "
+            f"'{account}' expects {acct.operator_addr}; treat the key as "
+            f"not stored for this account"
+        )
+    return {
+        "account": account,
+        "operator_address": acct.operator_addr,
+        "stored": bool(result.get("success", True)),
+    }
 
 
+# Observed live 2026-07-23: a start on an account whose operator key is
+# not stored answers HTTP 403 with body "No active operator key. Set one
+# up before starting strategies." (the docs' 400 was not observed).
+_MISSING_KEY_MARKER = "No active operator key"
+_MISSING_KEY_STEP = (
+    "This account's operator key is not stored with the strategy service "
+    "— run kamibots_enable_strategies(account=...) first (onboarding "
+    "order: register_kamibots, kamibots_enable_strategies, "
+    "start_strategy)."
+)
 
 
+@mcp.tool()
+async def start_strategy(
+    strategy_type: str,
+    kami_id: int,
+    node_id: int,
+    config: dict,
+    account: str = "main",
+) -> dict:
+    """Start a Kamibots strategy for a kami.
+
+    Requires the account's operator key stored with the service first
+    (kamibots_enable_strategies); the service signs the strategy's
+    transactions server-side with that key, and the account's tier tax
+    applies to strategy proceeds.
+
+    A started strategy OUTLIVES this session. It keeps signing with the
+    enrolled operator key on its own cycle after the caller that started
+    it has stopped running — observed continuing for ~23 hours on a
+    ~10-minute cycle after its principal ended — and every one of those
+    transactions burns gas from the enrolled wallet. Enrolment has no
+    known expiry, and the service exposes no way to enumerate what is
+    running. stop_strategy is the only way to revoke it.
+
+    Args:
+        strategy_type: One of harvestAndRest, harvestAndFeed, rest_v3,
+            auto_v2, bodyguard, craft.
+        kami_id: Kami token index (0 for craft strategies).
+        node_id: Harvest node index (must match the kami's room).
+        config: Strategy-specific config dict
+            (integration/kamibots/README.md).
+    """
+    acct = _get_account(account)
+    if not acct.privy_id:
+        raise ValueError(
+            f"No privy_id for account '{account}'. "
+            f"Call register_kamibots(account='{account}') first."
+        )
+    try:
+        return await _strategy_api(
+            "POST",
+            "/api/strategies/start",
+            {
+                "strategyType": strategy_type,
+                "kamiId": kami_id,
+                "nodeId": node_id,
+                "config": config,
+                "keyData": {"privy_id": acct.privy_id},
+            },
+            account,
+        )
+    except StrategyServiceError as e:
+        if _MISSING_KEY_MARKER in e.body:
+            raise ValueError(f"{e} {_MISSING_KEY_STEP}")
+        raise
+
+
+@mcp.tool()
+async def stop_strategy(
+    kami_id: str, permanent: bool = True, account: str = "main"
+) -> dict:
+    """Stop the running strategy for a kami.
+
+    This is the only way to revoke a strategy. Until it is called, the
+    strategy keeps signing and spending gas from the enrolled wallet
+    regardless of whether the session that started it is still running.
+
+    For multi-kami strategies (auto_v2, rest_v3, bodyguard) pass
+    kami_indices[0] from the strategy list; secondary indices return
+    404.
+
+    Args:
+        kami_id: Primary kami token index (e.g. "45") or craft
+            strategy ID (e.g. "craft_zpki5vkc").
+        permanent: True (default) deletes the strategy and frees
+            slots; False pauses (relaunchable).
+    """
+    acct = _get_account(account)
+    if not acct.privy_id:
+        raise ValueError(
+            f"No privy_id for account '{account}'. "
+            f"Call register_kamibots(account='{account}') first."
+        )
+    qs = "?permanent=true" if permanent else ""
+    return await _strategy_api(
+        "DELETE",
+        f"/api/strategies/kami/{kami_id}{qs}",
+        {"keyData": {"privy_id": acct.privy_id}},
+        account,
+    )
 
 
 # ---- On-chain: direct game actions ----
@@ -14230,6 +14724,7 @@ def newbie_vendor_buy(
 #
 # ACT       signed game transactions (operator or owner wallet)
 # PERCEIVE  world-state reads (kami-lens wrappers + native holdouts)
+# OUTSOURCE the remote strategy service (delegated play; optional)
 # META      wallet / gas / bridge / roster plumbing
 # ---------------------------------------------------------------------------
 
@@ -14273,6 +14768,13 @@ _PERCEIVE_TOOLS = {
     "quest_state",
 }
 
+_OUTSOURCE_TOOLS = {
+    "get_all_strategies", "get_all_strategy_statuses",
+    "get_strategy_logs", "get_strategy_status", "get_tier",
+    "kamibots_enable_strategies", "register_kamibots", "start_strategy",
+    "stop_strategy",
+}
+
 _META_TOOLS = {
     "bridge_eth_from_mainnet", "bridge_status", "create_operator_wallet",
     "fund_operator", "get_gas_balance", "list_accounts",
@@ -14282,12 +14784,15 @@ _META_TOOLS = {
 TOOL_CLASSES: dict[str, str] = {
     **{n: "ACT" for n in _ACT_TOOLS},
     **{n: "PERCEIVE" for n in _PERCEIVE_TOOLS},
+    **{n: "OUTSOURCE" for n in _OUTSOURCE_TOOLS},
     **{n: "META" for n in _META_TOOLS},
 }
 
 # Non-mutating tools: no transaction is signed, no remote state changes.
 # Every tool in this set has a row in EXPOSURE.md (CI-enforced).
 READ_TOOLS: set[str] = _PERCEIVE_TOOLS | {
+    "get_all_strategies", "get_all_strategy_statuses",
+    "get_strategy_logs", "get_strategy_status", "get_tier",
     "bridge_status", "get_gas_balance", "list_accounts",
 }
 
@@ -14391,7 +14896,15 @@ _finalize_descriptions()
 # is all the slack this registry had — the remaining repetition is the
 # two standing sentences above, one of which is a handling rule for
 # untrusted player data and is not a trim target at any budget.
-REGISTRY_MASS_BUDGET = 73_000
+#
+# 73,000 -> 77,000 on 2026-10-07, by a maintainer ruling, for the named
+# capability *the strategy-service family restored*: the nine OUTSOURCE
+# tools that left at 4.0.0 return with their 3.7.0 descriptions and
+# schemas (5,018 characters; the standing sentence 3.7.0 appended to the
+# five reads stays in the MCP instructions), and list_accounts says again
+# that its result carries kamibots_registered (46). An agent that runs no
+# daemon of its own has no other way to delegate a standing routine.
+REGISTRY_MASS_BUDGET = 77_000
 
 
 def registry_mass() -> int:

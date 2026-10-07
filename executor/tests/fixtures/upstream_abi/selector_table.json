@@ -748,6 +748,17 @@
   },
   {
    "target": "component.id.kami.owns",
+   "signature": "getEntitiesWithValue(uint256)",
+   "selector": "0xfbdfa1ea",
+   "returns": [
+    "uint256[]"
+   ],
+   "tools": [
+    "(_owned_kami_indices)"
+   ]
+  },
+  {
+   "target": "component.id.kami.owns",
    "signature": "safeGet(uint256)",
    "selector": "0x04fd7bd9",
    "returns": [
@@ -868,6 +879,17 @@
     "portal_cancel",
     "portal_claim",
     "portal_withdraw"
+   ]
+  },
+  {
+   "target": "component.index.kami",
+   "signature": "safeGet(uint256[])",
+   "selector": "0x7396a865",
+   "returns": [
+    "uint32[]"
+   ],
+   "tools": [
+    "(_owned_kami_indices)"
    ]
   },
   {

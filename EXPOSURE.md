@@ -50,6 +50,11 @@ rows below go missing.
 | `get_scavenge_droptable` | PERCEIVE | node droptable weights/probabilities | official web client scavenge panel | chain component reads (the node's scavenge registry, its anchored droptable rewards, their keys and weights; node name from catalogs/nodes.csv) — no third party since 4.0.0 | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (no lens scavenge query at lens 1.0.0) |
 | `get_item_orderbook` | PERCEIVE | one item's complete order book | in-game World Order Book (kwob) | chain event-scan + component reads | ≤ v1.5.1 (2026-07-19); lens migration deferred visibly (per-item book exceeds lens_trades at this pin) |
 | `pool_swap_quote` | PERCEIVE | priced quote for one pool swap: amount out, min received, price impact | in-game swap panel quote | chain component reads (live reserves + fee) | 2.1.0 (2026-08-07); kept native as an ACT pre-check — the perception layer carries pool reserves, the per-trade quote is the act's own |
+| `get_tier` | OUTSOURCE | account tier/tax/slots at the strategy service | Kamibots dashboard | Kamibots API | ≤ v1.5.1 (2026-07-19) |
+| `get_all_strategies` | OUTSOURCE | account's strategy list | Kamibots dashboard | Kamibots API | ≤ v1.5.1 (2026-07-19) |
+| `get_all_strategy_statuses` | OUTSOURCE | live strategy container statuses | Kamibots dashboard | Kamibots API | ≤ v1.5.1 (2026-07-19) |
+| `get_strategy_status` | OUTSOURCE | one kami's strategy status | Kamibots dashboard | Kamibots API | ≤ v1.5.1 (2026-07-19) |
+| `get_strategy_logs` | OUTSOURCE | one strategy container's log tail | Kamibots dashboard | Kamibots API | ≤ v1.5.1 (2026-07-19) |
 | `list_accounts` | META | local roster labels + public addresses | standard multi-wallet tooling | local roster/env | ≤ v1.5.1 (2026-07-19) |
 | `get_gas_balance` | META | wallet gas balances | standard EVM wallet balance view | Yominet RPC | ≤ v1.5.1 (2026-07-19); wallet infra, not world state |
 | `bridge_status` | META | one bridge transfer's state | Initia bridge widget/tracker | Initia router API + RPC | ≤ v1.5.1 (2026-07-19) |
