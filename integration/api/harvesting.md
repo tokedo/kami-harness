@@ -252,7 +252,7 @@ On a successful liquidation, `LibKill` produces a **KillLog** with the following
 
 | Field | Description |
 |-------|-------------|
-| `bounty` | Total MUSU in the victim's harvest at time of kill |
+| `bounty` | The victim's harvest bounty at the time of the kill, in the node's yield item — MUSU (item 1) on most nodes, VIPP (item 2) on VIPP nodes |
 | `salvage` | Paid to the victim's account in the node's yield item — MUSU (item 1) on most nodes, VIPP (item 2) on VIPP nodes; before block 34,199,935 (2026-10-08) it was MUSU on every node (based on victim's Power stat) |
 | `spoils` | Added to the attacker's own harvest bounty (based on attacker's Power stat), and paid out with that harvest, in the node's yield item, when the attacker collects or stops |
 | `strain` | Health cost component from the kill |
@@ -276,7 +276,7 @@ All of the following must be true or the transaction reverts:
 
 #### On Success
 
-- The victim's harvest bounty is split — a portion goes to the victim as "salvage" (based on their Power), the rest becomes "spoils" for the attacker (based on attacker's Power)
+- The victim's harvest bounty is split — a portion goes to the victim as "salvage" (based on their Power), a portion of what remains becomes "spoils" for the attacker (based on attacker's Power), and the rest is destroyed (it goes to no one)
 - The attacker takes health "recoil" damage from the kill (based on strain and karma)
 - The victim receives **salvage** in the node's yield item — MUSU (item 1) on most nodes, VIPP (item 2) on VIPP nodes; before block 34,199,935 (2026-10-08) it was MUSU on every node — based on their Power stat, plus **XP equal to the salvage amount**, whatever the item
 - The victim's Kami dies (state → `"DEAD"`) and their harvest stops

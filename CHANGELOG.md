@@ -42,9 +42,9 @@ all 4.6.0's, measured off a stdio child at this release.
 **Why PATCH, by this file's own rule.** No tool name, description,
 parameter, schema, result, error or behaviour changes. What changed is
 documents, a test fixture's provenance line, the constant of the script
-that writes it, a module docstring that is not served, and the version
-itself: nothing an agent sees except the version number in the
-handshake.
+that writes it, a module docstring and a code comment that are not
+served, and the version itself: nothing an agent sees except the
+version number in the handshake.
 
 ### The upstream repository's public mirror
 
@@ -89,13 +89,23 @@ merge commit from now on.
   Spoils) and `mechanics/economy/harvesting.md` (Liquidation). No tool
   text changes: `liquidate_kami` never named the salvage's unit and
   never returned it.
+- **The kill's bounty and what is left of it.** The same table's
+  `bounty` row said "Total MUSU in the victim's harvest": the bounty is
+  in the node's yield item (kamigotchi-gdd `mechanics/combat/kill.md`,
+  Loot Distribution). The "On Success" list said the rest of the bounty
+  after salvage "becomes spoils": spoils are a portion of what remains,
+  and what is left after salvage and spoils is destroyed (kamigotchi-gdd
+  `mechanics/economy/harvesting.md`, Liquidation, Process).
 - **Block time.** `integration/api/harvesting.md` (two places) and
   `integration/api/minting.md` said Yominet has ~1-second blocks. Blocks
   arrive about every 2 s on average and in bursts, from under a second
   to tens of seconds apart, so duration-based values update per block,
-  not per second. The mint/reveal note's fixed two-second sleep is
-  replaced by a wait until the block number has passed the mint's
-  block: a reveal in the commit's own block cannot succeed.
+  not per second. The mint/reveal note's code sample now polls the
+  block number until it has passed the mint's block, instead of
+  sleeping two seconds: a reveal in the commit's own block cannot
+  succeed (kamigotchi-gdd `mechanics/utility/commit-reveal.md`). An
+  internal comment in `executor/server.py` (not served) said "a few
+  blocks per second" and now says about 2 s per block, in bursts.
 - **The MAJOR rule's qualifier.** `SPEC.md` P3 and the module docstring
   of `executor/schema_version.py` now carry this file's qualifier:
   MAJOR is for changed semantics or return shape *that existing callers

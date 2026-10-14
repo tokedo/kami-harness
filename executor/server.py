@@ -2394,7 +2394,7 @@ _GONE_SPACING_S = 1.0
 _DRAIN_BUDGET_S = 30
 # How many blocks back a collision search looks for the transaction that
 # consumed a nonce, when it is not one this harness signed (one batched
-# read; a few blocks per second on this chain, so ~20-60 s of history).
+# read; blocks average ~2 s apart and come in bursts: about 2 min of history).
 _CONSUMER_SCAN_BLOCKS = 64
 
 # A gap fill is a zero-value transfer to self. eth_estimateGas for a
