@@ -37,7 +37,8 @@ registry mass **76,197** against the 77,000 budget, `tools_hash`
 the handshake's standing text (957 characters, sha256
 `7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b`) are
 all 4.6.0's, measured off a stdio child at this release.
-`SCHEMA_VERSION` **4.6.1**.
+`SCHEMA_VERSION` **4.6.1**. kami-lens **1.0.4** (`99c3d67`), a
+documentation-only lens release; 1.0.1 or newer is still required.
 
 **Why PATCH, by this file's own rule.** No tool name, description,
 parameter, schema, result, error or behaviour changes. What changed is
@@ -110,6 +111,17 @@ merge commit from now on.
   of `executor/schema_version.py` now carry this file's qualifier:
   MAJOR is for changed semantics or return shape *that existing callers
   relied on*. The docstring is not served to clients.
+
+### kami-lens pin text -> 1.0.4
+
+kami-lens 1.0.4 (`99c3d672babb90d0e7c8d5466b308bf19544552b`) is
+documentation-only: its upstream pointer moves to the same public
+mirror, no query, field or envelope changes, and its `--version` names
+the mirror. Nothing this server sends or reads changes, so the advance
+is a move of the pin text: SPEC D1, the `Current:` line in `README.md`,
+the pin statement and the checkout step in `SETUP.md`, and the
+PERCEIVE paragraph of `executor/README.md`. 1.0.1 or newer is still
+required for correct reads.
 
 ### Version and tests
 
