@@ -50,10 +50,16 @@ import pydantic
 import yaml
 from eth_account.messages import encode_defunct
 from mcp.server.fastmcp import FastMCP
+from requests.exceptions import RequestException
 from web3 import Web3
 from web3._utils.method_formatters import receipt_formatter
 from web3.datastructures import AttributeDict
-from web3.exceptions import TimeExhausted
+from web3.exceptions import (
+    PersistentConnectionError,
+    ProviderConnectionError,
+    RequestTimedOut,
+    TimeExhausted,
+)
 
 import lanes
 import rooms_graph
@@ -729,12 +735,28 @@ def _load_accounts() -> None:
 _load_accounts()
 
 
+def _norm_label(label):
+    """A roster label as the roster keys it: lower-case (4.7.0).
+
+    _load_accounts lower-cases every label it loads, so a label matches in
+    any case only where its lookup lower-cases too. Every lookup of a
+    label a caller supplied goes through here: _get_account (every write,
+    lens_receipts, get_gas_balance, a transfer's to_account),
+    _roster_label (the lens reads, case-insensitive since 4.4.0) and
+    create_operator_wallet. Case only: a label with spaces around it is
+    not a label. A non-string comes back as it is, so its miss reads as
+    it did."""
+    return label.lower() if isinstance(label, str) else label
+
+
 def _get_account(label: str) -> _Account:
-    """Look up account by label. Raises ValueError if not found."""
-    if label not in _accounts:
+    """Look up account by label, in any case (4.7.0). Raises ValueError
+    if not found, naming the label as given and the labels as stored."""
+    key = _norm_label(label)
+    if key not in _accounts:
         available = ", ".join(_accounts.keys()) or "(none)"
         raise ValueError(f"Account '{label}' not found. Available: {available}")
-    return _accounts[label]
+    return _accounts[key]
 
 
 # ---------------------------------------------------------------------------
@@ -745,7 +767,10 @@ def _get_account(label: str) -> _Account:
 # registration, signer gas balance, per-tool state checks, and an
 # eth_call dry-run of the exact calldata. A failed validation raises
 # PreTxValidationError — its message always starts with
-# "validation failed; no transaction sent:" — and spends no gas.
+# "validation failed; no transaction sent:" — and spends no gas. The one
+# exception (4.7.0): a refusal after an earlier transaction of the same
+# call landed (portal_deposit, after its approve) is the subclass
+# RefusedAfterLandedError, whose message begins with what landed.
 #
 # After broadcast there are exactly three terminal states, and none is
 # reported as another:
@@ -775,6 +800,29 @@ class PreTxValidationError(ValueError):
         self.detail = detail
         self.mechanics = _mechanics_snippet(**mechanics) if mechanics else ""
         super().__init__(self.PREFIX + detail + self.mechanics)
+
+
+class RefusedAfterLandedError(PreTxValidationError):
+    """A refusal before signing a LATER transaction of one call, after an
+    EARLIER transaction of the same call landed (4.7.0: portal_deposit's
+    deposit, after its approve).
+
+    What landed is on chain and stays there; the refused transaction was
+    never signed. The message therefore begins with `lead`, which says
+    what landed, and never with PreTxValidationError.PREFIX, which would
+    say that nothing was sent. It is still a PreTxValidationError, so
+    every handler of one handles it. `detail`, `mechanics` and
+    `infrastructure` are the wrapped refusal's own; `landed` lists the
+    hashes of what landed, in order."""
+
+    def __init__(self, refusal: PreTxValidationError, lead: str,
+                 landed: list[str]):
+        self.detail = refusal.detail
+        self.mechanics = refusal.mechanics
+        self.landed = list(landed)
+        if getattr(refusal, "infrastructure", False):
+            self.infrastructure = True
+        ValueError.__init__(self, lead + self.detail + self.mechanics)
 
 
 def _revert_text(e: Exception) -> str:
@@ -1032,7 +1080,9 @@ def _out_of_gas_reason(built: dict | None, receipt) -> str | None:
 # Errors that mean the REPLAY failed, not that the transaction reverted.
 # Surfacing one of these as a revert reason states a falsehood about the
 # chain: the most common is racing the RPC's head, where a node that has
-# not yet caught up to the landed block rejects the call outright.
+# not yet caught up to the landed block rejects the call outright. The
+# dry-run gate (_dry_run) and the quest probe (quest_state) read the same
+# list: an error in it is never reported as a revert there either.
 _REPLAY_INFRA_MARKERS = (
     "greater than the latest block",
     "requested height",
@@ -1052,6 +1102,33 @@ _REPLAY_INFRA_MARKERS = (
     "connection",
     "too many requests",
     "rate limit",
+    # 4.7.0: the HTTP layer's own failures. requests' raise_for_status()
+    # words a 5xx as "<code> Server Error: <reason> for url: <url>"; on
+    # 2026-10-13 a reverted liquidate inside a sequence carried "503
+    # Server Error: Service Unavailable for url: ..." as its revert
+    # reason, because no marker above matched it.
+    "server error",
+    "service unavailable",
+    "bad gateway",
+    "gateway timeout",
+    "max retries",
+    "http error",
+)
+
+# 4.7.0: the exception classes of a request that did not reach the node's
+# EVM: requests' (web3's HTTPProvider raises requests.HTTPError for an
+# HTTP 5xx, after its own retries), web3's provider and connection
+# errors, and the builtins. requests' classes are OSError subclasses; the
+# tuple names them for the reader. The replay reads any of them as a
+# replay that did not run, whatever its text.
+_REPLAY_TRANSPORT_ERRORS = (
+    RequestException,
+    ProviderConnectionError,
+    PersistentConnectionError,
+    RequestTimedOut,
+    ConnectionError,
+    TimeoutError,
+    OSError,
 )
 
 # Solidity's two built-in error selectors. Anything else with a 4-byte
@@ -1134,8 +1211,11 @@ def _replay_once(call: dict, block: int | str) -> tuple[str | None, bool]:
     """One eth_call replay. Returns (reason, replay_was_usable).
 
     `replay_was_usable` is False when the replay itself failed — the RPC
-    refused the call, or raced its own head — as opposed to the call
-    completing and telling us something about the transaction.
+    refused the call, or raced its own head, or the request never reached
+    the node's EVM (a transport class, or a transport text, 4.7.0) — as
+    opposed to the call completing and telling us something about the
+    transaction. Revert data the error carries is decoded first: a
+    transport error never hides a revert the node did report.
     """
     try:
         w3.eth.call(call, block_identifier=block)
@@ -1151,7 +1231,8 @@ def _replay_once(call: dict, block: int | str) -> tuple[str | None, bool]:
             # Revert data present but empty: real revert, no reason in it.
             return None, True
         text = _revert_text(e)
-        if _is_replay_infra_error(text):
+        if isinstance(e, _REPLAY_TRANSPORT_ERRORS) or _is_replay_infra_error(
+                text):
             return None, False
         return text, True
 
@@ -4317,7 +4398,7 @@ def create_operator_wallet(account: str) -> dict:
 
 
 def _create_operator_wallet(account: str) -> dict:
-    label = account.lower()
+    label = _norm_label(account)
     if not label.replace("_", "").isalnum():
         raise ValueError(
             f"Label '{account}' must be alphanumeric/underscore."
@@ -4538,7 +4619,8 @@ def get_gas_balance(account: str = "") -> dict:
         account: Account label; empty reports every account.
     """
     labels = [account] if account else list(_accounts)
-    accts = [(label, _get_account(label)) for label in labels]
+    # Keyed by the label as stored (4.7.0): "MAIN" reports under "main".
+    accts = [(_norm_label(label), _get_account(label)) for label in labels]
     addrs = [a for _l, acct in accts
              for a in (acct.operator_addr if acct.has_operator else None,
                        acct.owner_addr) if a]
@@ -5286,7 +5368,7 @@ def _roster_label(account_key: str) -> _Account | None:
     daemon reads as it is (empty, an index, an address, a name)."""
     if not account_key or _LENS_INDEX_OR_ADDRESS.fullmatch(account_key):
         return None
-    return _accounts.get(account_key.lower())
+    return _accounts.get(_norm_label(account_key))
 
 
 def _own_default() -> _Account | None:
@@ -10096,9 +10178,17 @@ def _portal_send(fn, addr, key, role, account, gas: int | None = None) -> object
                         revalidate=lambda: _dry_run(fn, addr, account=account))
 
 
+def _approve_landed_lead(tx_hash: str) -> str:
+    """The first words of every refusal of a deposit after its approve
+    landed (4.2.0's lead for the gas-token check; since 4.7.0 every such
+    refusal's, through RefusedAfterLandedError)."""
+    return (f"the approve {tx_hash} landed (its allowance stays, so a "
+            f"later deposit sends no approve); the deposit itself is "
+            f"refused before signing it: ")
+
+
 def _require_gas_token_left(addr: str, held: int, item: int, items: int,
-                            wei: int, gas_limit: int, leg: str,
-                            approved: str | None = None) -> None:
+                            wei: int, gas_limit: int, leg: str) -> None:
     """H3 (4.2.0): a deposit of the GAS TOKEN must leave the fee.
 
     The token balance and the gas come out of one balance on this chain,
@@ -10110,11 +10200,7 @@ def _require_gas_token_left(addr: str, held: int, item: int, items: int,
     need = wei + bound
     if held >= need:
         return
-    lead, tail = "", ""
-    if approved:
-        lead = (f"the approve {approved} landed (its allowance stays, so a "
-                f"later deposit sends no approve); the deposit itself is "
-                f"refused before signing it: ")
+    tail = ""
     if leg == "the deposit's":
         unit = wei // items
         tail = (f"; at most {max(held - bound, 0) // unit} items can be "
@@ -10123,7 +10209,7 @@ def _require_gas_token_left(addr: str, held: int, item: int, items: int,
         tail = ("; the deposit's own fee bound is checked too, once the "
                 "approve has landed")
     raise PreTxValidationError(
-        f"{lead}item {item}'s token is the gas token, so the deposit and its "
+        f"item {item}'s token is the gas token, so the deposit and its "
         f"gas come out of one balance. Owner wallet {addr} holds {held} wei "
         f"({_fmt_token(held)} ETH); depositing {items} items takes {wei} wei, "
         f"and {leg} fee bound is {bound} wei (gas limit {gas_limit} x the "
@@ -10558,15 +10644,24 @@ def portal_deposit(item: int, amount: int, account: str = "main",
         r = _signed_send(approve, acct.owner_addr, acct.owner_key, "owner",
                          account, gas_limit=approve_gas)
         txs.append({"step": "approve", **_tx_fields(r)})
-        if gas_token:
+    try:
+        if approve_needed and gas_token:
             deposit_gas = _portal_gas(deposit, acct.owner_addr, account)
             # the approve's fee came out of the same balance
             held = int(token.functions.balanceOf(acct.owner_addr).call())
             _require_gas_token_left(acct.owner_addr, held, item, amount, wei,
-                                    deposit_gas, "the deposit's",
-                                    approved=txs[0]["tx_hash"])
-    receipt = _portal_send(deposit, acct.owner_addr, acct.owner_key, "owner",
-                           account, gas=deposit_gas)
+                                    deposit_gas, "the deposit's")
+        receipt = _portal_send(deposit, acct.owner_addr, acct.owner_key,
+                               "owner", account, gas=deposit_gas)
+    except PreTxValidationError as e:
+        # 4.7.0: refused before the deposit was signed. With an approve
+        # landed, the refusal says so first, never "no transaction sent"
+        # (its dry-run, its estimate, the gas-token check, the gas gate,
+        # the lane's revalidation). Without one, it is raised unchanged.
+        if not txs:
+            raise
+        h = txs[0]["tx_hash"]
+        raise RefusedAfterLandedError(e, _approve_landed_lead(h), [h]) from e
     txs.append({"step": "deposit", **_tx_fields(receipt)})
     return {**_tx_fields(receipt), **quote, "txs": txs}
 
@@ -14086,8 +14181,8 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
             _receipt_outcome(receipt, builts.get(i), account, plans[i][5])
         except OnChainRevertError as e:
             rows[i].update(_failed_tx_fields(e))
-            if e.reason:
-                rows[i]["reason"] = e.reason
+            # 4.7.0: present on every reverted row, never a transport text.
+            rows[i]["reason"] = e.reason or REPLAY_UNAVAILABLE
             return
         rows[i].update({
             "status": "success",
@@ -14120,8 +14215,7 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
                 continue
             except OnChainRevertError as e:
                 rows[i].update(_failed_tx_fields(e))
-                if e.reason:
-                    rows[i]["reason"] = e.reason
+                rows[i]["reason"] = e.reason or REPLAY_UNAVAILABLE
                 pend.remove(i)
                 continue
             except TxUnconfirmedError as e:
