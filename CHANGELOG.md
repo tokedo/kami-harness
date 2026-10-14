@@ -29,6 +29,159 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [4.7.0] — 2026-10-14 — three truths
+
+MINOR. **109 tools** — ACT 59 / PERCEIVE 34 / OUTSOURCE 9 / META 7; no
+tool, parameter, schema or description added, removed, renamed or
+reworded — registry mass **76,197** against the 77,000 budget,
+`tools_hash`
+`5a31220d88c24ea03f39e55ea3d32e9393870288702bd5d2ab65cdd7f35621a4`, and
+the handshake's standing text (957 characters, sha256
+`7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b`) are
+all 4.6.1's, measured off a stdio child at this release.
+`SCHEMA_VERSION` **4.7.0**.
+
+**Why MINOR, by this file's own rule.** No tool, parameter or return
+shape is renamed or removed, but what an agent sees at runtime changes,
+in five places: a reverted `act_sequence` row whose revert reason could
+not be recovered now carries `reason` (it had none, or the transport's
+text); a dry-run hit by an HTTP failure is reported as not performed
+instead of as reverted; `quest_state`'s `revert_reason` is null on such
+a failure instead of the transport's text; a call that failed on the
+case of a roster label now succeeds; and a deposit refused after its
+approve landed says so first. Each is the interface saying something
+true where it said something false or nothing; none takes away anything
+an existing caller could rely on.
+
+### 1. A transport failure never stands in for a chain fact
+
+**What was wrong.** On 2026-10-13 a reverted liquidate inside an
+`act_sequence` call carried, as its `reason`, the RPC's own text: "503
+Server Error: Service Unavailable for url: ...". The endpoint had
+failed the revert-reason replay, not the chain. web3 7.16's HTTP
+provider raises `requests.HTTPError` for an HTTP 5xx (after its own
+five tries, which `eth_call` is eligible for); the replay
+(`_replay_once`) found no revert data in it, and its list of texts that
+mean "the replay did not run" (`_REPLAY_INFRA_MARKERS`: a raced head,
+pruned state, a timeout, a connection error, a rate limit) has never
+covered the HTTP layer's own status lines, so the 503 text was taken
+for the reason the transaction reverted. The same text could stand in
+two other places that read the same list: the dry-run gate before every
+game-system write reported such a failure as "transaction dry-run
+reverted: 503 ...", and `quest_state` reported it as the quest's
+`revert_reason`.
+
+- **Since** 2.1.0, when the replay began telling its own failures from
+  reverts by text.
+- **Who is affected**: a send whose transaction reverted while the
+  endpoint was failing with an HTTP error (`act_sequence` rows and every
+  single send's revert message); every write whose dry-run met such a
+  failure; `quest_state` on an owned, incomplete quest.
+
+**The rule now** — the three agent-visible changes of this item:
+
+- **The replay.** A replay that fails with a transport class —
+  `requests`' `RequestException` and its subclasses, web3's
+  `ProviderConnectionError`, `PersistentConnectionError` and
+  `RequestTimedOut`, `ConnectionError`, `TimeoutError`, `OSError` — or
+  with a transport text did not run: it gets the replay's existing
+  second chance (wait for the head, try once more) and otherwise
+  recovers nothing. Revert data the error carries is still decoded
+  first. The text markers gain `server error`, `service unavailable`,
+  `bad gateway`, `gateway timeout`, `max retries` and `http error`.
+  (i) **A reverted `act_sequence` row always carries `reason`**: the
+  recovered reason, or "revert reason unavailable (replay
+  inconclusive)" — present, never absent (it was absent whenever the
+  replay recovered nothing), never a transport text. A single send's
+  `OnChainRevertError` keeps rendering the same words in its message,
+  and its `reason` attribute stays null when nothing was recovered.
+- (ii) **The dry-run gate.** The six markers are in the list it shares,
+  so a dry-run that meets an HTTP failure is retried once a second later
+  and then refused as "validation failed; no transaction sent:
+  transaction dry-run not performed: the node failed to run it twice
+  (infrastructure, not a game revert): ...", never "transaction dry-run
+  reverted: 503 ...". Nothing is sent either way. The refusal carries
+  the infrastructure flag its existing handlers act on: a moved system
+  is not re-resolved for it, a batch is not re-diagnosed kami by kami,
+  and `pool_swap` does not name a pool reason for it.
+- (iii) **The quest probe.** `quest_state`'s `revert_reason` is null on
+  such a failure (`revert_kind` `none`), never the transport's text; the
+  state is still `active_blocked`, as for any probe that did not pass.
+
+### 2. A roster label matches in any case on every tool
+
+**What was wrong.** The roster stores its labels lower-cased, and since
+4.4.0 the lens reads (`lens_account`, `lens_inventory`) match a label in
+any case. Every other tool looked a label up exactly: the 2026-10-05
+battle test found `portal_claim(account="MAIN")` refused with `Account
+'MAIN' not found` while the reads accepted `MAIN` (recorded at 4.4.0 as
+known, not changed).
+
+**The rule now.** One normaliser, lower-case, used by every lookup of a
+label a caller supplies: every tool's `account=` (every write,
+`lens_receipts`, `get_gas_balance`), a transfer's `to_account`, the
+lens reads (unchanged) and `create_operator_wallet` (which already
+lower-cased). Case only: a label with spaces around it is still not a
+label. A label no roster entry has fails with the 4.6.1 message, byte
+for byte — the label as given, the labels as stored.
+`get_gas_balance(account="MAIN")` reports under `main`, as the call
+without an account does; other fields that echo the `account` argument
+echo it as given.
+
+### 3. A deposit refused after its approve landed says so
+
+**What was wrong.** With its allowance short, `portal_deposit` signs
+and lands the approve first. A refusal of the deposit after that —
+before the deposit is signed — was raised as "validation failed; no
+transaction sent: ...", which is false: the approve had landed, its
+allowance stood, and its hash was nowhere in the error. The usual route
+is the deposit's own dry-run, which cannot run before its allowance
+exists; the gas-token fee check, the owner's gas gate and the lane's
+revalidation (when the deposit's send drains an earlier call's armed
+tail) are the others. Since 4.2.0 the gas-token check led with "the
+approve <hash> landed ...", but behind the same prefix. The 2026-10-04
+live stage skipped its deposit-refusal check because a real call
+"would sign the approve before refusing the deposit".
+
+**The rule now.** Every refusal between the approve's landing and the
+deposit's signing raises `RefusedAfterLandedError`, a
+`PreTxValidationError` (every handler of one still handles it), whose
+message is "the approve <hash> landed (its allowance stays, so a later
+deposit sends no approve); the deposit itself is refused before signing
+it: " followed by the refusal's own words — without the "validation
+failed; no transaction sent: " prefix. `landed` lists the approve's
+hash; the refusal's detail and infrastructure flag are kept. A deposit
+refused before any approve is sent keeps its 4.6.1 text exactly. This
+is the one exception to "a validation failure's message always begins
+with the prefix", and `SPEC.md` P4 and `executor/README.md` say so.
+
+### Known, not changed
+
+- After an approve landed, three other outcomes of the deposit still
+  name only their own transaction: a deposit that lands and reverts
+  (`OnChainRevertError`), a deposit that is unconfirmed or proven not
+  executed (`TxUnconfirmedError`, `TxNotExecutedError`), and a send the
+  node refuses outside validation. In each the approve landed and its
+  allowance stays.
+- Only the replay reads a transport failure by its class; the dry-run
+  gate and the quest probe read it by its text. A transport failure
+  whose text carries no marker (a 4xx status line, say) still reads as
+  a revert there.
+- Five checks word their own dry-run or estimate failure and do not use
+  the gate: `transfer_kami`, `transfer_items` and `sacrifice_kami`
+  ("dry-run reverted; no tx submitted: ..."), and the reveals of
+  `droptable_reveal`, `scavenge_claim_and_reveal` and the gacha tools
+  ("... gas estimation reverted: ..."). A transport failure there still
+  reads as a revert.
+
+### Version and tests
+
+`SCHEMA_VERSION` 4.7.0 in `executor/schema_version.py`, `SPEC.md` (P3,
+the registry-mass line, the invariant row), `README.md`, the handshake
+example in `executor/README.md`, and `test_schema_version`. 1202 tests,
+4 skipped: 41 added in `tests/test_h470_truths.py`, each new behaviour
+failing against 4.6.1 first; no existing test changed.
+
 ## [4.6.1] — 2026-10-14 — the upstream repo's public mirror; document corrections
 
 PATCH. **109 tools** — ACT 59 / PERCEIVE 34 / OUTSOURCE 9 / META 7 —

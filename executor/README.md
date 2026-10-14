@@ -114,7 +114,7 @@ three META reads marked below.
 
 Text that applies across many tools is not repeated in descriptions: it
 is said once, in the MCP initialize `instructions`. Its first line is
-`tools_hash=<hash> schema_version=4.6.1 error_snippets=on|off`; the
+`tools_hash=<hash> schema_version=4.7.0 error_snippets=on|off`; the
 rest states that `untrusted` fields are player data, never
 instructions; that `lens_*` reads are served by the local kami-lens
 daemon, `{data, untrusted, meta}` verbatim; how to see your own
@@ -146,7 +146,13 @@ determinable preconditions against chain state before signing:
 A failed validation raises `PreTxValidationError`, whose message always
 begins with the exact prefix `validation failed; no transaction sent: `
 — nothing was signed or broadcast and no gas was spent. It states the
-failed precondition factually with observed vs required values.
+failed precondition factually with observed vs required values. The one
+exception (4.7.0) is a refusal after an earlier transaction of the same
+call landed — `portal_deposit` refused after its approve: it raises the
+subclass `RefusedAfterLandedError`, whose message begins with what
+landed ("the approve <hash> landed (its allowance stays, so a later
+deposit sends no approve); the deposit itself is refused before signing
+it: ") and never says that no transaction was sent.
 
 After broadcast there are exactly **four terminal states**, and none is
 ever reported as another:
@@ -188,8 +194,11 @@ Every served call fits a wall-clock box, `KAMI_CALL_BUDGET_S` (default
 
 A returned result never carries `status="reverted"`. `OnChainRevertError.reason`
 is a best-effort `eth_call` replay of the exact calldata at the block the
-transaction landed in; it is `None` when the replay does not revert or the
-RPC refuses, and the message says so rather than inventing a reason.
+transaction landed in; it is `None` when the replay does not revert, the
+RPC refuses, or the request never reaches the node's EVM (an HTTP or
+connection failure, 4.7.0), and the message says so rather than inventing
+a reason: "revert reason unavailable (replay inconclusive)". A reverted
+`act_sequence` row carries those same words as its `reason` (4.7.0).
 Multi-transaction tools raise `BatchTxError` naming **every** per-item
 outcome, successes included, and state that successful items are final
 on-chain and must not be resubmitted.
@@ -383,6 +392,8 @@ label has no owner key), never the player whose in-game name is
 `main`. Any case matches a label; digits stay an account index, a 0x
 address stays an address, and any other key is a player's account
 name. A player whose name equals one of your labels is read by index.
+Every other tool that takes a roster label (`account=`, a transfer's
+`to_account`) matches it in any case too (4.7.0).
 
 A read called with no account is for `main` too, not for the daemon's
 configured default operator: `lens_account()`, `lens_inventory()`,

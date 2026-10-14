@@ -64,7 +64,7 @@ this registry says *what holds*, not *how it is built*.
   reads restored at 4.6.0 do not carry them either.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **76,197 characters** at 4.6.0 and 4.6.1 (71,133 at 4.4.0 and 4.5.0, 70,523 at
+  **76,197 characters** at 4.6.0, 4.6.1 and 4.7.0 (71,133 at 4.4.0 and 4.5.0, 70,523 at
   4.3.0, 69,572 at 4.2.0, 69,351 at 4.0.0 and 4.1.0, 72,855 at 3.7.0),
   against a `REGISTRY_MASS_BUDGET` of **77,000** — 803 characters of
   headroom. 4.6.0's nine restored OUTSOURCE tools cost 5,018 (their
@@ -159,7 +159,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "4.6.1"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "4.7.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -177,7 +177,13 @@ preconditions against chain state (registration, signer gas, per-tool
 state checks, and an `eth_call` dry-run of the exact calldata). A failed
 validation raises `PreTxValidationError`, whose message always begins
 with the exact prefix `validation failed; no transaction sent: `, and
-spends no gas.
+spends no gas. The one exception (4.7.0) is a refusal after an earlier
+transaction of the same call landed — `portal_deposit` refused after
+its approve: it raises the subclass `RefusedAfterLandedError`, whose
+message begins with what landed ("the approve <hash> landed (its
+allowance stays, so a later deposit sends no approve); the deposit
+itself is refused before signing it: ") in place of the prefix, and
+whose `landed` lists the landed hashes. What it refused was not signed.
 
 After broadcast there are exactly **four terminal states**, and none is
 ever reported as another:
@@ -277,7 +283,12 @@ address has one lane, because a chain account has one nonce sequence.
   the lane re-offers the same bytes itself.
 - **A dry-run that fails twice on infrastructure** raises
   `PreTxValidationError` saying the dry-run was NOT performed; it is
-  never reported as a revert. A dry-run that reverts for any other
+  never reported as a revert. Since 4.7.0 an HTTP failure's own text
+  (`server error`, `service unavailable`, `bad gateway`, `gateway
+  timeout`, `max retries`, `http error` — the list the revert-reason
+  replay and `quest_state`'s probe share) is infrastructure too: a
+  503 is "not performed", never "dry-run reverted: 503 ...". A dry-run
+  that reverts for any other
   reason re-resolves the system address from the World registry, and
   if the system moved it is retried once against the new address (the
   component cache is dropped too). An unchanged address keeps the
@@ -398,6 +409,13 @@ lane ledger until resolved.
     the sequence** (a maintainer ruling): later steps still execute, and
     a revert is NEVER resent — the existing rule that nonce/retry logic
     never resubmits a confirmed revert applies per step.
+  - **A reverted row always carries `reason` (4.7.0)**: the revert
+    reason the replay recovered, or "revert reason unavailable (replay
+    inconclusive)" when it recovered none — present, never absent. A
+    transport failure of the replay — an HTTP 5xx, a connection error,
+    a timeout, by its class or its text — is never reported as the
+    reason: the replay did not run, and the row says the reason is
+    unavailable.
   - **A refused step is re-offered, never re-signed (4.0.0).** This
     node QUEUES a nonce above the sender's next expected one: one
     refused broadcast used to leave every later signed step admitted
@@ -643,7 +661,14 @@ lane ledger until resolved.
   estimated before its allowance exists), and the deposit's exact bound
   against the re-read balance once the approve has landed, before the
   deposit. The refusal states held, amount and bound(s) in wei, and
-  names an estimate as one.
+  names an estimate as one. **A deposit refused after its approve
+  landed (4.7.0)** — by its dry-run, its estimate, the gas-token check,
+  the gas gate or the lane's revalidation, all before the deposit is
+  signed — raises `RefusedAfterLandedError` (P4's one exception): its
+  message begins "the approve <hash> landed (its allowance stays, so a
+  later deposit sends no approve); the deposit itself is refused before
+  signing it: " and `landed` is `[<hash>]`. A deposit refused before any
+  approve keeps its 4.6.1 text.
   `portal_withdraw(dry_run=True)` follows the
   dry-run rule above (no `status`, no hash) and states the tax (flat +
   basis points, in items), the net token amount and `claimable_at`.
@@ -735,7 +760,10 @@ softened, and the pre-snippet text is unchanged.
 - **Your own account (4.4.0).** In `lens_account` and
   `lens_inventory`, an `account_key` that is not empty, not digits and
   not a 0x address, and that equals one of the deployment's roster
-  labels case-insensitively, is that label — never an in-game name. A
+  labels case-insensitively, is that label — never an in-game name
+  (every other tool that takes a roster label matches it
+  case-insensitively too since 4.7.0: `account=`, a transfer's
+  `to_account`). A
   read called with no account (`account_key=""`, `account_index` < 0)
   is for the roster entry labelled `main`, when the roster has one:
   `lens_account`, `lens_inventory`, `lens_party` and `lens_roster` read
@@ -1150,6 +1178,7 @@ writer; no other module opens the keys file or the Keychain.
 | A receipt wait that fails (the endpoint answers an error, or the transport breaks) is never a second send: one more receipt read lands it as any landing, else `TxUnconfirmedError` with the hash and `reason`; every untyped exception out of the wait becomes `TxUnconfirmedError` (4.5.0) | `test_h450_failed_waits.py::test_a_failed_receipt_wait_is_never_a_second_send` (a `-32000` body; the readiness class through the read retry), `::test_an_unconfirmed_send_carrying_a_retry_marker_is_never_sent_again` (the same bodies through the wait and its re-check: the marker is in the error's text and one transaction goes out), `::test_a_wait_the_transport_broke_is_unconfirmed_and_the_next_call_resolves_it`, `::test_the_wait_turns_every_untyped_exception_into_unconfirmed` |
 | The replica readiness class never aborts a loop: reads retry on a fresh session, a refused broadcast is re-offered as the same bytes | `test_h400_send_path.py::test_the_readiness_answer_does_not_abort_a_loop` (4 send-path reads), `test_h400_lane.py::test_a_readiness_refused_broadcast_is_re_offered_as_the_same_bytes`, `::test_a_readiness_answer_on_a_pre_send_read_is_retried` |
 | An infrastructure failure in the dry-run is never reported as a revert; a moved system is re-resolved once | `test_h400_send_path.py::test_a_second_infrastructure_failure_in_the_dry_run_is_not_a_revert`, `test_h400_lane.py::test_a_dry_run_revert_re_resolves_a_moved_system_once`, `::test_an_unchanged_system_address_keeps_the_original_refusal` |
+| A dry-run that meets an HTTP failure is retried once and then refused as not performed (infrastructure), never as reverted; `quest_state`'s `revert_reason` is null on such a failure, never its text (4.7.0) | `test_h470_truths.py::test_a_dry_run_hit_by_a_503_is_not_performed_never_reverted`, `::test_a_quest_probe_hit_by_a_503_names_no_revert` |
 | A read returns while a write loop is in flight; writes on different signers run concurrently; one signer interleaves at step boundaries; a cancel stops the loop at the next boundary, progress is reported per transaction and the partial outcome is logged | `test_h400_send_path.py::test_a_read_returns_while_a_write_loop_is_in_flight`, `::test_a_cancel_stops_the_loop_at_the_next_step_boundary`, `test_h400_lane.py::test_writes_on_different_signers_run_concurrently`, `::test_one_signer_interleaves_at_step_boundaries`, `::test_progress_is_reported_per_landed_transaction`, `::test_a_cancel_logs_the_partial_outcome` |
 | The lane's state lives in its own 0700 directory independent of the secret store, holds no key and no raw bytes once resolved, keeps released entries as tombstones and attributes their late mining; owner and operator are separate lanes, one address one lane | `test_h400_lane.py::test_the_lane_directory_is_independent_of_the_secret_store`, `::test_the_ledger_holds_no_key_and_no_raw_bytes_once_resolved`, `::test_a_released_transaction_that_mines_late_is_attributed`, `::test_owner_and_operator_are_separate_lanes_and_one_address_is_one`, `::test_a_repeated_hash_is_refused_by_the_ledger` |
 | A later call drains an earlier call's armed tail with a zero-value fill, names every released transaction first, re-runs its validation, then sends; an unfillable gap refuses with lane-blocked and sends nothing | `test_h400_lane.py::test_a_later_call_drains_an_earlier_calls_armed_tail_and_says_so`, `::test_a_tail_that_cannot_be_filled_blocks_the_lane` |
@@ -1162,6 +1191,7 @@ writer; no other module opens the keys file or the Keychain.
 | A claim's `payee` and `amount_wei` / `amount` are its payout: the one Transfer of the claimed token from the portal's token holder to the payee computed before signing, valued at the receipt's token amount read before signing — never the gas prepayment or refund, in either log order, whether the signer is the payee or not, and never a Transfer on another contract; no payout, several, or a disagreeing value is a `decode_error` with the numbers and no amount; the transaction's own fields are unaffected | `test_h410_portal_claim.py::test_a_claim_signed_by_its_payee_reports_the_payout_not_the_refund`, `::test_an_owner_signed_operator_lane_claim_reports_the_operator_payout`, `::test_a_claim_whose_payout_cannot_be_identified_says_so`, `::test_a_payout_that_disagrees_with_the_receipt_amount_names_both`, `::test_a_transfer_on_another_token_is_not_the_payout`, `::test_with_a_decoy_on_another_token_the_claimed_tokens_transfer_is_the_payout`, `::test_the_live_claim_layout_puts_the_payout_between_the_gas_legs` |
 | A deposit approves exactly its token amount to the on-chain token spender, only when the allowance is short, never an unlimited allowance, and lists the approve step only when one was sent | `test_400_surface.py::test_portal_deposit_approves_exactly_its_token_amount_and_only_when_short`, `::test_portal_deposit_approves_the_spender_when_short_then_deposits` |
 | A gas-token deposit is refused before signing unless the wallet holds the amount + the gas gate's fee bound, with held, amount and bound stated; an allowance-short wallet signs no approve without the amount + the approve's bound + the estimated deposit bound (4.3.0, J8), and the deposit's exact bound is checked once the approve has landed, before the deposit; a token that is not the gas token needs only its amount | `test_h420_families.py::test_a_gas_token_deposit_that_would_leave_less_than_its_fee_is_refused`, `::test_a_gas_token_deposit_that_leaves_exactly_the_fee_is_sent`, `::test_the_bound_includes_the_wei_the_chain_prepays`, `::test_a_short_wallet_signs_no_approve_either`, `::test_after_the_approve_the_deposit_is_checked_against_its_own_fee`, `::test_a_deposit_of_a_token_that_is_not_the_gas_token_needs_only_its_amount`, `test_h430_families.py::test_the_deposit_gas_estimate_is_the_limit_the_recorded_deposit_was_sent_with`, `::test_a_short_allowance_deposit_that_cannot_leave_the_deposit_fee_signs_nothing`, `::test_a_short_allowance_deposit_at_the_estimated_boundary_proceeds`, `::test_a_deposit_with_its_allowance_is_checked_exactly_as_before` |
+| A deposit refused after its approve landed — its dry-run, its estimate, the gas-token check, the gas gate or the lane's revalidation — raises `RefusedAfterLandedError` (a `PreTxValidationError`) whose message begins with the approve's hash and that it landed, never with the no-transaction prefix, `landed` naming the hash; a deposit refused before any approve keeps its 4.6.1 text (4.7.0) | `test_h470_truths.py::test_a_deposit_refused_after_its_approve_says_the_approve_landed`, `::test_the_gas_token_gate_after_the_approve_says_the_approve_landed`, `::test_a_deposit_refused_by_its_revalidation_says_the_approve_landed`, `::test_a_deposit_refused_before_any_approve_keeps_the_4_6_1_text`, `::test_the_refusal_after_a_landing_keeps_the_refusal_it_wraps` |
 | The gas gate, and the balance checks of `fund_operator`, `buy_kami` and `newbie_vendor_buy`, require the prepayment, gas limit x the flat price + 1 wei (+ value): exactly gas limit x price (+ value) is refused, one wei more passes, and each refusal states the wei | `test_h420_families.py::test_the_gas_gate_moves_by_the_same_wei` (with and without value), `::test_fund_operator_needs_the_prepayment_wei`, `::test_buy_kami_needs_the_prepayment_wei`, `::test_newbie_vendor_buy_needs_the_prepayment_wei` |
 | A harvest stop / collect and an `act_sequence` stop row report per kami the item and amount paid — 2, 2, 2, 622, 630 of item 2 and a collect of 0 on the 2026-10-04 receipts — attributed by the event's kami in a batch; an undecodable payout is a `decode_error`, never a guess | `test_h420_families.py::test_a_stop_states_the_item_and_amount_it_paid` (5 receipts), `::test_a_collect_that_paid_nothing_says_zero_of_its_item`, `::test_the_item_is_the_inventory_the_receipt_writes`, `::test_a_batch_attributes_each_payout_to_its_own_kami`, `::test_a_payout_that_cannot_be_decoded_is_a_decode_error_never_a_guess`, `::test_a_sequence_stop_row_carries_its_payouts`, `::test_a_batch_paying_two_different_items_states_each_kamis_own` (both ask orders), `::test_two_items_written_before_one_event_state_the_amount_not_the_item`, `::test_two_events_for_one_kami_state_no_amount` |
 | `fee_wei` is the prepayment minus the refund on every landed fixture receipt, is never a leg the transaction itself moves, is `null` without both legs or on a revert, and is on every send path, leg and sequence row | `test_h420_families.py::test_fee_wei_is_the_prepayment_minus_the_refund` (23 receipts), `::test_a_transaction_that_moves_the_gas_token_itself_is_not_misread`, `::test_the_legs_are_identified_by_counterparty_not_by_position`, `::test_a_reverted_transaction_has_a_null_fee`, `::test_every_send_path_reports_fee_wei`, `::test_sequence_rows_report_fee_wei_and_null_for_a_revert` |
@@ -1186,12 +1216,14 @@ writer; no other module opens the keys file or the Keychain.
 | `at_least_block` is on exactly the seven verify reads, absent by default and sent as `--at-least=<block>`; `NOT_APPLIED` is `LensNotAppliedError` carrying `applied_through`; every read opens its own connection, with a socket timeout that outlasts the wait | `test_400_lens.py::test_at_least_block_holds_the_read_for_that_block`, `::test_defaults_send_none_of_the_new_options`, `::test_the_verify_set_carries_at_least_block_and_status_does_not`, `::test_not_applied_is_its_own_error_and_carries_applied_through`, `::test_every_read_opens_its_own_connection`, `::test_the_socket_timeout_outlasts_the_wait` |
 | The lens 1.0.0 options reach the daemon: `equipment`, roster `full`, node targets and occupant account, feed `limit` and account, `receipts` by the roster account's owner address, `pool-history` | `test_400_lens.py::test_the_1_0_0_options_reach_the_daemon`, `::test_lens_receipts_reads_the_roster_accounts_owner_address`, `::test_lens_receipts_falls_back_to_the_operator_address` |
 | A key equal to a roster label (any case; never digits or a 0x address) reads that label's own account in `lens_account` (one request by its address) and `lens_inventory` (by its index); a read with no account is for the `main` entry — `lens_account`, `lens_inventory`, `lens_party`, `lens_roster` read its account or raise `no account is registered for …`, `lens_quests`, `lens_market`, `lens_trades` send its index once registered and the 4.3.0 request otherwise; without `main`, all seven send the 4.3.0 bytes; every other key is sent byte for byte as at 4.3.0; every read by an own address is ownership-checked by value; daemon errors keep their own classes | `test_h440_own_account.py` (all), `test_h440_no_account.py` (all), `test_lens_wrappers.py::TestArgumentMapping` |
+| A roster label is matched case-insensitively by every tool that takes one — reads and writes alike (4.7.0; the reads since 4.4.0); a label no roster entry has fails with the 4.6.1 message byte for byte; `get_gas_balance` reports under the label as stored | `test_h470_truths.py::test_get_account_matches_a_label_in_any_case`, `::test_a_label_no_roster_entry_has_fails_as_before`, `::test_a_write_with_an_upper_case_label_signs_with_that_account`, `::test_lens_receipts_with_an_upper_case_label_reads_that_account`, `::test_gas_balance_with_an_upper_case_label_is_that_account`, `::test_a_transfer_to_an_upper_case_label_goes_to_that_account`, `::test_the_lens_label_match_and_the_write_match_are_one_rule` |
 | The resolution read (D1's one exception) is at most one `account <own address> --slim` per call, with `at_least_block` where the tool has one; a found index is cached (one request per call afterwards), "no account yet" never is; flags follow the filled index as the daemon's prefill keeps them; an explicit index, 0 included, resolves nothing | `test_h440_no_account.py::test_l1_reads_mains_index_resolving_it_once`, `::test_l1_without_an_account_says_so_and_asks_again_next_time`, `::test_l1_at_least_block_holds_both_reads_and_the_cached_one`, `::test_l2_without_mains_account_sends_the_old_request`, `::test_l2_never_swallows_a_daemon_failure_on_the_resolution_read`, `::test_the_filled_request_is_the_daemons_own_prefill_of_the_old_one`, `::test_an_explicit_index_is_sent_and_nothing_is_resolved` |
 | `INCOMPLETE`, `incomplete: true` rows, the 1.0.0 `meta` fields and a `status` without its head sample pass through verbatim, nothing filled in | `test_400_lens.py::test_incomplete_passes_through_as_a_query_error`, `::test_incomplete_rows_and_the_new_meta_pass_through_verbatim`, `::test_status_without_the_head_sample_passes_through` |
 | The instructions say once how to verify a write and what an incomplete answer means; `portal_claim`/`portal_cancel` point to `lens_receipts`; `lens_feed` states its default; no lens quote wrapper exists | `test_400_lens.py::test_the_agent_is_told_once_how_to_verify_and_what_incomplete_means`, `::test_portal_claim_and_cancel_point_to_lens_receipts`, `::test_lens_feed_states_its_new_default`, `::test_there_is_no_lens_quote_wrapper`, `test_tool_surface.py::test_standing_text_is_said_once_in_the_instructions` |
 | The offline suite reaches no network: the module's client is a dead loopback port unless a test installs its own fake | `conftest.py::_offline_rpc` (autouse) |
 | A sequence reports one terminal state per step and never conflates two: a success, a revert and a timeout in one call come back as themselves, each with its own receipt evidence | `test_h350_families.py::test_terminal_states_are_never_conflated` |
 | A sequence row is `success`, `reverted`, `unconfirmed` or `not_sent` — never `error`: a step whose receipt wait fails is `unconfirmed` with its hash and the failure as `reason`, for every exception class; the typed outcomes keep their labels; no sequence path reaches `_failed_tx_fields`' catch-all (4.5.0) | `test_h450_failed_waits.py::test_an_endpoint_that_stays_down_leaves_rows_unconfirmed_with_a_reason` (error body, transport), `::test_a_wait_that_fails_for_any_other_reason_is_unconfirmed_not_error`, `::test_the_typed_wait_outcomes_keep_their_labels`, `::test_no_exception_class_makes_a_sequence_row_anything_but_a_state`, `::test_no_sequence_code_path_can_label_a_row_error` (AST guard over `act_sequence` and every `_seq_` helper) |
+| A reverted sequence row always carries `reason` — the recovered reason, or "revert reason unavailable (replay inconclusive)" — on both receipt paths; never absent, never a transport text (4.7.0) | `test_h470_truths.py::test_a_reverted_row_always_carries_a_reason`, `::test_a_reverted_row_whose_replay_met_a_503_says_unavailable`, `::test_a_recovered_reason_still_reaches_the_row` |
 | Every one-by-one-fallback row still `unconfirmed` is re-checked before the call returns, as the batched path's are; a late landing reads `success` with its receipt fields, counts in `landed`, and its kill is decoded from its own receipt; `notice` names the steps whose wait failed and that are still unconfirmed (4.5.0) | `test_h450_failed_waits.py::test_failed_receipt_waits_are_rechecked_and_each_kill_keeps_its_spoils` (an error body; through the re-check; the readiness class), `::test_a_step_that_mines_after_its_wait_gave_up_is_rechecked_and_lands`, `::test_an_endpoint_that_stays_down_leaves_rows_unconfirmed_with_a_reason` |
 | A kill after an unconfirmed kill by the same killer in a sequence states `spoils: null` with a `decode_error` naming that step; its own post-value carries on (4.5.0) | `test_h450_failed_waits.py::test_a_kill_after_an_unconfirmed_kill_by_the_same_killer_has_no_spoils_number` |
 | A reverted step does not stop the sequence and is never resent | `test_h350_families.py::test_a_reverted_step_does_not_stop_the_sequence`, `::test_a_reverted_step_is_never_resent` |
@@ -1258,7 +1290,7 @@ writer; no other module opens the keys file or the Keychain.
 | A snippet states no advice, never lengthens past its bound, never hides a subject silently, reports only facts it read, and never introduces the `-32000` marker retry routes on | `test_error_snippets.py::TestSnippetGuards`, `::TestSnippetBehaviour` |
 | The three snippets an agent sees are the pinned wordings | `test_error_snippets.py::TestSnippetExamples` (harvest_start on a HARVESTING kami, harvest_collect on a RESTING kami, a dry-run revert — asserted verbatim) |
 | An `allow_partial` return keeps its documented shape with the flag on | `test_error_snippets.py::TestSnippetBehaviour::test_batch_error_leaves_the_returned_payload_untouched` |
-| `SCHEMA_VERSION == "4.6.1"` | `test_tool_surface.py::test_schema_version` |
+| `SCHEMA_VERSION == "4.7.0"` | `test_tool_surface.py::test_schema_version` |
 | The default secrets backend is `envfile`, and no code path reaches the Keychain under it — not load, not get, not put, not with a manifest present | `test_secrets_store.py::TestEnvfileIsTheDefault` (the Keychain helpers are replaced with raisers) |
 | An unrecognised `KAMI_SECRETS_BACKEND` fails loudly instead of resolving to a backend | `test_secrets_store.py::TestEnvfileIsTheDefault::test_unknown_backend_fails_loudly` |
 | The protected-names manifest is the keys file's name with a trailing `.env` removed plus `.secrets.names`, alongside it; an absent manifest protects nothing | `test_secrets_store.py::TestManifestPath` |
@@ -1274,6 +1306,7 @@ writer; no other module opens the keys file or the Keychain.
 | `allow_partial` appears on exactly the 12 batch tools, boolean, default `False` | `test_tool_surface.py::test_allow_partial_surface` |
 | A submitted transaction's terminal states are never conflated; a confirmed revert, a proven non-execution and an unconfirmed tx each raise their own type | `test_reporting_fidelity.py::TestSenderTerminalStates` |
 | A revert reason is replayed at the landed block, and stated as unavailable rather than invented when the replay does not revert | `test_reporting_fidelity.py::TestSenderTerminalStates::test_revert_reason_replayed_at_landed_block`, `::test_revert_reason_unavailable_stated` |
+| A transport failure of the revert-reason replay — an HTTP 5xx, a connection error, a timeout, by its class (`requests`' `RequestException`, web3's `ProviderConnectionError` / `PersistentConnectionError` / `RequestTimedOut`, `ConnectionError`, `TimeoutError`, `OSError`) or by its text — is never reported as the reason: the row says the reason is unavailable (replay inconclusive); revert data the error carries is still decoded first (4.7.0) | `test_h470_truths.py::test_a_503_on_the_replay_is_a_replay_that_did_not_run`, `::test_every_transport_class_is_a_replay_that_did_not_run`, `::test_a_transport_text_is_an_infrastructure_text`, `::test_revert_data_still_decodes_first`, `::test_a_single_send_revert_says_unavailable_never_the_503`, `::test_a_reverted_row_whose_replay_met_a_503_says_unavailable` |
 | Retry never resubmits a confirmed revert or an unconfirmed transaction | `test_reporting_fidelity.py::TestNoBlindRetry` |
 | No tool returns normally when a submitted, non-`allow_partial` transaction reverted | `test_reporting_fidelity.py::TestRevertInvariant` (drives every batch tool with a reverting sender) |
 | An unreachable, starting, or unresponsive lens daemon raises `LensUnavailableError` and never reads as an empty result | `test_lens_wrappers.py::TestLensUnavailable` |
