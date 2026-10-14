@@ -4,7 +4,7 @@ This version identifies the *contract* that KamiBench agents build
 against: the set of MCP tools, their parameters, and their semantics.
 
 Bumped per the semver policy in the repo-root CHANGELOG.md:
-  MAJOR — breaking change to an existing tool's name, params, or semantics
+  MAJOR — breaking change to an existing tool's name, params, or semantics that existing callers relied on
   MINOR — new tools or new optional params (additive)
   PATCH — doc fixes, non-semantic changes
 

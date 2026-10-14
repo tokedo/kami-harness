@@ -253,8 +253,8 @@ On a successful liquidation, `LibKill` produces a **KillLog** with the following
 | Field | Description |
 |-------|-------------|
 | `bounty` | Total MUSU in the victim's harvest at time of kill |
-| `salvage` | MUSU returned to the victim's account (based on victim's Power stat) |
-| `spoils` | MUSU awarded to the attacker's harvest (based on attacker's Power stat) |
+| `salvage` | Paid to the victim's account in the node's yield item — MUSU (item 1) on most nodes, VIPP (item 2) on VIPP nodes; before block 34,199,935 (2026-10-08) it was MUSU on every node (based on victim's Power stat) |
+| `spoils` | Added to the attacker's own harvest bounty (based on attacker's Power stat), and paid out with that harvest, in the node's yield item, when the attacker collects or stops |
 | `strain` | Health cost component from the kill |
 | `karma` | Health damage to the attacker, calculated from `target.Violence - source.Harmony` scaled by affinity efficacy. If the attacker's Harmony exceeds the target's Violence, karma is zero |
 
@@ -278,7 +278,7 @@ All of the following must be true or the transaction reverts:
 
 - The victim's harvest bounty is split — a portion goes to the victim as "salvage" (based on their Power), the rest becomes "spoils" for the attacker (based on attacker's Power)
 - The attacker takes health "recoil" damage from the kill (based on strain and karma)
-- The victim receives **salvage** (MUSU) based on their Power stat, plus **XP equal to the salvage amount**
+- The victim receives **salvage** in the node's yield item — MUSU (item 1) on most nodes, VIPP (item 2) on VIPP nodes; before block 34,199,935 (2026-10-08) it was MUSU on every node — based on their Power stat, plus **XP equal to the salvage amount**, whatever the item
 - The victim's Kami dies (state → `"DEAD"`) and their harvest stops
 - The attacker's liquidation cooldown is reset
 
@@ -363,7 +363,7 @@ Intensity increases the longer a Kami stays on a node. It resets when a harvest 
 - Calling `harvest.collect()` syncs the bounty (snapshots the accrued amount), resets the duration timer, and adds the bounty to the account's inventory.
 - The Kami's **Health decreases** over time while harvesting (strain). If health reaches zero, the Kami is liquidated.
 - Calling `harvest.stop()` automatically collects any remaining bounty before stopping.
-- **Block time:** Yominet has ~1 second block times, so duration-based calculations update approximately once per second.
+- **Block time:** Yominet blocks arrive about every 2 s on average and in bursts (the gap between blocks ranges from under a second to tens of seconds), so duration-based values update per block, not per second.
 
 ### Harvest Node Data
 
@@ -433,7 +433,7 @@ const interval = setInterval(async () => {
 }, 60_000);
 ```
 
-> **Note:** Yominet has ~1 second block times. Polling every 30-60 seconds is sufficient for health monitoring. Health drain rate depends on the Kami's Harmony stat and active skills — higher Harmony means slower drain.
+> **Note:** Yominet blocks arrive about every 2 s on average and in bursts (the gap between blocks ranges from under a second to tens of seconds), so duration-based values update per block, not per second. Polling every 30-60 seconds is sufficient for health monitoring. Health drain rate depends on the Kami's Harmony stat and active skills — higher Harmony means slower drain.
 
 ### Health Thresholds
 

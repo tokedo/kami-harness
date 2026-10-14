@@ -94,10 +94,12 @@ console.log("Kamis revealed!");
 
 ### Notes
 
-- **Wait at least 1 block between `mint()` and `reveal()`** for randomness security. On Yominet (~1 second block times), waiting 2 seconds is sufficient:
+- **Wait at least 1 block between `mint()` and `reveal()`** for randomness security. Yominet blocks arrive about every 2 s on average and in bursts (the gap between blocks ranges from under a second to tens of seconds), so a fixed delay does not guarantee the next block; wait until the block number has moved past the mint's block:
   ```javascript
-  await mintTx.wait();
-  await new Promise((r) => setTimeout(r, 2000)); // Wait for next block
+  const mintReceipt = await mintTx.wait();
+  while ((await provider.getBlockNumber()) <= mintReceipt.blockNumber) {
+    await new Promise((r) => setTimeout(r, 1000)); // wait for a later block
+  }
   await revealSystem.reveal(commitIds);
   ```
 - Batch reveals are more gas-efficient.

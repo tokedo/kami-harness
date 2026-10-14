@@ -164,8 +164,9 @@ this registry says *what holds*, not *how it is built*.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
 - Bump rule: MAJOR for a renamed/removed tool, a changed/removed
-  parameter, or changed semantics or return shape; MINOR for a new tool
-  or a new *optional* parameter; PATCH for non-semantic changes.
+  parameter, or changed semantics or return shape that existing callers
+  relied on; MINOR for a new tool or a new *optional* parameter; PATCH
+  for non-semantic changes.
 - `SCHEMA_VERSION` is independent of git tags: git tags mark repository
   states, `SCHEMA_VERSION` marks the tool contract.
 
