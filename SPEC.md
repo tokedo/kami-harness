@@ -64,7 +64,7 @@ this registry says *what holds*, not *how it is built*.
   reads restored at 4.6.0 do not carry them either.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **76,197 characters** at 4.6.0 (71,133 at 4.4.0 and 4.5.0, 70,523 at
+  **76,197 characters** at 4.6.0 and 4.6.1 (71,133 at 4.4.0 and 4.5.0, 70,523 at
   4.3.0, 69,572 at 4.2.0, 69,351 at 4.0.0 and 4.1.0, 72,855 at 3.7.0),
   against a `REGISTRY_MASS_BUDGET` of **77,000** — 803 characters of
   headroom. 4.6.0's nine restored OUTSOURCE tools cost 5,018 (their
@@ -159,7 +159,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "4.6.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "4.6.1"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -1256,7 +1256,7 @@ writer; no other module opens the keys file or the Keychain.
 | A snippet states no advice, never lengthens past its bound, never hides a subject silently, reports only facts it read, and never introduces the `-32000` marker retry routes on | `test_error_snippets.py::TestSnippetGuards`, `::TestSnippetBehaviour` |
 | The three snippets an agent sees are the pinned wordings | `test_error_snippets.py::TestSnippetExamples` (harvest_start on a HARVESTING kami, harvest_collect on a RESTING kami, a dry-run revert — asserted verbatim) |
 | An `allow_partial` return keeps its documented shape with the flag on | `test_error_snippets.py::TestSnippetBehaviour::test_batch_error_leaves_the_returned_payload_untouched` |
-| `SCHEMA_VERSION == "4.6.0"` | `test_tool_surface.py::test_schema_version` |
+| `SCHEMA_VERSION == "4.6.1"` | `test_tool_surface.py::test_schema_version` |
 | The default secrets backend is `envfile`, and no code path reaches the Keychain under it — not load, not get, not put, not with a manifest present | `test_secrets_store.py::TestEnvfileIsTheDefault` (the Keychain helpers are replaced with raisers) |
 | An unrecognised `KAMI_SECRETS_BACKEND` fails loudly instead of resolving to a backend | `test_secrets_store.py::TestEnvfileIsTheDefault::test_unknown_backend_fails_loudly` |
 | The protected-names manifest is the keys file's name with a trailing `.env` removed plus `.secrets.names`, alongside it; an absent manifest protects nothing | `test_secrets_store.py::TestManifestPath` |
