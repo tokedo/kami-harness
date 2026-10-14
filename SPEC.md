@@ -838,8 +838,8 @@ softened, and the pre-snippet text is unchanged.
 
 ### D1 — kami-lens daemon
 
-- **Pin:** `99c3d672babb90d0e7c8d5466b308bf19544552b` (`99c3d67`,
-  kami-lens release 1.0.4), a commit on lens `main`. **1.0.1 or newer
+- **Pin:** `e60429094b312e1bf4799b42d12c70ef3d66827f` (`e604290`,
+  kami-lens release 1.0.5), a commit on lens `main`. **1.0.1 or newer
   is required for correct reads** (the 1.0.0 -> 1.0.3 bullet below says
   why); the 4.0.0 lens parameters and the two tools `lens_receipts` and
   `lens_pool_history` need 1.0.0 or newer (the 0.5.3 -> 1.0.0 bullet).
@@ -958,7 +958,11 @@ softened, and the pre-snippet text is unchanged.
   floored at 0 (1.0.2). Until this correction SETUP's checkout step
   installed 1.0.0. 1.0.4 (pinned at 4.6.1) is documentation-only — no
   query, field or envelope change; its `--version` names the upstream
-  mirror — so the 1.0.3 -> 1.0.4 advance is a pin-text move.
+  mirror — so the 1.0.3 -> 1.0.4 advance is a pin-text move. 1.0.5
+  (pinned at 4.7.0) serves `cooldownSec` rounded up and logs each write
+  its apply path skips as older; no query, field or envelope change, so
+  the 1.0.4 -> 1.0.5 advance is a pin-text move too, and the value
+  passes through verbatim per P5.
 - **Transport:** local AF_UNIX stream socket, one newline-delimited JSON
   request and one response per connection — the daemon answers one
   connection's requests in order, so a read held by `--at-least` never

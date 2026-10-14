@@ -39,7 +39,8 @@ reworded — registry mass **76,197** against the 77,000 budget,
 the handshake's standing text (957 characters, sha256
 `7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b`) are
 all 4.6.1's, measured off a stdio child at this release.
-`SCHEMA_VERSION` **4.7.0**.
+`SCHEMA_VERSION` **4.7.0**. kami-lens **1.0.5** (`e604290`); 1.0.1 or
+newer is still required.
 
 **Why MINOR, by this file's own rule.** No tool, parameter or return
 shape is renamed or removed, but what an agent sees at runtime changes,
@@ -174,13 +175,30 @@ with the prefix", and `SPEC.md` P4 and `executor/README.md` say so.
   ("... gas estimation reverted: ..."). A transport failure there still
   reads as a revert.
 
+### kami-lens pin text -> 1.0.5
+
+kami-lens 1.0.5 (`e60429094b312e1bf4799b42d12c70ef3d66827f`) serves
+`cooldownSec` rounded up — whole seconds until the chain accepts the
+next standard action, 0 only when the cooldown has ended; rounded down
+until 1.0.4, it could read 0 up to a second before the chain accepted
+the action — in what `lens_kami`, `lens_party` and `lens_node` return,
+and logs each write its apply path skips as older, at most 20 a minute.
+No query, field or envelope key changes and the value passes through
+verbatim, so nothing this server sends or reads changes and the advance
+is a move of the pin text: SPEC D1, the `Current:` line in `README.md`,
+the pin statement and the checkout step in `SETUP.md`, and the
+PERCEIVE paragraph of `executor/README.md`. 1.0.1 or newer is still
+required for correct reads.
+
 ### Version and tests
 
 `SCHEMA_VERSION` 4.7.0 in `executor/schema_version.py`, `SPEC.md` (P3,
 the registry-mass line, the invariant row), `README.md`, the handshake
 example in `executor/README.md`, and `test_schema_version`. 1202 tests,
 4 skipped: 41 added in `tests/test_h470_truths.py`, each new behaviour
-failing against 4.6.1 first; no existing test changed.
+failing against 4.6.1 first; no existing test changed. The replay now
+names `requests`' `RequestException`, and `requests` stays unpinned in
+`executor/requirements.txt`, a dependency of the pinned web3.
 
 ## [4.6.1] — 2026-10-14 — the upstream repo's public mirror; document corrections
 

@@ -317,7 +317,7 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`4.7.0`**, pinned to kami-lens **1.0.4** (1.0.1 or newer is
+Current: **`4.7.0`**, pinned to kami-lens **1.0.5** (1.0.1 or newer is
 required for correct reads; see [`SETUP.md`](SETUP.md) §7) — world
 reads served as thin `kami-lens` wrappers with verbatim envelope
 pass-through, and a read that waits for your own transaction's block; every tool class-tagged ACT / PERCEIVE / OUTSOURCE / META; one
