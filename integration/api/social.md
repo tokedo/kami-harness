@@ -1,5 +1,5 @@
 > **Doc Class:** Core Resource
-> **Canonical Source:** Kamigotchi on-chain contracts on Yominet and the official repository (`Asphodel-OS/kamigotchi`).
+> **Canonical Source:** Kamigotchi on-chain contracts on Yominet and the official repository (`Asphodel-OS/kamigotchi-open`, the public mirror of the studio's development repo).
 > **Freshness Rule:** Verify mutable values against canonical sources before merge.
 
 # Social / Friends

@@ -46,7 +46,7 @@ def doc():
 def test_the_vendored_abi_names_its_source(doc):
     p = doc["provenance"]
     assert p["commit"] == PINNED_UPSTREAM
-    assert p["repository"].endswith("/kamigotchi")
+    assert p["repository"].endswith("/kamigotchi-open")
     assert p["generator"] == "executor/tests/tools/vendor_upstream_abi.py"
     pool = doc["abis"][doc["systems"]["system.pool"]["abi"]]
     assert pool["swap(uint32,uint32,uint256,uint256)"][0] == "0x4a4f0718"

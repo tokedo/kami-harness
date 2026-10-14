@@ -1,7 +1,7 @@
 {
  "provenance": {
   "upstream": {
-   "repository": "https://github.com/Asphodel-OS/kamigotchi",
+   "repository": "https://github.com/Asphodel-OS/kamigotchi-open",
    "commit": "ffda396330af1bc33238b6c37188772152b45439",
    "inputs": "packages/contracts/src/{systems,components}/**/*.sol (ids) + packages/client/abi/<Contract>.json (ABIs)",
    "generator": "executor/tests/tools/vendor_upstream_abi.py"

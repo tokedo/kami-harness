@@ -1,5 +1,5 @@
 > **Doc Class:** Core Resource
-> **Canonical Source:** On-chain registries/components on Yominet plus official Kamigotchi deployment data (`Asphodel-OS/kamigotchi`).
+> **Canonical Source:** On-chain registries/components on Yominet plus official Kamigotchi deployment data (`Asphodel-OS/kamigotchi-open`, the public mirror of the studio's development repo).
 > **Freshness Rule:** Treat this page as a mirror; re-verify mutable values against canonical sources .
 
 # Game Data Reference

@@ -1,5 +1,5 @@
 > **Doc Class:** Core Resource
-> **Canonical Source:** Kamigotchi on-chain contracts on Yominet and the official repository (`Asphodel-OS/kamigotchi`).
+> **Canonical Source:** Kamigotchi on-chain contracts on Yominet and the official repository (`Asphodel-OS/kamigotchi-open`, the public mirror of the studio's development repo).
 > **Freshness Rule:** Verify mutable values against canonical sources before merge.
 
 # Kamiden Indexer (gRPC)
@@ -55,7 +55,7 @@ No `.proto` source files exist in the repo — only pre-generated TypeScript stu
 
 ```bash
 # Clone the official repo (shallow)
-git clone --depth 1 https://github.com/Asphodel-OS/kamigotchi.git /tmp/kamigotchi
+git clone --depth 1 https://github.com/Asphodel-OS/kamigotchi-open.git /tmp/kamigotchi
 
 # Copy the Kamiden proto stubs into your project
 cp /tmp/kamigotchi/packages/client/src/clients/kamiden/proto.ts ./proto.ts

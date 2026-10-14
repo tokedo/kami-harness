@@ -32,7 +32,7 @@ from pathlib import Path
 
 from eth_utils import keccak
 
-UPSTREAM_REPOSITORY = "https://github.com/Asphodel-OS/kamigotchi"
+UPSTREAM_REPOSITORY = "https://github.com/Asphodel-OS/kamigotchi-open"
 UPSTREAM_COMMIT = "ffda396330af1bc33238b6c37188772152b45439"
 OUT = Path(__file__).resolve().parents[1] / "fixtures" / "upstream_abi" / "upstream_abi.json"
 
