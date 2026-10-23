@@ -1164,6 +1164,15 @@ def _is_replay_infra_error(text: str) -> bool:
     return any(m in lo for m in _REPLAY_INFRA_MARKERS)
 
 
+def _is_transport_failure(e: BaseException) -> bool:
+    """True when the exception's CLASS says the request never reached the
+    node's EVM (5.0.0): requests' HTTPError (any status, 4xx included),
+    timeouts and connection errors, web3's provider errors, the
+    builtins. Classified by class before any text; the text markers are
+    read only for the node's own JSON-RPC errors."""
+    return isinstance(e, _REPLAY_TRANSPORT_ERRORS)
+
+
 def _is_historical_refusal(text: str) -> bool:
     """True when a backend refused to serve state at a numbered block."""
     lo = str(text).lower()
@@ -1364,7 +1373,19 @@ def _await_receipt(
         except TimeExhausted:
             if i == slices - 1:
                 break
-            found = _check_inflight(tx_hash)
+            try:
+                found = _check_inflight(tx_hash)
+            except TxNotExecutedError:
+                raise
+            except Exception as e:
+                # 5.0.0: the ledger's own check between wait slices failed
+                # (4.5.0's "known, not changed"): the transaction was
+                # broadcast and its fate is unknown, so it is unconfirmed,
+                # never an untyped error a caller could take for a refusal.
+                raise TxUnconfirmedError(
+                    _hex_hash(tx_hash), timeout,
+                    reason=(f"the check between receipt waits failed: "
+                            f"{_err_text(e)[:250]}")) from e
             if found:
                 receipt = _format_receipt(found)
                 break
@@ -2426,10 +2447,19 @@ def _dry_run(
         params["value"] = value_wei
     block = _dry_run_block(from_addr)
     fell_back = None
+
+    def infra(e) -> bool:
+        # 5.0.0: the exception's class first (a transport failure, an
+        # HTTP 4xx included, is never a revert), then the node's words.
+        t = _revert_text(e)
+        return (_is_transport_failure(e) or _is_replay_infra_error(t)
+                or _is_readiness(t))
+
     try:
         return _call_at(fn, params, block)
     except Exception as first:
-        if block is not None and _is_historical_refusal(_revert_text(first)):
+        if (block is not None and not _is_transport_failure(first)
+                and _is_historical_refusal(_revert_text(first))):
             # The backend will not serve the bound block: ask once at
             # latest, and say so if that refuses.
             fell_back = (block, _revert_text(first))
@@ -2444,9 +2474,7 @@ def _dry_run(
         # failure that is STILL infrastructure is reported as what it
         # is: the node did not run the dry-run, so nothing is known
         # about the call and nothing was sent.
-        if _is_replay_infra_error(_revert_text(first)) or _is_readiness(
-            _revert_text(first)
-        ):
+        if infra(first):
             time.sleep(1)
             try:
                 return _call_at(fn, params, block)
@@ -2458,7 +2486,7 @@ def _dry_run(
             f" (the dry-run ran at latest because the node could not serve "
             f"block {fell_back[0]}, this signer's last receipt or later: "
             f"{fell_back[1][:200]})")
-        if _is_replay_infra_error(text) or _is_readiness(text):
+        if infra(e):
             err = PreTxValidationError(
                 f"transaction dry-run not performed: the node failed to "
                 f"run it twice (infrastructure, not a game revert): {text}"
@@ -2844,7 +2872,12 @@ _SEND_DEFINITIVE = ("insufficient funds", "does not exist",
                     "invalid sender", "invalid chain id")
 
 
-def _classify_send_error(text: str) -> str:
+def _classify_send_error(text: str, exc: BaseException | None = None) -> str:
+    # 5.0.0: a transport failure (by its class) never reached the node's
+    # mempool logic, so nothing it says is the node's verdict: whatever
+    # its text, the node may or may not hold the transaction.
+    if exc is not None and _is_transport_failure(exc):
+        return "ambiguous"
     lo = text.lower()
     if any(m in lo for m in _SEND_TAKEN):
         return "taken"
@@ -2885,7 +2918,7 @@ def _offer(raw: bytes, entry_hash: str, addr: str = "",
             return "accepted", _hex_hash(w3.eth.send_raw_transaction(raw))
         except Exception as e:
             last = _err_text(e)
-        cls = _classify_send_error(last)
+            cls = _classify_send_error(last, e)
         if cls == "known":
             return "accepted", entry_hash
         if cls == "definitive":
@@ -6904,10 +6937,12 @@ async def travel_to_room(
                 # hash. Dropping it here makes the payload disagree with
                 # the chain, and a consumer keyed on tx hashes silently
                 # undercounts the transactions this tool actually sent.
-                txs.append(
-                    {"step": "move", "room": step["room"],
-                     **_failed_tx_fields(e)}
-                )
+                # A hop refused before signing has no hash and, as P4
+                # says, adds no row (5.0.0): `error` says why it stopped.
+                fields = _failed_tx_fields(e)
+                if fields.get("tx_hash"):
+                    txs.append(
+                        {"step": "move", "room": step["room"], **fields})
                 break
             txs.append(
                 {"step": "move", "room": step["room"], **_receipt_fields(r)}
@@ -6930,10 +6965,10 @@ async def travel_to_room(
                 break
             except Exception as e:
                 exec_error = f"item {step['id']} use failed: {_err_text(e)}"
-                txs.append(
-                    {"step": "item", "item_id": step["id"],
-                     **_failed_tx_fields(e)}
-                )
+                fields = _failed_tx_fields(e)
+                if fields.get("tx_hash"):
+                    txs.append(
+                        {"step": "item", "item_id": step["id"], **fields})
                 break
             txs.append(
                 {"step": "item", "item_id": step["id"], **_receipt_fields(r)}
@@ -9832,6 +9867,13 @@ def _approve_landed_lead(tx_hash: str) -> str:
             f"refused before signing it: ")
 
 
+def _approve_landed_after_lead(tx_hash: str) -> str:
+    """The first words of a deposit's post-broadcast outcome (or a
+    broadcast refusal) after its approve landed (5.0.0)."""
+    return (f"the approve {tx_hash} landed (its allowance stays, so a "
+            f"later deposit sends no approve); the deposit: ")
+
+
 def _require_gas_token_left(addr: str, held: int, item: int, items: int,
                             wei: int, gas_limit: int, leg: str) -> None:
     """H3 (4.2.0): a deposit of the GAS TOKEN must leave the fee.
@@ -10307,6 +10349,18 @@ def portal_deposit(item: int, amount: int, account: str = "main",
             raise
         h = txs[0]["tx_hash"]
         raise RefusedAfterLandedError(e, _approve_landed_lead(h), [h]) from e
+    except Exception as e:
+        # 5.0.0 (4.7.0's "known, not changed"): the deposit's other
+        # outcomes after its approve landed — it landed and reverted, it
+        # is unconfirmed or proven not executed, or the node refused its
+        # broadcast outside validation. Each keeps its own type and words
+        # and gains the approve's hash first, and in `landed`.
+        if not txs:
+            raise
+        h = txs[0]["tx_hash"]
+        e.landed = [h]
+        e.args = (_approve_landed_after_lead(h) + str(e),)
+        raise
     txs.append({"step": "deposit", **_tx_fields(receipt)})
     return {**_tx_fields(receipt), **quote, "txs": txs}
 
@@ -10951,7 +11005,9 @@ def quest_state(quest_index: int, account: str = "main") -> dict:
                 revert_reason = decoded
             else:
                 text = _revert_text(e)
-                revert_reason = None if _is_replay_infra_error(text) else text
+                revert_reason = None if (
+                    _is_transport_failure(e) or _is_replay_infra_error(text)
+                ) else text
 
     revert_kind = _classify_revert(revert_reason)
 

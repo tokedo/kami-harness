@@ -254,11 +254,14 @@ def test_travel_fee_total_counts_nothing_for_a_hop_never_sent(
     accounts, monkeypatch,
 ):
     """A refused hop (nothing signed) cost nothing: the total is the
-    landed hops' sum."""
+    landed hops' sum. Since 5.0.0 it adds no `txs` row (SPEC P4: a
+    failure that never reached the chain has no hash and no row); the
+    result's `error` says why the walk stopped."""
     _travel_env(monkeypatch, 100, [1, 2, 3, 4])
     _hops(monkeypatch, ["100", "refuse"])
     r = _travel(allow_partial=True)
-    assert r["txs"][-1]["status"] == "error"
+    assert [t.get("status") for t in r["txs"]] == ["success"]
+    assert r["error"]
     assert r.get("fee_wei") == "100", r
 
 
