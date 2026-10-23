@@ -29,6 +29,287 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [5.0.0] — 2026-10-23 — the operator signs; the strategy service leaves; reads at the signer's own receipt
+
+MAJOR. **100 tools** — ACT 59 / PERCEIVE 34 / META 7; registry mass
+**71,968** against a `REGISTRY_MASS_BUDGET` of **73,000** (1,032 of
+headroom), `tools_hash`
+`3291008d8940b55823f2b052194107d226db8f0c620864f6e07910262e6ca02a`; the
+handshake's standing text is unchanged (957 characters, sha256
+`7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b`) — all
+measured off a stdio child at this release. `SCHEMA_VERSION` **5.0.0**.
+kami-lens **1.0.5** (`e604290`); 1.0.1 or newer is still required.
+
+**Why MAJOR, by this file's own rule.** Nine tools are removed; the
+signer of nine others (and of the gacha reveal) moves from the owner
+wallet to the operator, which callers relied on for which wallet pays the
+gas; `list_accounts` loses a result field; `travel_to_room` stops adding
+a row for a hop refused before signing; and several calls that sent now
+refuse before signing (a target that is not an account, a soulbound
+kami), while others that refused now land (an operator-only roster, a
+redeployed system, a dry-run behind its own receipt).
+
+### 1. The strategy-service family leaves again
+
+The nine OUTSOURCE tools that returned at 4.6.0 — `register_kamibots`,
+`kamibots_enable_strategies`, `start_strategy`, `stop_strategy`,
+`get_tier`, `get_all_strategies`, `get_all_strategy_statuses`,
+`get_strategy_status`, `get_strategy_logs` — leave the surface (a
+maintainer ruling of 2026-10-23), with everything only they used: the
+OUTSOURCE class tag (the tag set is `{ACT, PERCEIVE, META}`), the
+`OutsourceUnavailableError` class and its `OUTSOURCE_UNAVAILABLE` head,
+`StrategyServiceError`, the service client and its redaction helpers,
+`list_accounts`' `kamibots_registered`, the startup report's registered
+labels, `integration/kamibots/`, and every line about the service in
+`README.md`, `SETUP.md`, `EXPOSURE.md`, `env.template` and
+`executor/README.md`. The per-account `{LABEL}_KAMIBOTS_API_KEY` and
+`{LABEL}_PRIVY_ID` are no longer read or written: `_load_accounts` and
+`create_operator_wallet`'s rebuild never ask the store for them, and the
+account entry has no slot for them. **A keys file written by 4.6.x may
+still hold those two lines: they are unread — delete them.** The secret
+store keeps `*_PRIVY_ID` / `PRIVY_ID` secret-shaped, so such a line is
+never exported to the environment a child process inherits. No key of
+any kind is transmitted anywhere now.
+
+The removal returns 5,064 characters (the nine tools' 5,018 and
+`list_accounts`' clause's 46): the surface after it is 4.5.0's byte for
+byte (71,133, `fb65e0db...fac0`). `REGISTRY_MASS_BUDGET` 77,000 ->
+**73,000** by the same ruling: the capacity the 4.6.0 raise was made for
+is gone, so the raise is too.
+
+### 2. Patch 0.4.5: the operator signs nine tools
+
+At upstream `04cb25f8` (the studio's patch 0.4.5, "operator
+permissions") the systems of auction buys, trades, item transfers and
+gacha mint and reroll resolve the sender with
+`LibAccount.getByOwnerOrOperator`: the account the sender owns, else the
+account that named it operator. These nine tools now sign with the
+account's OPERATOR key, on the operator's nonce lane, through the same
+send path as every other game write: `auction_buy`, `create_trade`,
+`take_trade`, `cancel_trade`, `complete_trade`, `complete_all_trades`,
+`transfer_items`, `gacha_use`, `gacha_reroll`. The gacha reveal
+(`gacha_reveal`, and the two gacha tools' in-call reveal) resolves no
+account at all, so it signs with the operator too — otherwise an
+operator-only roster could commit a mint and not reveal it. Each moved
+tool's description loses its owner-wallet sentence.
+
+- **An operator-only roster** (`{LABEL}_OPERATOR_KEY`, no owner key —
+  the owner wallet kept elsewhere) resolves its account entity through
+  its operator's binding on chain, and reaches all nine. The same
+  resolution (`_account_entity_id`) now serves every operator path that
+  used to refuse such a roster for want of an owner address: the
+  ownership pre-check of `transfer_kami`, `quest_state`,
+  `check_quest_completable`, the scavenge points read.
+- **The owner-signed set** is what stays owner-only on chain:
+  `register_account`, `buy_kami`, `newbie_vendor_buy`, `portal_deposit`,
+  `portal_withdraw(to="owner")` and an owner receipt's `portal_claim` /
+  `portal_cancel` (and the wallet tools `fund_operator`,
+  `withdraw_operator`, `bridge_eth_from_mainnet`). Without an owner key
+  each refuses, naming it, before it reads or signs anything —
+  `buy_kami` now before its listing read, where it used to fail after
+  it.
+- The vendored selector table (`selector_table.json`) records the move:
+  twelve write rows go from `owner` to `operator`.
+- `SETUP.md` §4 states the operator-only shape and `KAMI_KEYS_FILE`;
+  `systems/` and `integration/` state the new signer rule
+  (`system-ids.md`'s wallet column, the API pages, `accounts.md`).
+
+### 3. Patch 0.4.5: the item-transfer target, and the soulbind
+
+- **`transfer_items`' target must be an account.** The patch adds
+  `require(isAccount(targetID), "ItemTransfer: target is not an
+  account")`; before it, items sent to any other id were credited to it
+  and lost. The tool now checks the target's Name component before any
+  dry-run and refuses: "target <label or address> is not a registered
+  account; items can only be sent to an account (the chain refuses with
+  'ItemTransfer: target is not an account')". A roster label resolves to
+  its account (its operator's binding for an operator-only label); an
+  unreadable answer is left to the dry-run.
+- **A soulbound kami is refused with its end time.** The patch adds the
+  soulbind check to send, reroll and sacrifice. `transfer_kami`,
+  `gacha_reroll`, `sacrifice_kami` and `sacrifice_kami_batch` read each
+  kami's expiry from the chain — `component.value` at
+  `keccak256(abi.encode(kamiID, "SOULBOUND"))`, `abi.encode` and not
+  packed — and refuse a kami bound past the latest block's time: "kami
+  <index> is soulbound until <ISO UTC> (<n> h left); the chain refuses
+  send / reroll / sacrifice / listing / offers / unstaking until then"
+  (the batch skips it with that reason). A dry-run refused with the
+  chain's "kami is soulbound" — a bind the read did not see — reads the
+  same. The only binder at the pin is the newcomer vendor (3 days);
+  `newbie_vendor_buy`'s description and result note, and the docs, list
+  what the bind blocks.
+
+### 4. The dry-run reads no older state than the signer's own receipt
+
+A walk's third hop was refused before signing — "unreachable room" —
+because the dry-run's `eth_call` at `latest` was answered by a replica
+that had not applied the second hop's block; the same hop, sent again
+later, landed. Since 5.0.0, once a transaction of the signer has landed
+in this process (success or revert; a single send, a sequence step or a
+gap fill), every dry-run from that signer reads at max(that receipt's
+block, the head it reads): a replica that does not hold the block
+answers the readiness class, which the read layer retries on a fresh
+session. Never the receipt's block alone: a dry-run pinned to an old
+block would judge a cooldown at that block's timestamp and refuse what
+the chain now accepts. Before any receipt in this process the dry-run
+reads `latest`. A backend that refuses a numbered block — the named list
+`_HISTORICAL_STATE_MARKERS` ("missing trie node", "header not found",
+"historical version not found", ...), each also infrastructure in
+`_REPLAY_INFRA_MARKERS` — is asked once at `latest`, and a refusal from
+that read ends "(the dry-run ran at latest because the node could not
+serve block N, this signer's last receipt or later: <its words>)". Every
+write through the dry-run gate inherits it. The block is kept in memory
+only (`Lane.receipt_block`; nothing new is persisted). Cost: one
+`eth_blockNumber` per dry-run after a receipt.
+
+### 5. The scavenge-reveal loop reads at its own receipts
+
+`scavenge_claim_and_reveal` decides whether to reveal again from the
+remaining rolls on each commit. That read was an `eth_call` at `latest`:
+a replica behind the first reveal answered the count from before it, the
+loop took "unchanged" for "no progress" and stopped after one reveal
+with a stale remainder (the follow-up reveal then reported only the
+rolls above 5,000); a replica behind the claim answered 0 for a commit
+it had not seen, and the call reported the commits "revealed elsewhere"
+and sent nothing. Every count is now read AT the block of the receipt
+that last changed it — the claim's, then each reveal's. A backend that
+refuses the numbered block is read at `latest` once its head is at or
+past that block (5 s at most), and the notice says so. The loop ends
+when every commit reads 0, at its reveal cap, or on a reveal that does
+not land; a remainder names its commits, the block it was read at and
+the expiry block (claim block + 256). `droptable_reveal` reads its
+`rolls_remaining` at its own receipt the same way. The per-receipt decode
+was not partial — one `DROPTABLE_REVEAL` event per commit chunk, every
+one decoded — and `revealed_items` sums every landed reveal.
+
+### 6. A kill's spoils are never negative
+
+A kill only adds to the killer's harvest bounty, so when the receipt's
+after-value is below the before-value, something drained the bounty
+between the two reads — the killer's own stop or collect — and the
+difference means nothing. `_decode_kill` now states `spoils: null` and
+`decode_error` "the killer's bounty fell between the reads (a stop,
+collect or kill by the killer landed in between), so spoils cannot be a
+difference". In `act_sequence`, a `harvest_stop` of the killer that
+landed (or is unconfirmed) between two of its kills sets the carried
+before-value to unknown, as an unconfirmed kill does (4.5.0's K3b), and
+the later kill's `decode_error` names that step. `liquidate_kami`'s
+description says the stop's payout, not summed spoils, is the take.
+
+### 7. Transport failures by class; the self-worded checks; the deposit after its approve; two 4.5.0 leftovers
+
+- **The self-worded pre-send checks go through the dry-run gate.**
+  `register_account`, `transfer_kami`, `transfer_items`,
+  `sacrifice_kami`, `sacrifice_kami_batch`, `equip_all_batch` and
+  `unequip_all_batch` ran their own `eth_call` before the send. They now
+  use the gate: a transport failure is retried once and otherwise "not
+  performed", never "dry-run reverted"; a refusal re-resolves the system
+  from the World registry and retries once if it moved (after the game
+  redeployed `system.item.transfer`, every item transfer was refused at
+  the cached old address and the re-resolve never ran); the block rule
+  of §4 applies. The refusals keep their hints and gain the prefix
+  (`register_account`'s "Registration would revert: ..." is now a
+  `PreTxValidationError`); a batch skip's reason is the gate's words.
+- **Classified by class before text.** The dry-run gate, `quest_state`'s
+  probe and a broadcast now read a transport failure by its exception
+  class first — `requests`' HTTPError (a 4xx included), timeouts and
+  connection errors, web3's provider errors, `ConnectionError`,
+  `TimeoutError`, `OSError` — and read text markers only for the node's
+  own JSON-RPC errors. A 4xx is "not performed" at the gate and no
+  revert at the probe; a broadcast lost in transport is ambiguous (the
+  same bytes are re-offered), never a refusal read from the transport's
+  text (a name-resolution error saying "does not exist" read as an
+  unfunded wallet). No marker was added.
+- **A deposit's other outcomes after its approve landed** — it lands and
+  reverts, it is unconfirmed or proven not executed, the node refuses
+  its broadcast outside validation — keep their own type and words,
+  begin with "the approve <hash> landed (its allowance stays, so a later
+  deposit sends no approve); the deposit: ", and carry `landed` =
+  `[<hash>]`.
+- **A hop refused before signing adds no `txs` row** in
+  `travel_to_room` (SPEC P4: a failure that never reached the chain has
+  no hash and no row; `error` says why the walk stopped).
+- **The ledger's own check failing between receipt waits** is
+  `TxUnconfirmedError` with the failure as `reason`, never an untyped
+  exception.
+
+### 8. Catalogs and documents
+
+- `catalogs/nodes.csv` is re-vendored from the upstream deploy data at
+  `04cb25f8` in this repo's eight columns; 48 rows differ: 15 VIPP nodes
+  (6, 48, 49, 52, 58 gain VIPP; 63 pays Musu), the level-35 limits on 31,
+  35, 36, 47, 50, 56, 57, 59 and node 55's level 15, the cave and castle
+  nodes' scavenge costs doubled, drops and affinities. The README names
+  the source; `integration/game-data.md`'s node table follows it. Only
+  `get_scavenge_droptable` reads the catalog (a node's name; no name
+  changed).
+- `systems/harvesting.md` states each node's yield item, the VIPP nodes,
+  the level limits and the costs from the catalog.
+- `integration/system-ids.md` lists the 68 non-admin systems of the
+  studio's domain manifest at the pin (`system.pool` added) and says 68.
+- Every commit-reveal window is counted in blocks: "256 blocks — 6 to 10
+  minutes at the cadence measured in October 2026 (1.5–2.3 s per block,
+  varying with activity); count blocks, never minutes", in six
+  descriptions, the reveal error texts (which also name the expiry
+  block) and the docs; the other "~1 s" / "about 2 s" sentences state
+  the measured cadence.
+- `NOTICE.md` (new): the game content the catalogs quote is Asphodel
+  Studios', used under the Kamigotchi NOTICE's community-use allowance,
+  and not covered by this repository's MIT licence; the vendored ABIs
+  are interface descriptions, not the game's AGPL code. README gains a
+  Licence section.
+
+### Registry
+
+| change | characters |
+|---|---|
+| the nine tools removed; `list_accounts`' clause | -5,064 |
+| the six reveal tools (`scavenge_claim`, `droptable_reveal`, `scavenge_claim_and_reveal`, `gacha_use`, `gacha_reroll`, `gacha_reveal`): the window in blocks, net of the three gacha tools' owner-wallet words and with `gacha_reroll`'s soulbind clause | +646 |
+| `liquidate_kami`: what spoils is, and the take | +166 |
+| the soulbind (`transfer_kami`, `sacrifice_kami`, `sacrifice_kami_batch`, `newbie_vendor_buy`) | +96 |
+| `transfer_items`: the chain's target rule, less its signer sentence | +27 |
+| the owner-wallet sentences of `auction_buy` and the four trade tools | -100 |
+| **total 76,197 -> 71,968** | **-4,229** |
+
+### Known, not changed
+
+- The end-of-budget receipt re-check (4.5.0) is still not bounded by the
+  call's wall-clock box: against an endpoint that hangs rather than
+  refuses, each read can take the HTTP client's own timeout. Bounding it
+  needs a per-request timeout under the box on both receipt paths, not
+  a small change.
+- `act_sequence` has no collect step, so its spoils reset covers
+  `harvest_stop` only. A stop or collect by ANOTHER call between a
+  kill's before-read and the kill is caught by §6's rule when it leaves
+  the bounty lower; when the killer's accrual and the kill's spoils grow
+  it back past the before-value, the difference is positive and
+  overstates the spoils.
+- The soulbind pre-check and the item-transfer target check are
+  skipped when their read fails; the dry-run then decides, with the
+  same words (§3).
+- `quest_state` and `check_quest_completable` keep their own probe
+  calls (read-only, not writes) and do not read at the signer's receipt.
+
+### Version and tests
+
+`SCHEMA_VERSION` 5.0.0 in `executor/schema_version.py`, `SPEC.md` (P3,
+the registry-mass line, the invariant rows), `README.md`, the handshake
+example in `executor/README.md`, and `test_schema_version`. 1,262
+tests, 4 skipped: 100 added (`test_h500_family_gone.py`,
+`test_h500_patch045.py`, `test_h500_dry_run_block.py`,
+`test_h500_reveal_reads.py`, `test_h500_spoils.py`,
+`test_h500_leftovers.py`, `test_h500_catalogs_docs.py`, and 26 in the
+rewritten `test_owner_only.py`), each new behaviour failing against 4.7.0
+first; 40 retired with the family (`test_h460_outsource.py`,
+`test_outsource.py` and the family's cases elsewhere); the existing
+tests that encoded the owner signer, the travel row, the family or the
+4.7.0 fingerprint follow the new contract. The fake node gains a replica
+whose state lags at `eth_call`, a backend that refuses numbered blocks,
+and the note that its re-broadcast model was written for 4.0.0 and has
+not been observed live. `requests` is pinned in
+`executor/requirements.txt` at the version the suite was validated on
+(2.34.2), since `server.py` imports it directly.
+
 ## [4.7.0] — 2026-10-14 — three truths
 
 MINOR. **109 tools** — ACT 59 / PERCEIVE 34 / OUTSOURCE 9 / META 7; no

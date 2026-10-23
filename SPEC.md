@@ -61,13 +61,17 @@ this registry says *what holds*, not *how it is built*.
   descriptions, 4,150 characters of registry mass.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **71,133 characters** at 5.0.0 (76,197 at 4.6.0, 4.6.1 and 4.7.0,
+  **71,968 characters** at 5.0.0 (76,197 at 4.6.0, 4.6.1 and 4.7.0,
   71,133 at 4.4.0 and 4.5.0, 70,523 at
   4.3.0, 69,572 at 4.2.0, 69,351 at 4.0.0 and 4.1.0, 72,855 at 3.7.0),
-  against a `REGISTRY_MASS_BUDGET` of **73,000** — 1,867 characters of
+  against a `REGISTRY_MASS_BUDGET` of **73,000** — 1,032 characters of
   headroom. 5.0.0's removal of the nine strategy-service tools and
-  `list_accounts`' clause returned 5,064: the surface after it is
-  4.5.0's byte for byte (`tools_hash` `fb65e0db...fac0`). 4.6.0's nine
+  `list_accounts`' clause returned 5,064 — the surface after it alone
+  was 4.5.0's byte for byte (71,133, `tools_hash` `fb65e0db...fac0`) —
+  and its re-worded descriptions cost 835: the reveal windows counted
+  in blocks with the measured cadence (six tools), what a kill's
+  spoils are, the soulbind and the item-transfer target, less the
+  owner-wallet sentences of the tools the operator now signs. 4.6.0's nine
   restored OUTSOURCE tools cost 5,018 (their
   3.7.0 descriptions and schemas without the appended standing
   sentence) and `list_accounts`' restored clause 46. 4.4.0's account glosses on seven
@@ -151,7 +155,7 @@ this registry says *what holds*, not *how it is built*.
 - The MCP `initialize` handshake carries it in the `instructions` field
   as the exact string `tools_hash=<64 hex chars>`.
 - Value at this ref (Python 3.13):
-  `5a31220d88c24ea03f39e55ea3d32e9393870288702bd5d2ab65cdd7f35621a4`.
+  `3291008d8940b55823f2b052194107d226db8f0c620864f6e07910262e6ca02a`.
 - The MCP `initialize` handshake additionally carries
   `schema_version=<SCHEMA_VERSION>` and `error_snippets=<on|off>` in the
   same `instructions` field, space-separated after the hash. The
@@ -162,7 +166,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "4.7.0"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "5.0.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -1234,7 +1238,7 @@ writer; no other module opens the keys file or the Keychain.
 
 | claim | enforcement |
 |---|---|
-| Registry description mass ≤ 73,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget`, `test_h350_families.py::test_registry_mass_within_the_raised_budget`, `test_h500_family_gone.py::test_the_mass_is_inside_the_73000_budget` (71,133 at this ref, on Python 3.13 — 1,867 characters of headroom) |
+| Registry description mass ≤ 73,000 characters, measured from the live registry | `test_tool_surface.py::test_registry_mass_within_budget`, `test_h350_families.py::test_registry_mass_within_the_raised_budget`, `test_h500_family_gone.py::test_the_mass_is_inside_the_73000_budget` (71,968 at this ref, on Python 3.13 — 1,032 characters of headroom) |
 | Two consecutive sends never share a nonce or a hash, and a level is counted once — reported from a chain read-back, never arithmetic | `test_h400_send_path.py::test_two_steps_never_share_a_nonce_and_a_level_is_counted_once`, `::test_a_nonce_reused_by_a_stale_read_never_reports_unconfirmed`, `test_h400_lane.py::test_a_level_result_is_read_back_not_counted` |
 | A refused sequence step leaves nothing armed: re-offered, else its nonce filled, else stated; a later call executes no step of it; the receipt budget is spent only on steps that can mine | `test_h400_send_path.py::test_a_refused_step_leaves_nothing_armed_behind_its_nonce`, `::test_a_sequence_never_waits_the_long_budget_on_steps_that_cannot_mine`, `test_h400_lane.py::test_a_filled_gap_is_the_first_line_of_the_sequence_result` |
 | A nonce consumed by another hash is a collision naming that hash and whether this harness signed it, ending the wait early — never "may still be included" | `test_h400_send_path.py::test_a_nonce_consumed_by_another_hash_is_a_collision_not_unconfirmed`, `::test_a_nonce_taken_by_another_signer_is_named_and_ends_the_wait_early` |
@@ -1333,7 +1337,7 @@ writer; no other module opens the keys file or the Keychain.
 | Named deferred reads and unserved ACT rows stay present in EXPOSURE.md | `test_tool_surface.py::test_exposure_rows` |
 | `tools_hash` is 64 lowercase hex chars, recomputes identically, and is the first field of the handshake `instructions`, which also carries `schema_version` and `error_snippets`; `serverInfo.version` equals `SCHEMA_VERSION` | `test_tool_surface.py::test_tools_hash_present_and_deterministic`, `test_v300_families.py::TestHandshakeProvenance` |
 | Tool count, registry mass, `tools_hash` and every (name, description, parameters) triple are identical across capability-flag settings | `test_tool_surface.py::test_surface_identical_across_capability_flags` — imports the module in 8 subprocesses over `KAMI_ERROR_SNIPPETS` × `KAMI_CHAT_ENABLED` × `PRESENTATION_MODE`, and asserts each child observed the flags it was given, so it cannot pass on a flag that never took effect |
-| The surface at this release: `tools_hash` `fb65e0db...fac0` and registry mass 71,133; the handshake's standing text is 4.4.0's byte for byte (957 characters at the default `KAMI_CALL_BUDGET_S`, sha256 `7c0e7ca6...ae4b`) | `test_h450_failed_waits.py::test_the_surface_fingerprint_and_the_standing_text` |
+| The surface at this release: `tools_hash` `3291008d...a02a` and registry mass 71,968; the handshake's standing text is 4.4.0's byte for byte (957 characters at the default `KAMI_CALL_BUDGET_S`, sha256 `7c0e7ca6...ae4b`) | `test_h450_failed_waits.py::test_the_surface_fingerprint_and_the_standing_text` |
 | No tool of the strategy-service family (the nine that left at 4.0.0, returned at 4.6.0 and left again at 5.0.0) is registered, class-tagged or a READ tool; the tag set is `{ACT, PERCEIVE, META}` | `test_h500_family_gone.py::test_none_of_the_nine_is_served_classed_or_read` |
 | No served description, schema or handshake text, and no string constant the module can raise or return, names the service; its error classes, its client and its error head are gone | `test_h500_family_gone.py::test_no_served_text_names_the_service`, `::test_no_string_the_module_can_raise_or_return_names_the_service` |
 | Neither `_load_accounts` nor `create_operator_wallet`'s rebuild asks the store for the two retired per-account credential names, and the account entry has no slot for them; a left-behind account-id line stays secret-shaped and is never exported to the environment | `test_h500_family_gone.py::test_the_loader_never_reads_the_two_names`, `::test_the_operator_rebuild_never_reads_the_two_names`, `::test_a_left_behind_credential_line_is_not_exported` |
@@ -1345,7 +1349,7 @@ writer; no other module opens the keys file or the Keychain.
 | A snippet states no advice, never lengthens past its bound, never hides a subject silently, reports only facts it read, and never introduces the `-32000` marker retry routes on | `test_error_snippets.py::TestSnippetGuards`, `::TestSnippetBehaviour` |
 | The three snippets an agent sees are the pinned wordings | `test_error_snippets.py::TestSnippetExamples` (harvest_start on a HARVESTING kami, harvest_collect on a RESTING kami, a dry-run revert — asserted verbatim) |
 | An `allow_partial` return keeps its documented shape with the flag on | `test_error_snippets.py::TestSnippetBehaviour::test_batch_error_leaves_the_returned_payload_untouched` |
-| `SCHEMA_VERSION == "4.7.0"` | `test_tool_surface.py::test_schema_version` |
+| `SCHEMA_VERSION == "5.0.0"` | `test_tool_surface.py::test_schema_version` |
 | The default secrets backend is `envfile`, and no code path reaches the Keychain under it — not load, not get, not put, not with a manifest present | `test_secrets_store.py::TestEnvfileIsTheDefault` (the Keychain helpers are replaced with raisers) |
 | An unrecognised `KAMI_SECRETS_BACKEND` fails loudly instead of resolving to a backend | `test_secrets_store.py::TestEnvfileIsTheDefault::test_unknown_backend_fails_loudly` |
 | The protected-names manifest is the keys file's name with a trailing `.env` removed plus `.secrets.names`, alongside it; an absent manifest protects nothing | `test_secrets_store.py::TestManifestPath` |

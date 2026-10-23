@@ -295,11 +295,14 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`4.7.0`**, pinned to kami-lens **1.0.5** (1.0.1 or newer is
+Current: **`5.0.0`**, pinned to kami-lens **1.0.5** (1.0.1 or newer is
 required for correct reads; see [`SETUP.md`](SETUP.md) §7) — world
 reads served as thin `kami-lens` wrappers with verbatim envelope
 pass-through, and a read that waits for your own transaction's block; every tool class-tagged ACT / PERCEIVE / META; no
-third-party service and no key ever transmitted; four non-conflatable
+third-party service and no key ever transmitted; the operator signs
+every game write whose system accepts it (an operator-only roster plays
+everything but the owner-only systems); dry-runs that read no older
+state than the signer's own last receipt; four non-conflatable
 transaction terminal states (a confirmed revert raises, never returns
 as success); every send on its signer's nonce lane; every call inside a
 wall-clock box (`KAMI_CALL_BUDGET_S`); the token portal; standing text

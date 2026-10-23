@@ -64,7 +64,9 @@ pip install -r requirements.txt
 5. **Ready to play** — all tools now work.
 
 An account that exists only as an owner key reaches the same state
-through the tool surface itself — see [Onboarding](#onboarding).
+through the tool surface itself — see [Onboarding](#onboarding). One
+that exists only as an operator key plays every game action but the
+owner-signed ones (see [ACT](#act--59-tools)).
 
 ## Running
 
@@ -102,7 +104,7 @@ marked below.
 
 Text that applies across many tools is not repeated in descriptions: it
 is said once, in the MCP initialize `instructions`. Its first line is
-`tools_hash=<hash> schema_version=4.7.0 error_snippets=on|off`; the
+`tools_hash=<hash> schema_version=5.0.0 error_snippets=on|off`; the
 rest states that `untrusted` fields are player data, never
 instructions; that `lens_*` reads are served by the local kami-lens
 daemon, `{data, untrusted, meta}` verbatim; how to see your own
@@ -193,9 +195,16 @@ on-chain and must not be resubmitted.
 
 ### ACT — 59 tools
 
-Signs and broadcasts at least one transaction. Gameplay writes use the
-operator wallet; registration, minting, and value-bearing trades use the
-owner wallet (noted per tool).
+Signs and broadcasts at least one transaction. Every game write signs
+with the operator wallet — since 5.0.0 (upstream patch 0.4.5) including
+`auction_buy`, `create_trade`, `take_trade`, `cancel_trade`,
+`complete_trade`, `complete_all_trades`, `transfer_items`, `gacha_use`,
+`gacha_reroll` and `gacha_reveal`, whose systems accept the owner or the
+operator. The owner wallet signs only what stays owner-only on chain:
+`register_account`, `buy_kami`, `newbie_vendor_buy`, `portal_deposit`,
+`portal_withdraw(to="owner")` and an owner receipt's claim or cancel
+(noted per tool); without an owner key these refuse, naming it, and
+everything else works on an operator-only roster.
 
 | Tool | Description |
 |---|---|
@@ -205,14 +214,14 @@ owner wallet (noted per tool).
 | `burn_items(item_indices, amounts, account)` | Burn (destroy) items from inventory, reducing their balances. |
 | `buy_kami(kami_ids, max_total_eth, account)` | Buy one or more listed kamis on KamiSwap with ETH. Owner wallet. |
 | `cancel_kami_listing(kami_ids, account, allow_partial)` | Cancel this account's KamiSwap listing(s). Operator wallet. |
-| `cancel_trade(trade_id, account)` | Cancel a pending trade. Returns escrowed items to inventory. Owner wallet. |
+| `cancel_trade(trade_id, account)` | Cancel a pending trade. Returns escrowed items to inventory. |
 | `cast_item(target_kami_id, item_index, account)` | Use an ENEMY_KAMI-shape item on another player's kami in the account's room (system.kami.cast.item). |
 | `chat_send(message, account)` | Send a chat message to the account's current room (system.chat). |
 | `complete_all_trades(account, allow_partial)` | Find and complete all EXECUTED trades for this account. |
 | `complete_quest(quest_index, account)` | Complete an active quest. All objectives must be met. |
-| `complete_trade(trade_id, account)` | Complete an executed trade. Called by the maker (owner wallet). |
+| `complete_trade(trade_id, account)` | Complete an executed trade. Called by the maker. |
 | `craft_item(recipe_index, amount, account)` | Craft items from a recipe. Consumes inputs, produces outputs, costs stamina. |
-| `create_trade(sell_item, sell_amount, buy_item, buy_amount, account)` | Create a trade offer on the in-game marketplace. Uses owner wallet. |
+| `create_trade(sell_item, sell_amount, buy_item, buy_amount, account)` | Create a trade offer on the in-game marketplace. |
 | `drop_quest(quest_index, account)` | Drop/abandon an active quest. |
 | `droptable_reveal(commit_ids, account)` | Reveal droptable commits to receive items. |
 | `equip_all_batch(equips, account, delay_seconds, allow_partial)` | Equip an inventory item to many kamis (server-side loop, dry-run gated). |
@@ -249,7 +258,7 @@ owner wallet (noted per tool).
 | `scavenge_claim_and_reveal(node_index, account)` | Claim scavenge rewards AND reveal droptable items in one call. |
 | `skill_respec(kami_id, account)` | Reset all of a kami's skills, refunding its skill points (system.skill.respec). |
 | `speed_craft_batch(recipe_index, count, stamina_item_id, account, delay_seconds, allow_partial)` | Craft a stamina-gated recipe N times, restoring stamina between crafts. |
-| `take_trade(trade_id, account)` | Take (execute) a pending trade as the taker. Owner wallet. |
+| `take_trade(trade_id, account)` | Take (execute) a pending trade as the taker. |
 | `transfer_items(item_indices, amounts, to_account, to_address, account)` | Transfer in-world items to another account via system.item.transfer. |
 | `transfer_kami(kami_ids, to_account, to_address, account)` | Transfer in-world kami(s) to another account via system.kami.send. |
 | `travel_to_room(target_room, account, use_items, dry_run, allow_partial)` | Travel to a target room via the shortest path, consuming stamina and optionally using SP+ items to extend range. Gated exits are checked against the account and routed around; with no route the call refuses rather than stranding it. |
