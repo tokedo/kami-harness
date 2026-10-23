@@ -1,8 +1,8 @@
 # Harvesting
 
-Harvesting is an income loop. A Kami sits on a node, earns Musu over
-time, takes HP strain, and can be liquidated (killed) by another player's Kami
-on the same node.
+Harvesting is an income loop. A Kami sits on a node, earns the node's
+yield item (Musu on most nodes, VIPP on some) over time, takes HP strain,
+and can be liquidated (killed) by another player's Kami on the same node.
 
 ## Lifecycle
 
@@ -46,24 +46,34 @@ Nodes with higher scavenge cost have rarer droptables. Check
 [catalogs/scavenge-droptables.csv](../catalogs/scavenge-droptables.csv) for
 reward tables per node.
 
-Higher scav cost (points to fill bar) = rarer drops:
-- 100: starter nodes, common drops
-- 200: mid-tier nodes
-- 300: advanced nodes
-- 500: premium nodes (Scrap Confluence, Techno Temple, Lotus Pool, etc.)
+Higher scav cost (points to fill bar) = rarer drops. The costs in
+[catalogs/nodes.csv](../catalogs/nodes.csv) at the upstream pin
+(`04cb25f8`): 100 on the starter nodes (10 nodes), 200 (18), 300 (8),
+400 (12), 500 (2), 600 (4) and 1000 (3) — the cave and castle nodes
+cost twice what they did before that deploy data (e.g. Techno Temple,
+Lotus Pool and Fungus Garden 1000).
 
 Scavenge points = harvest output. So higher Fertility = faster scavenge fills.
 
 ### Node Yield Item
 
-All nodes yield Musu (item index 1) as the primary harvest output. The
-scavenge droptable determines secondary item drops. See
-[catalogs/nodes.csv](../catalogs/nodes.csv) for the "Drops" column.
+Each node pays its own yield item: `IndexItem` on the node, which the
+harvest claim reads (`LibNode.getItem`). At the upstream pin
+(`04cb25f8`) 15 of the 64 nodes pay VIPP (item index 2) — nodes 6, 18,
+48, 49, 52, 58, 60, 61, 62, 65, 73, 75, 79, 83 and 88 — and the rest pay
+Musu (item index 1): the `YieldIndex` column of
+[catalogs/nodes.csv](../catalogs/nodes.csv). A stop or collect states the
+item it paid per kami (`payouts[].item`); a liquidation's salvage (from
+block 34,199,935) and spoils are in the node's yield item too. The
+scavenge droptable determines secondary item drops; see the "Drops"
+column.
 
 ### Level Restrictions
 
-Some nodes have level caps (e.g., `Level Limit = 15` means only Kamis at or
-below level 15). Check the node catalog before assigning.
+Some nodes have level caps (`Level Limit = 15` means only Kamis at or
+below level 15). At the pin: 15 on the starter nodes 1, 2, 3, 29, 30 and
+55; 35 on nodes 31, 35, 36, 47, 50, 56, 57 and 59 (the catalog's
+`Level Limit` column). Check the node catalog before assigning.
 
 ### Occupancy & Liquidation Risk
 
@@ -187,7 +197,8 @@ Kamis on the same node.
 - Skills in **Guardian** tree increase defense threshold and salvage ratio
 - Skills in **Enlightened** tree reduce strain
 
-Starter nodes have a level limit of 15.
+Starter nodes have a level limit of 15, and eight deeper nodes one of 35
+(see Level Restrictions).
 
 ## Tax System
 
@@ -218,9 +229,10 @@ At ~15 Musu/hr (Power=10, neutral): safe_hours ≈ 115 / 15 ≈ 7.7 hours to 50%
 
 ## Node Catalog Reference
 
-See [catalogs/nodes.csv](../catalogs/nodes.csv) for all 65 nodes with:
+See [catalogs/nodes.csv](../catalogs/nodes.csv) for all 64 nodes with:
 - Affinity type (for matching)
 - Level limits
+- Yield item (`YieldIndex`: 1 Musu, 2 VIPP)
 - Scavenge cost
 - Drop descriptions
 

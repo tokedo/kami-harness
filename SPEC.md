@@ -1218,6 +1218,12 @@ writer; no other module opens the keys file or the Keychain.
 - `catalogs/rooms.csv` backs `rooms_graph` BFS routing (rooms with
   `Status == "In Game"` only; unknown special-exit targets are skipped).
 - `catalogs/quests/` backs `get_expected_objective`.
+- `catalogs/nodes.csv` names the node in `get_scavenge_droptable`'s
+  answer (its only reader). Since 5.0.0 it is the upstream deploy data
+  (`packages/contracts/deployment/world/data/rooms/nodes.csv`) at the
+  pinned upstream commit `04cb25f8`, in this repo's eight columns: 15
+  VIPP nodes, the level-15 and level-35 limits, that data's scavenge
+  costs. No tool renders a node's yield or level limit from it.
 - **Assumption:** these are community documentation exports, not chain
   truth, and may drift from chain state. `get_expected_objective` says
   so in its own answer.
@@ -1379,6 +1385,7 @@ writer; no other module opens the keys file or the Keychain.
 | All five send paths read their nonce at the `pending` block, asserted at the site, so a stale `latest` sequence from a lagging load-balanced node cannot invite a retry of a non-idempotent transfer | `test_validation.py::TestPendingNonce`, `test_reporting_fidelity.py::TestSenderTerminalStates::test_send_eth_reads_pending_nonce`, `test_bridge.py::TestBroadcastIsFireAndForget::test_mainnet_nonce_read_at_pending` |
 | The three batch level tools read the current level from the chain's Level component and make no third-party call (the guard forbids the HTTP clients), and an unreadable level refuses the call naming its cause rather than defaulting | `test_batch_wrappers.py::TestLevelPathReadsTheChain` |
 | `SPEC.md` exists, is well-formed, and its `describes:` names a ref that resolves in this repository | `test_spec.py::test_spec_frontmatter`, `::test_describes_resolves` |
+| `catalogs/nodes.csv` is the upstream deploy data at the pin in eight columns and names its source; every commit-reveal window (six descriptions, the reveal error texts, `systems/gacha.md`) is counted in blocks with the measured cadence, never a fixed number of minutes; `integration/system-ids.md`'s count equals its list (68); the harvesting page states each node's yield item; `requests` is pinned (5.0.0) | `test_h500_catalogs_docs.py` (8 tests) |
 | The pre-send checks of `transfer_items`, `transfer_kami`, `sacrifice_kami`, `sacrifice_kami_batch`, `register_account`, `equip_all_batch` and `unequip_all_batch` go through the dry-run gate: a system that moved since it was cached is re-resolved and the call lands at the new address; a transport failure is retried once, then "not performed", never "dry-run reverted" (5.0.0) | `test_h500_leftovers.py::test_a_system_that_moved_is_re_resolved_and_the_call_lands` (7 tools), `::test_a_transport_failure_on_a_pre_send_check_is_retried`, `::test_a_pre_send_check_that_never_ran_is_not_performed` |
 | After a deposit's approve landed, the deposit's revert, its unconfirmed wait and a broadcast the node refuses each keep their type, begin with the approve's hash and that it landed, and carry `landed` (5.0.0) | `test_h500_leftovers.py::test_a_deposit_that_lands_and_reverts_names_the_approve`, `::test_an_unconfirmed_deposit_names_the_approve`, `::test_a_deposit_broadcast_the_node_refuses_names_the_approve` |
 | A transport failure is classified by its class before any text: the dry-run gate (an HTTP 4xx included) says "not performed", the quest probe names no revert, and a broadcast lost in transport is re-offered and lands rather than read as a refusal (5.0.0) | `test_h500_leftovers.py::test_the_dry_run_gate_reads_a_transport_class_as_not_performed` (10 classes), `::test_the_quest_probe_reads_a_transport_class_as_no_revert`, `::test_a_transport_error_is_never_the_nodes_broadcast_verdict`, `::test_a_broadcast_lost_in_transport_is_re_offered_and_lands` |

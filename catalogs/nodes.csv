@@ -3,63 +3,63 @@ Index,Name,Status,Drops,Affinity,Level Limit,YieldIndex,Scav Cost
 2,Tunnel of Trees,In Game,Sticks & Stones,Normal,15,1,100
 3,Torii Gate,In Game,Stick Stone Rename,Normal,15,1,100
 5,Restricted Area,In Game,Sticks & Stones,Normal,,1,100
-6,Labs Entrance,In Game,Stone Only,Eerie,,1,100
-9,Forest: Old Growth,In Game,Stick Cone Poppy,Insect,,1,200
+6,Labs Entrance,In Game,Stone Bottle Apple,Eerie,,2,300
+9,Forest: Old Growth,In Game,Stick Cone Poppy,"Insect, Eerie",,1,200
 10,Forest: Insect Node,In Game,Stick Cone Rename,Insect,,1,200
 12,Scrap Confluence,In Game,Scrap Burger Rename Driver,Scrap,,1,500
-15,Temple Cave,In Game,Pipe Butt Burger,Scrap,,1,100
-16,Techno Temple,In Game,Pipe Burger Cone Hearing,"Eerie, Scrap",,1,500
-18,Cave Crossroads,In Game,Stems Shroom Scale Talisman,Insect,,2,200
-19,Temple of the Wheel,In Game,Butt Pipe Daffodil Mint,"Eerie, Scrap",,1,300
+15,Temple Cave,In Game,Pipe Butt Burger,Scrap,,1,200
+16,Techno Temple,In Game,Pipe Burger Cone Hearing,"Eerie, Scrap",,1,1000
+18,Cave Crossroads,In Game,Stems Shroom Scale,Insect,,2,400
+19,Temple of the Wheel,In Game,Butt Pipe Daffodil Mint,"Eerie, Scrap",,1,600
 25,Lost Skeleton,In Game,Stick Cone Berry,Eerie,,1,200
-26,Trash-Strewn Graves,In Game,Stone Bottle Burger,Eerie,,1,100
+26,Trash-Strewn Graves,In Game,Stone Bottle Burger,"Eerie, Scrap",,1,100
 29,Misty Forest Path,In Game,Stick Stone Resin,Insect,15,1,100
 30,Scrapyard Entrance,In Game,Stone Scrap Burger,Scrap,15,1,100
-31,Scrapyard Exit,In Game,Stone Scrap Burger,Scrap,,1,100
+31,Scrapyard Exit,In Game,Stone Scrap Burger,Scrap,35,1,100
 32,Road To Labs,In Game,Sticks & Stones,Normal,,1,100
 33,Forest Entrance,In Game,Sticks & Cones,Normal,,1,200
 34,Deeper Into Scrap,In Game,Scrap Burger,Scrap,,1,300
-35,Elder Path,In Game,Stick Cone Poppy,Normal,,1,200
-36,Parting Path,In Game,Stick Resin Poppy,Insect,,1,200
+35,Elder Path,In Game,Stick Cone Poppy (Elder Path),Normal,35,1,200
+36,Parting Path,In Game,Stick Resin Poppy,Insect,35,1,200
 37,Hollow Path,In Game,Sticks & Cones,Normal,,1,200
-47,Scrap Paths,In Game,Stone Scrap Burger,Scrap,,1,100
-48,Murky Forest Path,In Game,Stick Resin Poppy,Insect,,1,200
-49,Clearing,In Game,Stick Stone Mint,Normal,,1,300
-50,Ancient Forest Entrance,In Game,Stone Shroom,Insect,,1,200
-51,Scrap-Littered Undergrowth,In Game,Bottle Scrap Resin,Insect,,1,300
-52,Airplane Crash,In Game,Bottle Scrap Jar,Eerie,,1,300
+47,Scrap Paths,In Game,Stone Scrap Burger,Scrap,35,1,100
+48,Murky Forest Path,In Game,Stick Resin Scale Poppy,Insect,,2,300
+49,Clearing,In Game,Stick Stone Burger Mint,Normal,,2,300
+50,Ancient Forest Entrance,In Game,Stone Shroom,Insect,35,1,200
+51,Scrap-Littered Undergrowth,In Game,Scrap Bottle Burger Cone,"Scrap, Insect",,1,300
+52,Airplane Crash,In Game,Bottle Scrap Jar,Eerie,,2,300
 53,Blooming Tree,In Game,Stick Cone Amber,Eerie,,1,300
-55,Shady Path,In Game,Stick Stone Daffodil,Normal,,1,200
-56,Butterfly Forest,In Game,Stick Stone Resin,Insect,,1,200
-57,River Crossing,In Game,Stick Stone Cone,Normal,,1,200
-58,Mouth of Scrap,In Game,Stone Scrap Burger,Scrap,,1,100
-59,Black Pool,In Game,Pipe Butt Burger,Eerie,,1,100
-60,Scrap Trees,In Game,Scrap Daffodil Driver,Scrap,,2,500
-61,Musty Forest Path,In Game,Stick Cone Rename,Normal,,2,200
+55,Shady Path,In Game,Stick Stone Daffodil,Normal,15,1,200
+56,Butterfly Forest,In Game,Stick Stone Resin,Insect,35,1,200
+57,River Crossing,In Game,Stick Stone Cone,Normal,35,1,200
+58,Mouth of Scrap,In Game,Stone Scrap Burger,Scrap,,2,100
+59,Black Pool,In Game,Pipe Butt Apple,Eerie,35,1,200
+60,Scrap Trees,In Game,Scrap Daffodil Shroom Driver,Scrap,,2,500
+61,Musty Forest Path,In Game,Stick Cone Rename (Musty Forest Path),Normal,,2,200
 62,Centipedes,In Game,Stone Resin Mint,Insect,,2,300
-63,Deeper Forest Path,In Game,Stone Daffodil Pinecone Poppy,Normal,,2,300
+63,Deeper Forest Path,In Game,Stone Daffodil Pinecone Poppy,Normal,,1,300
 65,Forest Hut,In Game,Bottle Stick Burger,Eerie,,2,200
-67,Boulder Tunnel,In Game,Chunk Butt Pansy,Normal,,1,200
-68,Slippery Pit,In Game,Chunk Butt Pansy,Normal,,1,200
-69,Lotus Pool,In Game,Butt Stems Berry Smell,Eerie,,1,500
-70,Still Stream,In Game,Chunk Pipe Pansy,Normal,,1,100
-71,Shabby Deck,In Game,Butt Pipe Scale,Insect,,1,200
-72,Hatch to Nowhere,In Game,Chunk Pipe Shroom Touch,"Insect, Scrap",,1,500
-73,Broken Tube,In Game,Butt Pipe Driver,Scrap,,2,300
-74,Engraved Door,In Game,Butt Chunk Apple Dust,Eerie,,1,200
-75,Flood Mural,In Game,Chunk Berry Floss,Eerie,,2,200
-76,Fungus Garden,In Game,Stems Shroom Taste,Insect,,1,500
-77,Thriving Mushrooms,In Game,Stems Chunk Scale,Insect,,1,100
-78,Toadstool Platforms,In Game,Stems Butt Burger,Insect,,1,200
-79,Abandoned Campsite,In Game,Butt Stems Shroom Pansy,Normal,,2,100
-80,Radiant Crystal,In Game,Stems Pipe Berry Apple Root,Eerie,,1,200
-81,Flower Mural,In Game,Chunk Butt Pansy,Normal,,1,200
-82,Geometric Cliffs,In Game,Chunk Butt Floss Sight,Scrap,,1,500
-83,Canyon Bridge,In Game,Chunk Pipe Pansy,Normal,,2,100
-84,Reinforced Tunnel,In Game,Stems Butt Burger,Scrap,,1,200
-85,Giant's Palm,In Game,Chunk Pansy Talisman,Normal,,1,200
-86,Guardian Skull,In Game,Chunk Scale Thought Crystal,"Eerie, Insect",,1,500
-87,Sacrarium,In Game,Chunk Berry Floss Dust,Eerie,,1,300
-88,Treasure Hoard,In Game,Coin Apple Jar,Scrap,,2,300
-89,Trophies of the Hunt,In Game,Coin Dust Tablet,Insect,,1,300
-90,Scenic View,In Game,Coin Resin,Eerie,,1,200
+67,Boulder Tunnel,In Game,Chunk Butt Pansy,Normal,,1,400
+68,Slippery Pit,In Game,Chunk Butt Pansy,Normal,,1,400
+69,Lotus Pool,In Game,Butt Stems Berry Smell,Eerie,,1,1000
+70,Still Stream,In Game,Chunk Pipe Pansy,Normal,,1,200
+71,Shabby Deck,In Game,Butt Pipe Scale,Insect,,1,400
+72,Hatch to Nowhere,In Game,Stems Pipe Shroom Touch,"Insect, Scrap",,1,1000
+73,Broken Tube,In Game,Butt Pipe Driver,Scrap,,2,600
+74,Engraved Door,In Game,Butt Chunk Apple Dust,Eerie,,1,400
+75,Flood Mural,In Game,Chunk Berry Floss,Eerie,,2,400
+76,Fungus Garden,In Game,Stems Shroom Taste,Insect,,1,1000
+77,Thriving Mushrooms,In Game,Stems Chunk Scale,Insect,,1,200
+78,Toadstool Platforms,In Game,Stems Butt Burger,Insect,,1,400
+79,Abandoned Campsite,In Game,Butt Stems Shroom Pansy,Normal,,2,200
+80,Radiant Crystal,In Game,Stems Pipe Berry Apple Root,Eerie,,1,400
+81,Flower Mural,In Game,Chunk Butt Pansy,Normal,,1,400
+82,Geometric Cliffs,In Game,Chunk Butt Floss Sight,Scrap,,1,1000
+83,Canyon Bridge,In Game,Chunk Pipe Pansy,Normal,,2,200
+84,Reinforced Tunnel,In Game,Stems Butt Burger,Scrap,,1,400
+85,Giant's Palm,In Game,Chunk Pansy,Normal,,1,400
+86,Guardian Skull,In Game,Chunk Scale Thought Crystal,"Eerie, Insect",,1,1000
+87,Sacrarium,In Game,Chunk Berry Floss Dust,Eerie,,1,600
+88,Treasure Hoard,In Game,Coin Apple Jar,Scrap,,2,600
+89,Trophies of the Hunt,In Game,Coin Dust Tablet,Insect,,1,600
+90,Scenic View,In Game,Coin Resin,Eerie,,1,400

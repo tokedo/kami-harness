@@ -18,3 +18,9 @@ httpx==0.28.1
 web3==7.16.0
 python-dotenv==1.2.2
 pyyaml==6.0.3
+# A dependency of web3, pinned here too because server.py imports it
+# directly (requests.exceptions.RequestException, the transport class
+# the revert-reason replay and the dry-run gate read by its class): an
+# unpinned floor resolved through web3 is the class of break described
+# above. The version the suite was validated on.
+requests==2.34.2

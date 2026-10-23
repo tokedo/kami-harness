@@ -251,34 +251,34 @@ Nodes are the harvestable locations within rooms. Each node shares an index with
 | 2 | Tunnel of Trees | Normal | MUSU | 15 | 100 |
 | 3 | Torii Gate | Normal | MUSU | 15 | 100 |
 | 5 | Restricted Area | Normal | MUSU | — | 100 |
-| 6 | Labs Entrance | Eerie | MUSU | — | 100 |
-| 9 | Forest: Old Growth | Insect | MUSU | — | 200 |
+| 6 | Labs Entrance | Eerie | VIPP | — | 300 |
+| 9 | Forest: Old Growth | Insect, Eerie | MUSU | — | 200 |
 | 10 | Forest: Insect Node | Insect | MUSU | — | 200 |
 | 12 | Scrap Confluence | Scrap | MUSU | — | 500 |
-| 15 | Temple Cave | Scrap | MUSU | — | 100 |
-| 16 | Techno Temple | Eerie, Scrap | MUSU | — | 500 |
-| 18 | Cave Crossroads | Insect | MUSU | — | 200 |
-| 19 | Temple of the Wheel | Eerie, Scrap | MUSU | — | 300 |
+| 15 | Temple Cave | Scrap | MUSU | — | 200 |
+| 16 | Techno Temple | Eerie, Scrap | MUSU | — | 1000 |
+| 18 | Cave Crossroads | Insect | VIPP | — | 400 |
+| 19 | Temple of the Wheel | Eerie, Scrap | MUSU | — | 600 |
 | 25 | Lost Skeleton | Eerie | MUSU | — | 200 |
-| 26 | Trash-Strewn Graves | Eerie | MUSU | — | 100 |
+| 26 | Trash-Strewn Graves | Eerie, Scrap | MUSU | — | 100 |
 | 29 | Misty Forest Path | Insect | MUSU | 15 | 100 |
 | 30 | Scrapyard Entrance | Scrap | MUSU | 15 | 100 |
-| 31 | Scrapyard Exit | Scrap | MUSU | — | 100 |
+| 31 | Scrapyard Exit | Scrap | MUSU | 35 | 100 |
 | 32 | Road To Labs | Normal | MUSU | — | 100 |
 | 33 | Forest Entrance | Normal | MUSU | — | 200 |
 | 34 | Deeper Into Scrap | Scrap | MUSU | — | 300 |
-| 35 | Elder Path | Normal | MUSU | — | 200 |
-| 36 | Parting Path | Insect | MUSU | — | 200 |
+| 35 | Elder Path | Normal | MUSU | 35 | 200 |
+| 36 | Parting Path | Insect | MUSU | 35 | 200 |
 | 37 | Hollow Path | Normal | MUSU | — | 200 |
-| 47 | Scrap Paths | Scrap | MUSU | — | 100 |
-| 48 | Murky Forest Path | Insect | MUSU | — | 200 |
-| 49 | Clearing | Normal | MUSU | — | 300 |
-| 50 | Ancient Forest Entrance | Insect | MUSU | — | 200 |
-| 51 | Scrap-Littered Undergrowth | Insect | MUSU | — | 300 |
-| 52 | Airplane Crash | Eerie | MUSU | — | 300 |
+| 47 | Scrap Paths | Scrap | MUSU | 35 | 100 |
+| 48 | Murky Forest Path | Insect | VIPP | — | 300 |
+| 49 | Clearing | Normal | VIPP | — | 300 |
+| 50 | Ancient Forest Entrance | Insect | MUSU | 35 | 200 |
+| 51 | Scrap-Littered Undergrowth | Scrap, Insect | MUSU | — | 300 |
+| 52 | Airplane Crash | Eerie | VIPP | — | 300 |
 | 53 | Blooming Tree | Eerie | MUSU | — | 300 |
 
-> **Total nodes:** 64. Shown above are the first 30; for the full list see `packages/contracts/deployment/world/data/rooms/nodes.csv`. Node affinity affects harvest efficacy — matching a Kami's body/hand affinity to the node affinity yields bonuses.
+> **Total nodes:** 64. Shown above are the first 30, from the upstream deploy data at `04cb25f8` (this repo's [`catalogs/nodes.csv`](../catalogs/nodes.csv) carries all 64); upstream: `packages/contracts/deployment/world/data/rooms/nodes.csv`. Node affinity affects harvest efficacy — matching a Kami's body/hand affinity to the node affinity yields bonuses.
 >
 > **Yield Index:** Most nodes use YieldIndex=1 (yields MUSU, item index 1). The following nodes use YieldIndex=2, which yields **VIPP** (VIP Points token, item index 2 — can be burned at Forest Hut room 65): 18 (Cave Crossroads), 60 (Scrap Trees), 61 (Musty Forest Path), 62 (Centipedes), 63 (Deeper Forest Path), 65 (Forest Hut), 73 (Broken Tube), 75 (Flood Mural), 79 (Abandoned Campsite), 83 (Canyon Bridge), 88 (Treasure Hoard).
 

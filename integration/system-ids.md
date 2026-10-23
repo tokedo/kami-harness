@@ -4,7 +4,7 @@
 
 # System IDs & ABI References
 
-Kamigotchi has **67 documented player-facing systems** in the World contract. Each system is identified by a human-readable string ID, hashed with `keccak256` for on-chain lookup. The World contains additional internal and admin systems not covered here.
+Kamigotchi has **68 documented player-facing systems** in the World contract — every non-admin system of the studio's domain manifest at upstream `04cb25f8`. Each system is identified by a human-readable string ID, hashed with `keccak256` for on-chain lookup. The World contains additional internal and admin systems not covered here.
 
 ---
 
@@ -109,6 +109,13 @@ Kamigotchi has **67 documented player-facing systems** in the World contract. Ea
 |-----------|-------------|--------|------|
 | `system.listing.buy` | Buy from NPC merchant | Operator | [Listings](api/listings.md) |
 | `system.listing.sell` | Sell to NPC merchant | Operator | [Listings](api/listings.md) |
+
+### Pool Systems
+
+| System ID | Description | Wallet | Page |
+|-----------|-------------|--------|------|
+| `system.pool` | Swap against an item-pair pool (`swap`; also `addLiquidity` / `removeLiquidity`) | Operator | — (the harness's `pool_swap` / `pool_swap_quote`) |
+
 
 ### Gacha / Minting Systems
 

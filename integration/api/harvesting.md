@@ -363,7 +363,7 @@ Intensity increases the longer a Kami stays on a node. It resets when a harvest 
 - Calling `harvest.collect()` syncs the bounty (snapshots the accrued amount), resets the duration timer, and adds the bounty to the account's inventory.
 - The Kami's **Health decreases** over time while harvesting (strain). If health reaches zero, the Kami is liquidated.
 - Calling `harvest.stop()` automatically collects any remaining bounty before stopping.
-- **Block time:** Yominet blocks arrive about every 2 s on average and in bursts (the gap between blocks ranges from under a second to tens of seconds), so duration-based values update per block, not per second.
+- **Block time:** on Yominet whole days in October 2026 averaged 1.5 to 2.3 s per block (37,800 to 53,800 blocks a day), varying with activity, and blocks arrive in bursts (the gap between blocks ranges from under a second to tens of seconds), so duration-based values update per block, not per second; count blocks, never minutes.
 
 ### Harvest Node Data
 
@@ -433,7 +433,7 @@ const interval = setInterval(async () => {
 }, 60_000);
 ```
 
-> **Note:** Yominet blocks arrive about every 2 s on average and in bursts (the gap between blocks ranges from under a second to tens of seconds), so duration-based values update per block, not per second. Polling every 30-60 seconds is sufficient for health monitoring. Health drain rate depends on the Kami's Harmony stat and active skills — higher Harmony means slower drain.
+> **Note:** on Yominet whole days in October 2026 averaged 1.5 to 2.3 s per block (37,800 to 53,800 blocks a day), varying with activity, and blocks arrive in bursts (the gap between blocks ranges from under a second to tens of seconds), so duration-based values update per block, not per second. Polling every 30-60 seconds is sufficient for health monitoring. Health drain rate depends on the Kami's Harmony stat and active skills — higher Harmony means slower drain.
 
 ### Health Thresholds
 

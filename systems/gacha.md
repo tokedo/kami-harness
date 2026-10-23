@@ -19,7 +19,7 @@ ones just created.
 
 - Max **5 mints per transaction**
 - Must have sufficient Gacha Tickets
-- Reveal must happen within **256 blocks** (~4 minutes on Yominet's ~1s blocks) of commit
+- Reveal must happen within **256 blocks** of commit — 6 to 10 minutes at the cadence measured in October 2026 (1.5–2.3 s per block, varying with activity); count blocks, never minutes
 
 ### Kami Stats at Creation
 

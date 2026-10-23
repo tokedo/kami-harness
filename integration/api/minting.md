@@ -94,7 +94,7 @@ console.log("Kamis revealed!");
 
 ### Notes
 
-- **Wait at least 1 block between `mint()` and `reveal()`** for randomness security. Yominet blocks arrive about every 2 s on average and in bursts (the gap between blocks ranges from under a second to tens of seconds), so a fixed delay does not guarantee the next block; wait until the block number has moved past the mint's block:
+- **Wait at least 1 block between `mint()` and `reveal()`** for randomness security. On Yominet whole days in October 2026 averaged 1.5 to 2.3 s per block (37,800 to 53,800 blocks a day), varying with activity, and blocks arrive in bursts (the gap between blocks ranges from under a second to tens of seconds), so a fixed delay does not guarantee the next block; wait until the block number has moved past the mint's block:
   ```javascript
   const mintReceipt = await mintTx.wait();
   while ((await provider.getBlockNumber()) <= mintReceipt.blockNumber) {
@@ -237,7 +237,7 @@ console.log("Gacha ticket purchased via auction!");
 |-------|-------|-----|
 | Insufficient gacha tickets | Tried to mint without enough tickets | Buy tickets via `system.auction.buy` first |
 | Commit not found | Invalid commit ID passed to `reveal()` | Extract commit IDs from the mint transaction receipt |
-| Same-block reveal | Called `reveal()` in the same block as `mint()` | Wait at least 1 block (~2 seconds on Yominet) |
+| Same-block reveal | Called `reveal()` in the same block as `mint()` | Wait until the block number has moved past the mint's block (count blocks, never seconds) |
 | Insufficient MUSU | Cannot afford gacha ticket at current GDA price | Earn MUSU via harvesting, then retry |
 
 See [Common Errors](../errors.md) for the full error reference.

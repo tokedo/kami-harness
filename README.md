@@ -164,7 +164,7 @@ CSV reference data — some is loaded directly by tools (e.g.
 
 | File | Contents |
 |---|---|
-| [nodes.csv](catalogs/nodes.csv) | Harvest nodes: affinity, drops, level limits, scav cost |
+| [nodes.csv](catalogs/nodes.csv) | Harvest nodes: affinity, drops, level limits, yield item, scav cost — upstream deploy data `packages/contracts/deployment/world/data/rooms/nodes.csv` at `04cb25f8`, in this repo's eight columns |
 | [items.csv](catalogs/items.csv) | Items: type, tradability, stats |
 | [skills.csv](catalogs/skills.csv) | Skill trees: effects, costs, tiers, exclusions |
 | [recipes.csv](catalogs/recipes.csv) | Crafting recipes: inputs, outputs, stamina cost |

@@ -1667,6 +1667,15 @@ def _is_registered_account(entity_id: int) -> bool:
 # days (LibSoulbound.set, NewbieVendorBuySystem), the only binder at the
 # pin. While bound the chain refuses these with "kami is soulbound".
 _SOULBIND_REFUSES = "send / reroll / sacrifice / listing / offers / unstaking"
+
+# A commit-reveal window, in blocks first (5.0.0): the block cadence is
+# not constant — whole days in October 2026 averaged 1.5 to 2.3 s per
+# block (37,800 to 53,800 blocks a day), moving with activity.
+_WINDOW_256 = (
+    "256 blocks — 6 to 10 minutes at the cadence measured in October "
+    "2026 (1.5–2.3 s per block, varying with activity); count blocks, "
+    "never minutes"
+)
 _SOULBOUND_REVERT = "kami is soulbound"
 
 
@@ -2655,7 +2664,8 @@ _GONE_SPACING_S = 1.0
 _DRAIN_BUDGET_S = 30
 # How many blocks back a collision search looks for the transaction that
 # consumed a nonce, when it is not one this harness signed (one batched
-# read; blocks average ~2 s apart and come in bursts: about 2 min of history).
+# read; at the cadence measured in October 2026, 1.5-2.3 s per block and
+# varying with activity, about 1.5 to 2.5 min of history).
 _CONSUMER_SCAN_BLOCKS = 64
 
 # A gap fill is a zero-value transfer to self. eth_estimateGas for a
@@ -11638,7 +11648,7 @@ def _send_reveal_tx(account: str, ids: list[int]) -> dict:
         raise PreTxValidationError(
             f"reveal gas estimation reverted: {_revert_text(e)}. A "
             f"droptable commit is revealable only in a later block than "
-            f"its claim and within 256 blocks (~6 min) of it; after "
+            f"its claim and within {_WINDOW_256} of it. After "
             f"that the claim block's blockhash is unavailable and the "
             f"commit cannot be revealed by any player action."
         )
@@ -11661,9 +11671,11 @@ def scavenge_claim(node_index: int, account: str = "main") -> dict:
     """Claim scavenge rewards for a node.
 
     Triggers droptable commit(s) that must be revealed in a later block
-    and within 256 blocks (~6 min) — the reveal seed is the claim
-    block's blockhash, unavailable after that; an expired commit cannot
-    be revealed by any player action. Returns commit_ids for
+    and within 256 blocks — 6 to 10 minutes at the cadence measured in
+    October 2026 (1.5–2.3 s per block, varying with activity); count
+    blocks, never minutes. The reveal seed is the claim block's
+    blockhash, unavailable after that; an expired commit cannot be
+    revealed by any player action. Returns commit_ids for
     droptable_reveal as decimal strings.
 
     Validates before signing (no gas spent on failure): account
@@ -11698,7 +11710,9 @@ def droptable_reveal(commit_ids: list[str], account: str = "main") -> dict:
     """Reveal droptable commits to receive items.
 
     Must run in a later block than the claim that created the commits
-    and within 256 blocks (~6 min) of it — the reveal seed is the claim
+    and within 256 blocks of it — 6 to 10 minutes at the cadence
+    measured in October 2026 (1.5–2.3 s per block, varying with
+    activity); count blocks, never minutes. The reveal seed is the claim
     block's blockhash, unavailable after that window; an expired commit
     cannot be revealed by any player action. Gas is estimated per call
     with a 1.5x buffer (cost scales with the roll count).
@@ -11748,7 +11762,9 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
     Waits for the next block after the claim, then reveals until every
     commit is drained — a reveal processes at most 5,000 rolls, so a
     big claim takes several (each with estimated gas, 3 attempts).
-    Commits expire 256 blocks (~6 min) after the claim block. A commit
+    Commits expire 256 blocks after the claim block — 6 to 10 minutes
+    at the cadence measured in October 2026 (1.5–2.3 s per block,
+    varying with activity); count blocks, never minutes. A commit
     already revealed elsewhere is not revealed again and `notice`
     says so. A reveal failure raises with the claim result and
     commit_ids for droptable_reveal; the claim is final either way.
@@ -11870,8 +11886,9 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
             "scavenge_claim_and_reveal",
             f"the claim landed and succeeded, but the reveal failed "
             f"after 3 attempts (most recent failure: {last_failure}). "
-            f"The commits expire 256 blocks (~6 min) after claim block "
-            f"{claim_block}; after that the claim block's blockhash is "
+            f"The commits expire {_WINDOW_256} after claim block "
+            f"{claim_block}, at block {claim_block + 256}. After that the "
+            f"claim block's blockhash is "
             f"unavailable and the commits cannot be revealed by any "
             f"player action.",
             {
@@ -14225,7 +14242,7 @@ def _send_gacha_reveal_tx(account: str, ids: list[int]) -> dict:
         raise PreTxValidationError(
             f"gacha reveal gas estimation reverted: {_revert_text(e)}. A "
             f"gacha commit is revealable only in a later block than its "
-            f"commit and within 256 blocks (~4 min) of it; after that the "
+            f"commit and within {_WINDOW_256} of it. After that the "
             f"commit block's blockhash is unavailable and the commit "
             f"cannot be revealed by a player transaction."
         )
@@ -14286,8 +14303,9 @@ def _gacha_commit_and_reveal(
             tool,
             f"the commit landed and succeeded, but the reveal failed "
             f"after 3 attempts (most recent failure: {last_failure}). "
-            f"The commits expire 256 blocks (~4 min) after commit block "
-            f"{commit_block}; run gacha_reveal with the commit_ids below "
+            f"The commits expire {_WINDOW_256} after commit block "
+            f"{commit_block}, at block {commit_block + 256}. Run "
+            f"gacha_reveal with the commit_ids below "
             f"before then, or the commits cannot be revealed by a player "
             f"transaction.",
             {
@@ -14313,8 +14331,10 @@ def gacha_use(amount: int = 1, account: str = "main") -> dict:
     the kamis received are drawn at random from the whole pool, not
     necessarily the ones just created. The reveal is a second transaction
     in a later block: the call waits and reveals automatically (3
-    attempts). Commits expire 256 blocks
-    (~4 min) after the commit block (the draw seed is its blockhash);
+    attempts). Commits expire 256 blocks after the commit block (the
+    draw seed is its blockhash) — 6 to 10 minutes at the cadence
+    measured in October 2026 (1.5–2.3 s per block, varying with
+    activity); count blocks, never minutes;
     the call returns normally only when both confirmed. A reveal
     failure raises with the commit result and commit_ids for
     gacha_reveal; the ticket spend is final either way. New kamis
@@ -14364,7 +14384,9 @@ def gacha_reroll(kami_ids: list[int], account: str = "main") -> dict:
     progress (level, XP, skills), and enters the shared pool; the
     reveal draws the same number of random kamis in a later block. The
     call waits and reveals automatically (3 attempts); commits expire
-    256 blocks (~4 min) after the commit block, and the call returns
+    256 blocks after the commit block — 6 to 10 minutes at the cadence
+    measured in October 2026 (1.5–2.3 s per block, varying with
+    activity); count blocks, never minutes — and the call returns
     normally only when both confirmed. A reveal failure raises with the
     commit result and commit_ids for gacha_reveal; the deposit and
     ticket spend are final either way.
@@ -14413,8 +14435,10 @@ def gacha_reveal(commit_ids: list[str], account: str = "main") -> dict:
     gacha_use and gacha_reroll reveal automatically in the same call;
     this recovers commits whose in-call reveal failed, taking their
     commit_ids from those tools' results or error text. The reveal must
-    run in a later block than the commit and within 256 blocks (~4 min)
-    of it; past the window no player transaction can reveal it.
+    run in a later block than the commit and within 256 blocks of it —
+    6 to 10 minutes at the cadence measured in October 2026 (1.5–2.3 s
+    per block, varying with activity); count blocks, never minutes. Past
+    the window no player transaction can reveal it.
 
     Args:
         commit_ids: Commit entity IDs as decimal or 0x-hex strings
