@@ -157,13 +157,13 @@ class TestLoadExportsConfigOnly:
             "ZZ_CONFIG_URL=http://example.invalid\n"
             "ZZ_CONFIG_MODE=envelope\n"
             f"MAIN_OWNER_KEY={SENTINEL}\n"
-            "MAIN_PRIVY_ID=did:privy:zz\n"
+            "MAIN_API_SECRET=zz\n"
             "SOME_TOKEN=tok\n"
         )
         secrets_store.load()
         assert os.environ["ZZ_CONFIG_URL"] == "http://example.invalid"
         assert os.environ["ZZ_CONFIG_MODE"] == "envelope"
-        for name in ("MAIN_OWNER_KEY", "MAIN_PRIVY_ID", "SOME_TOKEN"):
+        for name in ("MAIN_OWNER_KEY", "MAIN_API_SECRET", "SOME_TOKEN"):
             assert name not in os.environ, name
         assert SENTINEL not in "\x00".join(os.environ.values())
 
@@ -216,12 +216,12 @@ class TestPutRouting:
         assert secrets_store.get("ZZ_OWNER_KEY") == SENTINEL
 
         secrets_store.put("ZZ_OWNER_KEY", KEY_A)          # protected
-        secrets_store.put("ZZ_KAMIBOTS_API_KEY", "kb-x")  # not protected
+        secrets_store.put("ZZ_OTHER_API_KEY", "kb-x")     # not protected
 
         assert list(written) == ["ZZ_OWNER_KEY"]
         assert written["ZZ_OWNER_KEY"] == KEY_A  # replaced, not appended
         assert "ZZ_OWNER_KEY" not in store.keys.read_text()
-        assert "ZZ_KAMIBOTS_API_KEY" in store.keys.read_text()
+        assert "ZZ_OTHER_API_KEY" in store.keys.read_text()
 
     def test_refuses_empty(self, store):
         with pytest.raises(ValueError, match="empty secret"):

@@ -40,13 +40,6 @@ Kamigotchi perception and action as tools; any MCP client can drive it.
   Node.js 20+ or Docker. Set it up in step 7. Without it, those tools
   raise `LensUnavailableError` and the rest of the surface is
   unaffected.
-- **Kamibots account** (optional): needed only to delegate standing
-  strategies to the Kamibots service (the 9 OUTSOURCE tools). The
-  client calls `register_kamibots(account=...)`, which signs with the
-  owner key and provisions an API key automatically; starting a
-  strategy additionally requires the explicit operator-key escrow step
-  `kamibots_enable_strategies`. No world-state read comes from this
-  service: every one comes from kami-lens or the chain.
 
 ## 2. Clone the repo
 
@@ -174,8 +167,8 @@ one more, once per server process; §11). The other 7 read the chain directly (o
 `get_expected_objective`, the local quest catalog). Until the daemon
 is running, the 27 raise
 `LensUnavailableError` — they never fall back to a hosted service and
-never return an empty result in its place. ACT, OUTSOURCE, and META
-tools do not depend on it.
+never return an empty result in its place. ACT and META tools do not
+depend on it.
 
 This server version is pinned to kami-lens release **1.0.5**, commit
 `e604290`, as declared in [`SPEC.md`](SPEC.md) D1. **1.0.1 or newer is
@@ -351,18 +344,6 @@ no configuration and no restart.
 If `lens_status()` errors instead of answering, the daemon from step 7
 is not reachable — no other read will work until it is.
 
-Only if you intend to delegate standing strategies to Kamibots:
-
-```
-register_kamibots(account="main")          # OUTSOURCE: owner-signed, provisions API key
-kamibots_enable_strategies(account="main") # OUTSOURCE: escrows the OPERATOR key
-get_tier(account="main")                   # OUTSOURCE: tier, tax rate, slots
-```
-
-The escrow step hands the operator private key to a third-party service
-that then signs with it; read `kamibots_enable_strategies`'s description
-before calling it. Owner keys are never sent.
-
 After that, every other tool is available. An account that exists only
 as an owner key (no operator, no on-chain registration, funds still on
 Ethereum mainnet) is brought to a playable state through the tool
@@ -410,10 +391,6 @@ untouched. `lens_status()` says why. A cold start needs a minute.
 The quest catalogs are committed in `catalogs/quests/`. If they're
 missing, you have an incomplete clone — `git pull` to refresh.
 
-### `register_kamibots` fails with a signature error
-The owner key in the secret store (the keys file by default) doesn't
-match the owner address in `roster.yaml`, or the owner address isn't
-the on-chain owner of the operator. Recheck both.
 
 ### A large harvest batch is refused before it is sent
 `harvest_start`, `harvest_stop`, and `harvest_collect` take at most

@@ -54,7 +54,6 @@ class TestOwnerOnlyLoad:
             "main": {
                 "operator_address": None,
                 "owner_address": OWNER_ADDR,
-                "kamibots_registered": False,
             }
         }
 

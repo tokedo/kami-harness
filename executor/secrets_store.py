@@ -73,6 +73,10 @@ MANIFEST_PATH: Path | None = (
 )
 
 _KC_ACCOUNT = getpass.getuser()
+# The last two are a guard, not a name anything here reads or writes: the
+# delegation service's account id, which 4.6.x wrote into keys files and
+# 5.0.0 reads nowhere. A keys file may still hold it, and a secret-shaped
+# name is never exported to the environment a child process inherits.
 _SECRET_SUFFIXES = ("_KEY", "_TOKEN", "_SECRET", "_PRIVY_ID")
 _SECRET_EXACT = {"PRIVY_ID"}
 

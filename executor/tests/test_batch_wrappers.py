@@ -1,8 +1,7 @@
-"""Offline tests for the batch-wrapper tools and Kamibots status read.
+"""Offline tests for the batch-wrapper tools.
 
-Covers feed_level_allocate_batch, equip_all_batch, unequip_all_batch,
-speed_craft_batch, and get_all_strategy_statuses. No network, keys, or
-chain access.
+Covers feed_level_allocate_batch, equip_all_batch, unequip_all_batch
+and speed_craft_batch. No network, keys, or chain access.
 """
 
 import asyncio
@@ -229,60 +228,33 @@ class TestSpeedCraftBatch:
             server.speed_craft_batch(29, 0, account="testa")
 
 
-class TestGetAllStrategyStatuses:
-    def test_happy_path_endpoint(self, accounts, monkeypatch):
-        seen = {}
-
-        async def fake_api(method, path, body, account):
-            seen["method"] = method
-            seen["path"] = path
-            seen["account"] = account
-            return {"strategies": []}
-
-        monkeypatch.setattr(server, "_strategy_api", fake_api)
-        r = asyncio.run(server.get_all_strategy_statuses(account="testa"))
-        assert seen["method"] == "GET"
-        assert seen["path"] == "/api/strategies/status/all"
-        assert r == {"strategies": []}
-
-    def test_unregistered_account_raises(self, accounts):
-        # Fabricated accounts have no Kamibots API key; the real
-        # _strategy_api must raise before any network access.
-        with pytest.raises(ValueError, match="No Kamibots API key"):
-            asyncio.run(server.get_all_strategy_statuses(account="testa"))
-
-
-class TestLevelPathNeedsNoKamibotsKey:
-    """The three batch level tools read the level from chain, not from
-    the strategy service.
+class TestLevelPathReadsTheChain:
+    """The three batch level tools read the level from chain, never from
+    a third-party service.
 
     They used to `_api_get("/api/playwright/kami/{id}/")` for
-    `progress.level`, which made them raise "No Kamibots API key for
-    account ..." on any account that had never registered with the
-    third party — while `level_up_kami`, the same on-chain path, worked
-    fine. `noown` is such an account (operator key only, api_key None).
+    `progress.level`, which made them raise a missing-credential error
+    on any account that had never registered with the third party —
+    while `level_up_kami`, the same on-chain path, worked fine. `noown`
+    is an operator-only account.
     """
 
     @staticmethod
     def _forbid_api(monkeypatch):
-        """The level path must reach no strategy service: its client and
-        the async HTTP client both raise if touched. (Until 4.0.0 this
-        patched `_api_get`, the internal read that is gone for good.)"""
-        async def boom(method, path, body, account):
-            raise AssertionError(
-                f"the level path reached the strategy service: {method} {path}"
-            )
-
+        """The level path opens no HTTP client. (Until 4.0.0 it read the
+        level through `_api_get`, an internal read that is gone for
+        good; from 4.6.0 to 4.7.0 this also forbade the strategy
+        service's client, which left with the service at 5.0.0.)"""
         def no_client(*a, **k):
             raise AssertionError("the level path opened an HTTP client")
 
-        monkeypatch.setattr(server, "_strategy_api", boom)
         monkeypatch.setattr(server.httpx, "AsyncClient", no_client)
+        monkeypatch.setattr(server.httpx, "Client", no_client)
 
     def test_level_to_keyless(
         self, accounts, validation_ok, sent, monkeypatch
     ):
-        assert accounts["noown"].api_key is None
+        assert not accounts["noown"].owner_key
         self._forbid_api(monkeypatch)
         # The level read before the loop is 3; read back after it, the
         # chain shows the two level-ups the stub sender landed.
