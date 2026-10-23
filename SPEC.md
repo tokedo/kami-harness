@@ -615,6 +615,16 @@ lane ledger until resolved.
     plus a `decode_error` naming that component, never a substituted
     read. `recoil` still needs the single-call path's pre-send
     `hp_before` and is still omitted on a sequence row.
+  - **Spoils are never negative (5.0.0).** A kill only adds to the
+    killer's harvest bounty, so when the receipt's after-value is below
+    the before-value something drained the bounty between the reads (the
+    killer's own stop or collect): the row states `spoils: null` and a
+    `decode_error` saying the bounty fell between the reads, never the
+    negative difference. In a sequence, a `harvest_stop` of the killer
+    that landed (or is unconfirmed) between two of its kills sets the
+    carried before-value to unknown, as an unconfirmed kill does (K3b),
+    and the later kill's `decode_error` names that step. The take of a
+    harvest is its stop's payout, not summed spoils.
 - Multi-transaction tools raise `BatchTxError` when any item failed. The
   error message carries **every** per-item outcome, successes included,
   and states that successful items are final on-chain and must not be
@@ -1354,6 +1364,7 @@ writer; no other module opens the keys file or the Keychain.
 | All five send paths read their nonce at the `pending` block, asserted at the site, so a stale `latest` sequence from a lagging load-balanced node cannot invite a retry of a non-idempotent transfer | `test_validation.py::TestPendingNonce`, `test_reporting_fidelity.py::TestSenderTerminalStates::test_send_eth_reads_pending_nonce`, `test_bridge.py::TestBroadcastIsFireAndForget::test_mainnet_nonce_read_at_pending` |
 | The three batch level tools read the current level from the chain's Level component and make no third-party call (the guard forbids the HTTP clients), and an unreadable level refuses the call naming its cause rather than defaulting | `test_batch_wrappers.py::TestLevelPathReadsTheChain` |
 | `SPEC.md` exists, is well-formed, and its `describes:` names a ref that resolves in this repository | `test_spec.py::test_spec_frontmatter`, `::test_describes_resolves` |
+| A kill whose killer bounty fell between the two reads states `spoils: null` with a decode_error, never a negative difference; in a sequence, a harvest_stop of the killer between two kills leaves the later kill's spoils null naming that step; two kills in a row still carry the difference (5.0.0) | `test_h500_spoils.py` (5 tests) |
 | The scavenge reveal loop reads every remaining-rolls count at the receipt that changed it: a replica behind the first reveal does not end the loop (it reveals to zero and sums both receipts), a replica behind the claim does not read as revealed elsewhere, a backend that refuses numbered blocks is read at latest once its head reaches the block and the notice says so, and a reveal that does not land names the commits left, the block the remainder was read at and the expiry block; `droptable_reveal` reads its remainder at its receipt (5.0.0) | `test_h500_reveal_reads.py` (7 tests) |
 | After a landed transaction of the signer, the dry-run reads at max(that receipt's block, the head) — never `latest` from a replica behind the receipt (B19's shape: a walk's third hop lands), never the old receipt's block alone (a time-based rule is judged at the head); before any receipt it reads `latest`; a backend that refuses numbered blocks is asked once at `latest` and a refusal there names the block it could not serve (5.0.0) | `test_h500_dry_run_block.py::test_a_lagging_replica_does_not_refuse_the_third_hop`, `::test_the_dry_run_names_a_block_no_older_than_the_last_receipt`, `::test_a_backend_that_refuses_numbered_blocks_falls_back_and_says_so`, `::test_a_fallback_read_that_passes_sends`, `::test_the_pruning_answers_are_a_named_list`, `::test_a_time_based_rule_is_judged_at_the_head` |
 | Nine tools sign with the OPERATOR (patch 0.4.5): the node sees the operator as the sender of `auction_buy`, `create_trade`, `take_trade`, `cancel_trade`, `complete_trade`, `complete_all_trades`, `transfer_items`, `gacha_use`, `gacha_reroll` and the gacha reveal, on a roster whose owner and operator differ; an operator-only roster lands each of the nine (5.0.0) | `test_owner_only.py::TestTheOperatorSigns`, `::TestAnOperatorOnlyRoster` |
