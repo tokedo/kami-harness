@@ -11668,14 +11668,20 @@ def droptable_reveal(commit_ids: list[str], account: str = "main") -> dict:
     result = _send_reveal_tx(account, ids)
     # Read back: a reveal processes at most _REVEAL_ROLLS_PER_TX rolls in
     # one transaction, so a large commit can still hold rolls after it.
-    left = {str(c): v for c, v in _commit_rolls(ids).items() if v}
+    # Read AT this reveal's block (5.0.0): a replica behind it would
+    # answer the count from before it.
+    rolls, _read_at, note = _commit_rolls_after(ids, result["block"])
+    left = {str(c): v for c, v in rolls.items() if v}
     result["rolls_remaining"] = left
+    notes = [note] if note else []
     if left:
-        result["notice"] = (
+        notes.append(
             f"{sum(left.values())} rolls are still unrevealed on "
             f"{len(left)} commit(s); reveal the same commit_ids again "
             f"before the 256-block window closes."
         )
+    if notes:
+        result["notice"] = " ".join(notes)
     return result
 
 
@@ -11735,7 +11741,15 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
     # sent and a reveal that passed it can still revert on chain: both
     # are retried (3 attempts). An unconfirmed reveal is NOT retried — it
     # may still land — and propagates as itself.
-    remaining = _commit_rolls(ids)
+    #
+    # 5.0.0: every count is read AT the block of the receipt that last
+    # changed it — the claim's, then each reveal's (_commit_rolls_after).
+    # A replica behind that block answered the count from before it: right
+    # after the claim, a commit that did not exist yet ("revealed
+    # elsewhere", nothing sent); right after a reveal, the count before
+    # it, so the loop stopped after one reveal with a stale remainder.
+    remaining, read_at, read_note = _commit_rolls_after(ids, claim_block)
+    read_notes = [read_note] if read_note else []
     before = dict(remaining)
     reveals: list[dict] = []
     items: dict[int, dict] = {}
@@ -11781,11 +11795,17 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
             slot = items.setdefault(it["item_index"], dict(it, amount=0))
             slot["amount"] += it["amount"]
         prior = dict(remaining)
-        remaining = _commit_rolls(ids)
+        remaining, read_at, read_note = _commit_rolls_after(
+            ids, reveal_result["block"])
+        if read_note and read_note not in read_notes:
+            read_notes.append(read_note)
         if not remaining:
             break                       # unreadable: cannot loop safely
+        # Read at or after this reveal's own block: an unchanged count is
+        # the chain's answer (the reveal processed none of these rolls),
+        # never a replica's stale one. Do not spin.
         if remaining == prior and all(v for v in remaining.values()):
-            break                       # no progress: do not spin
+            break
 
     revealed_items = list(items.values())
     left = {str(c): v for c, v in remaining.items() if v}
@@ -11816,15 +11836,22 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
         )
     if left and boxed:
         last_failure = None             # stopped by the box, not a failure
+    read_note_text = " ".join(read_notes)
     if left:
         stranded = (
             f"{sum(left.values())} rolls are still unrevealed on "
-            f"{len(left)} commit(s) after {len(reveals)} reveal(s)"
+            f"{len(left)} commit(s) ({', '.join(left)}) after "
+            f"{len(reveals)} reveal(s)"
             + (f" (last failure: {last_failure})" if last_failure else "")
-            + f"; they expire 256 blocks after claim block {claim_block}. "
-            f"droptable_reveal with the same commit_ids reveals the rest."
+            + (f"; the remainder was read at block {read_at}"
+               if read_at is not None else "")
+            + f"; they expire at block {claim_block + 256}, 256 blocks "
+            f"after claim block {claim_block}. droptable_reveal with the "
+            f"same commit_ids reveals the rest."
+            + (f" ({read_note_text})" if read_note_text else "")
         )
         notice = stranded if notice is None else f"{notice} {stranded}"
+        read_note_text = ""             # said inside `stranded`
         if not reveals or last_failure:
             raise BatchTxError(
                 "scavenge_claim_and_reveal", stranded,
@@ -11835,6 +11862,10 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
                     "tx_hash": claim_result.get("tx_hash"),
                 },
             )
+    already_revealed = bool(notice) and not revealed_items and not boxed
+    if read_note_text:
+        notice = (read_note_text if notice is None
+                  else f"{notice} {read_note_text}")
     out: dict = {}
     if notice:
         out["notice"] = notice
@@ -11851,7 +11882,7 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
         # single tx_hash field. `txs` is the complete record.
         "tx_hash": (reveals[-1] if reveals else claim_result).get("tx_hash"),
     })
-    if notice and not revealed_items and not boxed:
+    if already_revealed:
         out["already_revealed"] = True
     if boxed:
         out["time_boxed"] = True
@@ -11865,16 +11896,68 @@ def scavenge_claim_and_reveal(node_index: int, account: str = "main") -> dict:
 _REVEAL_ROLLS_PER_TX = 5_000
 
 
-def _commit_rolls(ids: list[int]) -> dict[int, int]:
+def _read_commit_rolls(ids: list[int], block=None) -> dict[int, int]:
     """Remaining rolls per commit: component.value on the commit entity
-    (0 once drained — the commit is deleted). {} when unreadable."""
+    (0 once drained — the commit is deleted), at `block` (None: latest).
+    Raises when unreadable."""
+    comp = w3.eth.contract(
+        address=_resolve_component("component.value"), abi=_UINT_VALUE_ABI
+    )
+    return {c: int(_call_at(comp.functions.safeGet(c), {}, block))
+            for c in ids}
+
+
+def _commit_rolls(ids: list[int]) -> dict[int, int]:
+    """_read_commit_rolls at latest; {} when unreadable."""
     try:
-        comp = w3.eth.contract(
-            address=_resolve_component("component.value"), abi=_UINT_VALUE_ABI
-        )
-        return {c: int(comp.functions.safeGet(c).call()) for c in ids}
+        return _read_commit_rolls(ids)
     except Exception:
         return {}
+
+
+# How long the reveal read waits for the head to reach its receipt's block
+# when the backend will not serve that block by number (5.0.0).
+_ROLLS_HEAD_WAIT_S = 5.0
+
+
+def _commit_rolls_after(ids: list[int], block: int):
+    """Remaining rolls read AT the block of the receipt that last changed
+    them (5.0.0), so a replica that has not applied that receipt cannot
+    answer the pre-receipt count. Returns (rolls, read_at, note):
+    rolls is {} when unreadable; read_at is the block the count is from
+    (the receipt's, or the head a `latest` read was taken at); note says
+    why the read was not at the receipt's block, or None.
+
+    A backend that refuses the numbered block (_HISTORICAL_STATE_MARKERS)
+    is read at `latest` once its head is at or past the receipt's block,
+    waiting at most _ROLLS_HEAD_WAIT_S."""
+    try:
+        return _read_commit_rolls(ids, block), block, None
+    except Exception as e:
+        why = _revert_text(e)
+        if not _is_historical_refusal(why):
+            return {}, None, (
+                f"the remaining rolls could not be read at block {block} "
+                f"({why[:200]})")
+    waited = 0.0
+    while True:
+        head = _safe_read(lambda: int(w3.eth.block_number))
+        if head is not None and head >= block:
+            try:
+                return _read_commit_rolls(ids), head, (
+                    f"the node could not serve block {block} ({why[:200]}), "
+                    f"so the remaining rolls were read at latest once its "
+                    f"head reached block {head}")
+            except Exception as e2:
+                return {}, None, (
+                    f"the node could not serve block {block} and the read "
+                    f"at latest failed too ({_revert_text(e2)[:200]})")
+        if waited >= _ROLLS_HEAD_WAIT_S:
+            return {}, None, (
+                f"the node could not serve block {block} ({why[:200]}) and "
+                f"its head did not reach it within {_ROLLS_HEAD_WAIT_S:g} s")
+        time.sleep(0.5)
+        waited += 0.5
 
 
 # ---------------------------------------------------------------------------

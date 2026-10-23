@@ -135,8 +135,11 @@ class FakeContract:
                 handler = contract._handlers[fn_name]
 
                 def bind(*args):
+                    # block_identifier (5.0.0): the dry-run and the reveal
+                    # read-back name a block; this stub has one state.
                     return SimpleNamespace(
-                        call=lambda params=None: handler(*args)
+                        call=lambda params=None, block_identifier=None:
+                        handler(*args)
                     )
 
                 return bind

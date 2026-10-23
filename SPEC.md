@@ -654,6 +654,21 @@ lane ledger until resolved.
   landed, stops while 15 s remain, and returns what it did with
   `time_boxed: true` and `remaining` (what it did not attempt); receipt
   waits are clipped to the box. A single-transaction tool is never cut.
+- **A scavenge reveal loop reads at its own receipts (5.0.0).**
+  `scavenge_claim_and_reveal` reveals until every commit reads 0 rolls
+  (a reveal processes at most 5,000), and each count it decides on is
+  read AT the block of the receipt that last changed it — the claim's,
+  then each reveal's — never at `latest` alone, which a replica behind
+  that receipt answers from before it (a commit not yet created read as
+  "revealed elsewhere"; a reveal's count read as unchanged, ending the
+  loop with a stale remainder). A backend that refuses a numbered block
+  is read at `latest` once its head is at or past the receipt's block
+  (at most 5 s), and the result's `notice` says so. The loop ends when
+  every commit reads 0, at its reveal cap, or on a reveal that does not
+  land; a remainder is reported with the commits it is on, the block it
+  was read at and the expiry block (claim block + 256). `revealed_items`
+  is the sum over every landed reveal's own receipt. `droptable_reveal`
+  reads its `rolls_remaining` at its own receipt the same way.
 - **Loops report the chain, not their count.** After a level/skill/feed
   loop the kami's level, XP and unspent skill points are read back from
   chain (`chain`), `reached_level` / `leveled.to` are that read-back,
@@ -1339,6 +1354,7 @@ writer; no other module opens the keys file or the Keychain.
 | All five send paths read their nonce at the `pending` block, asserted at the site, so a stale `latest` sequence from a lagging load-balanced node cannot invite a retry of a non-idempotent transfer | `test_validation.py::TestPendingNonce`, `test_reporting_fidelity.py::TestSenderTerminalStates::test_send_eth_reads_pending_nonce`, `test_bridge.py::TestBroadcastIsFireAndForget::test_mainnet_nonce_read_at_pending` |
 | The three batch level tools read the current level from the chain's Level component and make no third-party call (the guard forbids the HTTP clients), and an unreadable level refuses the call naming its cause rather than defaulting | `test_batch_wrappers.py::TestLevelPathReadsTheChain` |
 | `SPEC.md` exists, is well-formed, and its `describes:` names a ref that resolves in this repository | `test_spec.py::test_spec_frontmatter`, `::test_describes_resolves` |
+| The scavenge reveal loop reads every remaining-rolls count at the receipt that changed it: a replica behind the first reveal does not end the loop (it reveals to zero and sums both receipts), a replica behind the claim does not read as revealed elsewhere, a backend that refuses numbered blocks is read at latest once its head reaches the block and the notice says so, and a reveal that does not land names the commits left, the block the remainder was read at and the expiry block; `droptable_reveal` reads its remainder at its receipt (5.0.0) | `test_h500_reveal_reads.py` (7 tests) |
 | After a landed transaction of the signer, the dry-run reads at max(that receipt's block, the head) — never `latest` from a replica behind the receipt (B19's shape: a walk's third hop lands), never the old receipt's block alone (a time-based rule is judged at the head); before any receipt it reads `latest`; a backend that refuses numbered blocks is asked once at `latest` and a refusal there names the block it could not serve (5.0.0) | `test_h500_dry_run_block.py::test_a_lagging_replica_does_not_refuse_the_third_hop`, `::test_the_dry_run_names_a_block_no_older_than_the_last_receipt`, `::test_a_backend_that_refuses_numbered_blocks_falls_back_and_says_so`, `::test_a_fallback_read_that_passes_sends`, `::test_the_pruning_answers_are_a_named_list`, `::test_a_time_based_rule_is_judged_at_the_head` |
 | Nine tools sign with the OPERATOR (patch 0.4.5): the node sees the operator as the sender of `auction_buy`, `create_trade`, `take_trade`, `cancel_trade`, `complete_trade`, `complete_all_trades`, `transfer_items`, `gacha_use`, `gacha_reroll` and the gacha reveal, on a roster whose owner and operator differ; an operator-only roster lands each of the nine (5.0.0) | `test_owner_only.py::TestTheOperatorSigns`, `::TestAnOperatorOnlyRoster` |
 | The owner-signed set — `register_account`, `buy_kami`, `newbie_vendor_buy`, `portal_deposit`, `portal_withdraw(to="owner")` — refuses an operator-only roster naming the missing owner key, before any read or signature (5.0.0) | `test_owner_only.py::TestTheOwnerOnlySetStillRefuses` |
