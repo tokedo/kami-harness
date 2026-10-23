@@ -43,8 +43,10 @@ def gacha_flow(accounts, validation_ok, monkeypatch):
         "reveal_error": None,
     }
 
-    def commit_owner(account, system_id, abi, args, gas_limit=None,
-                     value_wei=0, return_receipt=False):
+    # 5.0.0: the mint and the reroll sign with the operator (patch 0.4.5,
+    # owner or operator); test_owner_only.py proves the sender on chain.
+    def commit_single(account, system_id, abi, args, gas_limit=None,
+                      return_receipt=False, **kw):
         state["commits"].append({"system": system_id, "args": args})
         res = {"tx_hash": "0xcommit", "status": "success", "block": 10,
                "gas_used": 1_000_000, "account": account}
@@ -71,7 +73,7 @@ def gacha_flow(accounts, validation_ok, monkeypatch):
             raise state["reveal_error"]
         return dict(state["reveal_result"])
 
-    monkeypatch.setattr(server, "_send_tx_owner", commit_owner)
+    monkeypatch.setattr(server, "_send_tx", commit_single)
     monkeypatch.setattr(server, "_send_batch_tx", commit_batch)
     monkeypatch.setattr(server, "_send_gacha_reveal_tx", reveal)
     monkeypatch.setattr(server.time, "sleep", lambda s: None)
@@ -178,7 +180,7 @@ class TestGachaReroll:
         commit = gacha_flow["commits"][0]
         assert commit["system"] == "system.kami.gacha.reroll"
         assert commit["fn_name"] == "reroll"
-        assert commit["use_owner"] is True
+        assert commit["use_owner"] is False
         assert commit["args"] == [
             [server._kami_entity_id(45), server._kami_entity_id(46)]
         ]

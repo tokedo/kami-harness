@@ -133,7 +133,7 @@ Sources:
 
 ### Mint
 
-**Commit** — `system.kami.gacha.mint` (Owner wallet)
+**Commit** — `system.kami.gacha.mint` (owner or operator wallet since patch 0.4.5; this server signs with the operator)
 ```
 executeTyped(uint256 amount)
 ```
@@ -149,11 +149,11 @@ reveal(uint256[] commitIDs)   // NOT executeTyped; execute() reverts
 
 ### Reroll
 
-**Commit** — `system.kami.gacha.reroll` (Owner wallet)
+**Commit** — `system.kami.gacha.reroll` (owner or operator wallet since patch 0.4.5; this server signs with the operator)
 ```
 reroll(uint256[] kamiIDs)
 ```
-- Kamis must be `RESTING` and owned by you
+- Kamis must be `RESTING`, owned by you and not soulbound (since patch 0.4.5)
 - Deducts `kamiIDs.length` Reroll Tokens
 
 **Reveal** — same as mint reveal

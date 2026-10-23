@@ -136,12 +136,18 @@ class TestTransferItems:
         assert r["status"] == "success"
         assert r["destination"] == dest
 
-    def test_requires_owner_key(self, accounts, chain, sent):
-        with pytest.raises(ValueError, match="no owner key"):
-            server.transfer_items(
-                [30004], [1], to_account="testb", account="noown"
-            )
-        assert sent == []
+    def test_needs_no_owner_key(self, accounts, chain, sent, monkeypatch):
+        """5.0.0 (patch 0.4.5): the operator signs an item transfer, so an
+        operator-only source sends (it refused for want of an owner key
+        through 4.7.0). The sender is proven on chain in test_owner_only."""
+        self._xfer_chain(chain)
+        monkeypatch.setattr(server, "_require_registered_operator",
+                            lambda a: 0x9999)
+        r = server.transfer_items(
+            [30004], [1], to_account="testb", account="noown"
+        )
+        assert r["status"] == "success"
+        assert sent[0]["system"] == "system.item.transfer"
 
     def test_shape_validation(self, accounts, chain, sent):
         with pytest.raises(ValueError, match="exactly one"):

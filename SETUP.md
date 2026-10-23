@@ -74,6 +74,19 @@ chmod 600 ~/.blocklife-keys/.env
 # Add more accounts as needed: FARM1_OPERATOR_KEY=, FARM1_OWNER_KEY=
 ```
 
+The keys file a deployment reads is `KAMI_KEYS_FILE` (default
+`~/.blocklife-keys/.env`). A new account can start owner-only
+(`{LABEL}_OWNER_KEY` alone): `create_operator_wallet` generates the
+operator key and writes it beside the owner's. It can also run
+operator-only — `{LABEL}_OPERATOR_KEY` and no owner key, the owner
+wallet kept elsewhere: since 5.0.0 trades, item transfers, auction buys
+and gacha sign with the operator, so every game action works, and only
+the owner-signed tools refuse, naming the missing key —
+`register_account`, `buy_kami`, `newbie_vendor_buy`, `portal_deposit`,
+`portal_withdraw(to="owner")` and an owner receipt's `portal_claim` /
+`portal_cancel`, `fund_operator`, `withdraw_operator` and
+`bridge_eth_from_mainnet`.
+
 ### Where the nonce ledger lives
 
 Every send records what it signed in a small per-wallet ledger so that a

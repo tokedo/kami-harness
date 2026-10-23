@@ -73,7 +73,7 @@ Kamigotchi has **67 documented player-facing systems** in the World contract. Ea
 | System ID | Description | Wallet | Page |
 |-----------|-------------|--------|------|
 | `system.item.burn` | Burn items | Operator | [Items](api/items-and-crafting.md) |
-| `system.item.transfer` | Transfer items | Owner | [Items](api/items-and-crafting.md) |
+| `system.item.transfer` | Transfer items | Owner or Operator | [Items](api/items-and-crafting.md) |
 | `system.craft` | Craft item from recipe | Operator | [Items](api/items-and-crafting.md) |
 | `system.droptable.item.reveal` | Reveal droptable items | Any | [Items](api/items-and-crafting.md) |
 
@@ -89,10 +89,10 @@ Kamigotchi has **67 documented player-facing systems** in the World contract. Ea
 
 | System ID | Description | Wallet | Page |
 |-----------|-------------|--------|------|
-| `system.trade.create` | Create a trade | Owner | [Trading](api/trading.md) |
-| `system.trade.execute` | Execute a trade (taker) | Owner | [Trading](api/trading.md) |
-| `system.trade.complete` | Complete a trade (maker) | Owner | [Trading](api/trading.md) |
-| `system.trade.cancel` | Cancel a trade (maker) | Owner | [Trading](api/trading.md) |
+| `system.trade.create` | Create a trade | Owner or Operator | [Trading](api/trading.md) |
+| `system.trade.execute` | Execute a trade (taker) | Owner or Operator | [Trading](api/trading.md) |
+| `system.trade.complete` | Complete a trade (maker) | Owner or Operator | [Trading](api/trading.md) |
+| `system.trade.cancel` | Cancel a trade (maker) | Owner or Operator | [Trading](api/trading.md) |
 
 ### Social / Friend Systems
 
@@ -114,9 +114,9 @@ Kamigotchi has **67 documented player-facing systems** in the World contract. Ea
 
 | System ID | Description | Wallet | Page |
 |-----------|-------------|--------|------|
-| `system.kami.gacha.mint` | Mint Kami with gacha ticket | Owner | [Minting](api/minting.md) |
+| `system.kami.gacha.mint` | Mint Kami with gacha ticket | Owner or Operator | [Minting](api/minting.md) |
 | `system.kami.gacha.reveal` | Reveal minted Kami | N/A | [Minting](api/minting.md) |
-| `system.kami.gacha.reroll` | Reroll Kami | Owner | [Minting](api/minting.md) |
+| `system.kami.gacha.reroll` | Reroll Kami | Owner or Operator | [Minting](api/minting.md) |
 | `system.buy.gacha.ticket` | Buy gacha tickets (deprecated — use `system.auction.buy` instead) | Owner | [Minting](api/minting.md) |
 
 ### Getter / View Systems
@@ -167,7 +167,7 @@ Kamigotchi has **67 documented player-facing systems** in the World contract. Ea
 
 | System ID | Description | Wallet | Page |
 |-----------|-------------|--------|------|
-| `system.auction.buy` | Buy from auction | Owner | [Listings](api/listings.md) |
+| `system.auction.buy` | Buy from auction | Owner or Operator | [Listings](api/listings.md) |
 
 ---
 

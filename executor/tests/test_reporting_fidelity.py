@@ -450,7 +450,7 @@ class TestCompleteAllTradesMatrix:
         self, accounts, two_executed, monkeypatch
     ):
         monkeypatch.setattr(
-            server, "_send_tx_owner", _failing_sender({2}, [])
+            server, "_send_tx", _failing_sender({2}, [])
         )
         with pytest.raises(server.BatchTxError) as ei:
             server.complete_all_trades(account="testa")
@@ -462,7 +462,7 @@ class TestCompleteAllTradesMatrix:
         self, accounts, two_executed, monkeypatch
     ):
         monkeypatch.setattr(
-            server, "_send_tx_owner", _failing_sender({2}, [])
+            server, "_send_tx", _failing_sender({2}, [])
         )
         r = server.complete_all_trades(account="testa", allow_partial=True)
         assert r["completed"] == 1 and r["failed"] == 1

@@ -147,7 +147,7 @@ Transfer items to another account.
 | Property | Value |
 |----------|-------|
 | **System ID** | `system.item.transfer` |
-| **Wallet** | 🔐 Owner |
+| **Wallet** | 🔐 Owner or 🎮 Operator (since patch 0.4.5) |
 | **Gas** | Default |
 
 ### Parameters
@@ -156,7 +156,7 @@ Transfer items to another account.
 |------|------|-------------|
 | `indices` | `uint32[]` | Array of item indices to transfer |
 | `amts` | `uint256[]` | Array of amounts for each item |
-| `targetID` | `uint256` | Entity ID of the receiving account |
+| `targetID` | `uint256` | Entity ID of the receiving account — it must be an account (since patch 0.4.5 the system reverts `ItemTransfer: target is not an account`; before it, items sent to any other id were credited to that id and lost) |
 
 ### Description
 

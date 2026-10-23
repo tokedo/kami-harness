@@ -15,7 +15,7 @@ Create a new trade offer.
 | Property | Value |
 |----------|-------|
 | **System ID** | `system.trade.create` |
-| **Wallet** | 🔐 Owner |
+| **Wallet** | 🔐 Owner or 🎮 Operator (since patch 0.4.5) |
 | **Gas** | Default |
 
 ### Parameters
@@ -74,7 +74,7 @@ Execute (accept) a pending trade.
 | Property | Value |
 |----------|-------|
 | **System ID** | `system.trade.execute` |
-| **Wallet** | 🔐 Owner |
+| **Wallet** | 🔐 Owner or 🎮 Operator (since patch 0.4.5) |
 | **Gas** | Default |
 
 ### Parameters
@@ -116,7 +116,7 @@ Complete an executed trade.
 | Property | Value |
 |----------|-------|
 | **System ID** | `system.trade.complete` |
-| **Wallet** | 🔐 Owner |
+| **Wallet** | 🔐 Owner or 🎮 Operator (since patch 0.4.5) |
 | **Gas** | Default |
 
 ### Parameters
@@ -160,7 +160,7 @@ Cancel a pending trade.
 | Property | Value |
 |----------|-------|
 | **System ID** | `system.trade.cancel` |
-| **Wallet** | 🔐 Owner |
+| **Wallet** | 🔐 Owner or 🎮 Operator (since patch 0.4.5) |
 | **Gas** | Default |
 
 ### Parameters

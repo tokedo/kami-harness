@@ -550,11 +550,16 @@ def _kami_entity_id(kami_index: int) -> int:
 
 
 def _account_entity_id(account: str) -> int:
-    """Derive account entity ID from owner wallet address: uint256(address)."""
+    """The account entity of a roster label: uint256(owner address) when
+    the roster holds the owner key; else (5.0.0) the account the label's
+    operator wallet is bound to on chain — an operator-only roster, whose
+    owner wallet stays elsewhere. Raises when neither resolves."""
     acct = _get_account(account)
-    if not acct.owner_addr:
-        raise ValueError(f"Account '{account}' has no owner address")
-    return int(acct.owner_addr, 16)
+    if acct.owner_addr:
+        return int(acct.owner_addr, 16)
+    if acct.has_operator:
+        return _require_registered_operator(account)
+    raise ValueError(f"Account '{account}' has no owner address")
 
 
 def _harvest_entity_id(kami_index: int) -> int:
@@ -1602,6 +1607,86 @@ def _require_registered_owner(account: str) -> int:
         )
     _owner_registered_cache.add(acct.owner_addr)
     return eid
+
+
+def _is_registered_account(entity_id: int) -> bool:
+    """Whether an entity is an account: its Name component is set (the
+    _require_registered_owner read). Registration requires a name, and
+    no address-derived entity other than an account carries one."""
+    name_comp = w3.eth.contract(
+        address=_resolve_component("component.name"), abi=_STRING_VALUE_ABI
+    )
+    return bool(name_comp.functions.safeGet(entity_id).call())
+
+
+# Patch 0.4.5 (upstream 04cb25f8): the newcomer vendor binds a kami for 3
+# days (LibSoulbound.set, NewbieVendorBuySystem), the only binder at the
+# pin. While bound the chain refuses these with "kami is soulbound".
+_SOULBIND_REFUSES = "send / reroll / sacrifice / listing / offers / unstaking"
+_SOULBOUND_REVERT = "kami is soulbound"
+
+
+def _soulbound_entity_id(kami_index: int) -> int:
+    """LibSoulbound._entity: keccak256(abi.encode(kamiID, "SOULBOUND")) —
+    abi.encode, not packed (the string is a dynamic tail)."""
+    return int.from_bytes(Web3.keccak(eth_abi.encode(
+        ["uint256", "string"], [_kami_entity_id(kami_index), "SOULBOUND"])),
+        "big")
+
+
+def _soulbound_until(kami_index: int) -> int:
+    """Unix second the kami's soulbind ends; 0 if it was never bound."""
+    comp = w3.eth.contract(
+        address=_resolve_component("component.value"), abi=_UINT_VALUE_ABI
+    )
+    return int(comp.functions.safeGet(_soulbound_entity_id(kami_index)).call())
+
+
+def _soulbind_fact(kami_index: int, until: int, now: int) -> str:
+    iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(until))
+    return (f"kami {kami_index} is soulbound until {iso} "
+            f"({(until - now) / 3600:.1f} h left)")
+
+
+def _soulbind_refusal(facts: list[str]) -> str:
+    return (f"{'; '.join(facts)}; the chain refuses {_SOULBIND_REFUSES} "
+            f"until then")
+
+
+def _soulbound_facts(kami_ids: list[int]) -> tuple[list[str], set[int]]:
+    """(facts, bound kami ids) for the kamis whose bind has not ended at
+    the chain's latest block time. A kami whose expiry cannot be read is
+    left to the dry-run, which refuses with the chain's own text."""
+    now = _safe_read(lambda: int(w3.eth.get_block("latest")["timestamp"]))
+    if now is None:
+        now = int(time.time())
+    facts, bound = [], set()
+    for k in kami_ids:
+        until = _safe_read(_soulbound_until, k)
+        if until and until > now:
+            facts.append(_soulbind_fact(k, until, now))
+            bound.add(k)
+    return facts, bound
+
+
+def _require_not_soulbound(kami_ids: list[int]) -> None:
+    """Pre-send gate (5.0.0): refuse a bound kami with its end time."""
+    facts, _bound = _soulbound_facts(kami_ids)
+    if facts:
+        raise PreTxValidationError(_soulbind_refusal(facts))
+
+
+def _soulbind_race(e: PreTxValidationError, kami_ids: list[int]):
+    """A dry-run refused with the chain's "kami is soulbound" (a bind the
+    pre-send read did not see): the same fact message, re-read. Any
+    other refusal is returned unchanged."""
+    if _SOULBOUND_REVERT not in str(e) or getattr(e, "infrastructure", False):
+        return e
+    facts, _bound = _soulbound_facts(kami_ids)
+    return PreTxValidationError(_soulbind_refusal(facts) if facts else (
+        f"the chain refused with '{_SOULBOUND_REVERT}' (one of kamis "
+        f"{', '.join(str(k) for k in kami_ids)}; its end time could not be "
+        f"read); the chain refuses {_SOULBIND_REFUSES} until the bind ends"))
 
 
 def _kami_state(kami_index: int) -> str:
@@ -4341,14 +4426,17 @@ def register_account(name: str, account: str = "main") -> dict:
     if any(c.isspace() for c in name):
         raise ValueError(f"Name '{name}' contains whitespace — not allowed.")
 
-    addr = _resolve_system("system.account.register")
-    contract = w3.eth.contract(address=addr, abi=_ABI_ACCOUNT_REGISTER)
+    # The shared dry-run gate (5.0.0): an infrastructure failure is "not
+    # performed", never a revert, and a refusal re-resolves a moved
+    # system once. A refusal keeps the hint its revert has always had.
     try:
-        contract.functions.executeTyped(operator_addr, name).call(
-            {"from": acct.owner_addr}
-        )
-    except Exception as e:
-        reason = str(e)
+        _validated_fn("system.account.register", _ABI_ACCOUNT_REGISTER,
+                      "executeTyped", [operator_addr, name],
+                      acct.owner_addr, account=account)
+    except PreTxValidationError as e:
+        if getattr(e, "infrastructure", False):
+            raise
+        reason = e.detail
         hint = ""
         if "exists for Owner" in reason:
             hint = " This owner wallet is already registered."
@@ -4360,7 +4448,8 @@ def register_account(name: str, account: str = "main") -> dict:
                     "operator.")
         elif "name taken" in reason:
             hint = f" The name '{name}' is taken — pick another."
-        raise ValueError(f"Registration would revert: {reason}.{hint}")
+        raise PreTxValidationError(
+            f"Registration would revert: {reason}.{hint}") from None
 
     result = _send_tx_owner(
         account,
@@ -6891,7 +6980,7 @@ def auction_buy(
 ) -> dict:
     """Buy items from the global Dutch auction (Marketplace room 66).
 
-    Uses the OWNER wallet (not operator). GDA-priced: decays over time,
+    GDA-priced: decays over time,
     each purchase resets the price upward. No room gating on the tx
     itself, but MSQ 29 ("Buy something in the Marketplace") is satisfied
     by this system.
@@ -6905,7 +6994,7 @@ def auction_buy(
         amount: Amount to buy (uint32).
     """
     try:
-        return _send_tx_owner(
+        return _send_tx(
             account,
             "system.auction.buy",
             _ABI_AUCTION_BUY,
@@ -7910,9 +7999,6 @@ def equip_all_batch(
             'equips is empty; pass a list of {"kami_id", "item_index"} dicts'
         )
 
-    contract = w3.eth.contract(
-        address=_resolve_system("system.kami.equip"), abi=_ABI_EQUIP
-    )
     results: list[dict] = []
     equipped = 0
     skipped = 0
@@ -7955,18 +8041,19 @@ def equip_all_batch(
             skipped += 1
             continue
         # Dry-run gate: skip if equip would revert (item missing, not
-        # RESTING). No speculative tx.
+        # RESTING). No speculative tx. The shared gate (5.0.0): an
+        # infrastructure failure is "not performed", never a revert, and
+        # a refusal re-resolves a moved system once.
         try:
-            contract.functions.executeTyped(eid, item_index).call(
-                {"from": op_addr}
-            )
-        except Exception as e:
+            _validated_fn("system.kami.equip", _ABI_EQUIP, "executeTyped",
+                          [eid, item_index], op_addr, account=account)
+        except PreTxValidationError as e:
             results.append(
                 {
                     "kami_id": ki,
                     "item_index": item_index,
                     "status": "skipped",
-                    "reason": _err_text(e)[:120],
+                    "reason": e.detail[:200],
                 }
             )
             skipped += 1
@@ -8059,9 +8146,6 @@ def unequip_all_batch(
     if not kami_ids:
         raise PreTxValidationError("kami_ids is empty; pass kami token indices")
 
-    contract = w3.eth.contract(
-        address=_resolve_system("system.kami.unequip"), abi=_ABI_UNEQUIP
-    )
     results: list[dict] = []
     unequipped = 0
     skipped_empty = 0
@@ -8078,15 +8162,17 @@ def unequip_all_batch(
             time.sleep(delay_seconds)
         processed += 1
         eid = _kami_entity_id(ki)
-        # Dry-run gate: skip empty slots (no speculative tx).
+        # Dry-run gate: skip empty slots (no speculative tx). The shared
+        # gate (5.0.0): an infrastructure failure is "not performed",
+        # never a revert, and a refusal re-resolves a moved system once.
         try:
-            contract.functions.executeTyped(eid, slot_type).call(
-                {"from": op_addr}
-            )
-        except Exception as e:
-            msg = str(e)
+            _validated_fn("system.kami.unequip", _ABI_UNEQUIP,
+                          "executeTyped", [eid, slot_type], op_addr,
+                          account=account)
+        except PreTxValidationError as e:
+            msg = e.detail
             status = "skipped_empty" if "slot empty" in msg else "skipped"
-            results.append({"kami_id": ki, "status": status, "reason": msg[:100]})
+            results.append({"kami_id": ki, "status": status, "reason": msg[:200]})
             skipped_empty += 1
             continue
         try:
@@ -8298,6 +8384,15 @@ def buy_kami(
     cap_wei = _eth_to_wei(max_total_eth)
     if cap_wei <= 0:
         raise ValueError("max_total_eth must be > 0")
+    # The purchase stays owner-only on chain (KamiMarketBuySystem resolves
+    # the owner and pays from its ETH): an operator-only roster is told so
+    # before the listing read, never by a crash after it.
+    if not _get_account(account).owner_key:
+        raise ValueError(
+            f"Account '{account}' has no owner key. "
+            f"Set {account.upper()}_OWNER_KEY in "
+            f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
+        )
 
     market = get_kami_market_listings(size=500, include_expired=False)
     by_kami: dict[int, dict] = {}
@@ -8588,7 +8683,7 @@ def _trade_terms(trade_int: int) -> dict | None:
 
 @mcp.tool()
 def take_trade(trade_id: str, account: str = "main") -> dict:
-    """Take (execute) a pending trade as the taker. Owner wallet.
+    """Take (execute) a pending trade as the taker.
 
     Pays the maker's buy items from your inventory and escrows them;
     the trade moves to EXECUTED until the maker completes it. A take
@@ -8620,7 +8715,7 @@ def take_trade(trade_id: str, account: str = "main") -> dict:
                 f"({_get_item_name(terms['pay_item'])}) and account "
                 f"'{account}' holds {held:,}"
             )
-    return _send_tx_owner(
+    return _send_tx(
         account, "system.trade.execute", _ABI_TRADE_EXECUTE, [trade_int]
     )
 
@@ -10169,10 +10264,10 @@ def transfer_kami(
     and playable, no NFT movement. Recipient addressed by OPERATOR
     wallet from a roster label (to_account) or 0x address (to_address)
     — exactly one. Constraints: 1..9 kamis per transaction, no
-    duplicates; each owned by the source and RESTING or LISTED (an
-    active listing auto-cancels); HARVESTING or DEAD reverts;
-    send-to-self reverts. Ownership/state pre-checked on-chain and the
-    batch dry-run via eth_call before signing.
+    duplicates; each owned by the source, RESTING or LISTED (an
+    active listing auto-cancels) and not soulbound; HARVESTING or DEAD
+    reverts; send-to-self reverts. Ownership/state/soulbind pre-checked
+    on-chain and the batch dry-run via eth_call before signing.
 
     Args:
         kami_ids: Kami token indices to send (1..9).
@@ -10266,17 +10361,17 @@ def transfer_kami(
             "transfer blocked by pre-checks; no tx submitted: "
             + "; ".join(blocked)
         )
+    # Patch 0.4.5: a soulbound kami cannot be sent (KamiSendSystem).
+    _require_not_soulbound(indices)
 
-    # --- Authoritative dry-run via eth_call before submitting any tx ---
-    send_contract = w3.eth.contract(
-        address=_resolve_system("system.kami.send"), abi=_ABI_SEND
-    )
+    # --- Dry-run via the shared gate (5.0.0): an infrastructure failure
+    # is "not performed", and a refusal re-resolves a moved system once.
     try:
-        send_contract.functions.executeTyped(indices, dest_operator).call(
-            {"from": src.operator_addr}
-        )
-    except Exception as e:
-        raise ValueError(f"dry-run reverted; no tx submitted: {e}")
+        _validated_fn("system.kami.send", _ABI_SEND, "executeTyped",
+                      [indices, dest_operator], src.operator_addr,
+                      account=account)
+    except PreTxValidationError as e:
+        raise _soulbind_race(e, indices)
 
     # Gas scales with batch size. The eth_call dry-run runs with a generous
     # gas cap, so a fixed limit that is too low would revert a tx the
@@ -10332,10 +10427,11 @@ def transfer_items(
 ) -> dict:
     """Transfer in-world items to another account via system.item.transfer.
 
-    Source OWNER wallet signs; the recipient is the destination
-    account entity (uint256 of its OWNER address), from a roster label
-    (to_account) or a 0x owner address (to_address) — exactly one, and
-    the destination must be registered. Constraints: 1..8 DISTINCT
+    The recipient is the destination account entity (uint256 of its
+    OWNER address), from a roster label (to_account) or a 0x owner
+    address (to_address) — exactly one, and the destination must be
+    registered (the chain refuses any target that is not an account).
+    Constraints: 1..8 DISTINCT
     item types per transaction (item_indices parallel to amounts, all
     > 0); fee 15 MUSU per item TYPE from the source inventory. The
     whole transfer is dry-run via eth_call before signing, so a doomed
@@ -10349,26 +10445,21 @@ def transfer_items(
         account: Source account label.
     """
     src = _get_account(account)
-    if not src.owner_key:
-        raise ValueError(
-            f"source account '{account}' has no owner key; "
-            f"system.item.transfer requires the owner wallet. "
-            f"Set {account.upper()}_OWNER_KEY in "
-            f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
-        )
+    # Resolved first: a missing operator wallet raises its own error.
+    op_addr = src.operator_addr
     if bool(to_account) == bool(to_address):
         raise ValueError(
             "Set exactly one of to_account (roster label) or to_address "
             "(destination owner address)."
         )
+    # The target: a roster label's account entity (its owner wallet's, or
+    # for an operator-only label the account its operator is bound to),
+    # or an address's entity uint256(uint160(address)).
     if to_account:
         dst = _get_account(to_account)
-        if not dst.owner_addr:
-            raise ValueError(
-                f"destination account '{to_account}' has no owner address; "
-                f"the item-transfer target is the owner wallet's entity ID."
-            )
+        target_id = _account_entity_id(to_account)
         dest_owner = dst.owner_addr
+        target_named = f"'{to_account}'"
     else:
         if not Web3.is_address(to_address):
             raise ValueError(
@@ -10377,7 +10468,9 @@ def transfer_items(
         dest_owner = Web3.to_checksum_address(to_address)
         if int(dest_owner, 16) == 0:
             raise ValueError("to_address must not be the zero address")
-    if src.owner_addr and dest_owner.lower() == src.owner_addr.lower():
+        target_id = int(dest_owner, 16)
+        target_named = dest_owner
+    if target_id == _account_entity_id(account):
         raise ValueError(
             f"cannot transfer from '{account}' to itself"
         )
@@ -10410,32 +10503,39 @@ def transfer_items(
             f"Split into multiple calls."
         )
 
-    # --- targetID = receiving account's entity ID (uint256 of owner address) ---
-    target_id = int(dest_owner, 16)
+    # --- Patch 0.4.5: the target must be an account (upstream 04cb25f8,
+    # ItemTransferSystem: require(isAccount(targetID))). Before it, items
+    # sent to any other id were credited to that id and lost. An
+    # unreadable answer is left to the dry-run, which refuses the same.
+    if _safe_read(_is_registered_account, target_id) is False:
+        raise PreTxValidationError(
+            f"target {target_named} is not a registered account; items can "
+            f"only be sent to an account (the chain refuses with "
+            f"'ItemTransfer: target is not an account')"
+        )
 
-    # --- Authoritative dry-run via eth_call before submitting any tx ---
-    xfer_contract = w3.eth.contract(
-        address=_resolve_system("system.item.transfer"), abi=_ABI_ITEM_TRANSFER
-    )
+    # --- Dry-run via the shared gate (5.0.0): an infrastructure failure
+    # is "not performed", and a refusal re-resolves a moved system once.
     try:
-        xfer_contract.functions.executeTyped(indices, amts, target_id).call(
-            {"from": src.owner_addr}
-        )
-    except Exception as e:
-        raise ValueError(
-            f"dry-run reverted; no tx submitted: {e}. Common causes: "
-            f"insufficient item balance, insufficient MUSU for the "
-            f"{_ITEM_TRANSFER_FEE_MUSU} MUSU/type fee, or an unregistered "
-            f"destination account."
-        )
+        _validated_fn("system.item.transfer", _ABI_ITEM_TRANSFER,
+                      "executeTyped", [indices, amts, target_id], op_addr,
+                      account=account)
+    except PreTxValidationError as e:
+        if getattr(e, "infrastructure", False):
+            raise
+        raise PreTxValidationError(
+            f"{e.detail}. Common causes: insufficient item balance, or "
+            f"insufficient MUSU for the {_ITEM_TRANSFER_FEE_MUSU} MUSU/type "
+            f"fee."
+        ) from None
 
-    # --- Submit (owner wallet; gas scales with number of item types) ---
+    # --- Submit (gas scales with number of item types) ---
     gas_limit = _batch_gas(
         _GAS_CEILINGS["transfer_items_base"],
         _GAS_CEILINGS["transfer_items_per_item"],
         len(indices), "item types",
     )
-    result = _send_tx_owner(
+    result = _send_tx(
         account,
         "system.item.transfer",
         _ABI_ITEM_TRANSFER,
@@ -10458,7 +10558,7 @@ def transfer_items(
 
 @mcp.tool()
 def complete_trade(trade_id: str, account: str = "main") -> dict:
-    """Complete an executed trade. Called by the maker (owner wallet).
+    """Complete an executed trade. Called by the maker.
 
     The trade must be in EXECUTED status (taker already accepted).
     Items are distributed to both parties.
@@ -10467,7 +10567,7 @@ def complete_trade(trade_id: str, account: str = "main") -> dict:
         trade_id: Trade entity ID (decimal or hex string starting with 0x).
     """
     trade_int = int(trade_id, 16) if trade_id.startswith("0x") else int(trade_id)
-    return _send_tx_owner(
+    return _send_tx(
         account, "system.trade.complete", _ABI_TRADE_COMPLETE, [trade_int]
     )
 
@@ -10500,7 +10600,7 @@ def complete_all_trades(
     for ti, t in enumerate(executed):
         trade_int = int(t["trade_id_hex"], 16)
         try:
-            r = _send_tx_owner(
+            r = _send_tx(
                 account, "system.trade.complete", _ABI_TRADE_COMPLETE,
                 [trade_int],
             )
@@ -10548,7 +10648,7 @@ def create_trade(
     buy_amount: int,
     account: str = "main",
 ) -> dict:
-    """Create a trade offer on the in-game marketplace. Uses owner wallet.
+    """Create a trade offer on the in-game marketplace.
 
     One side must be MUSU (item index 1); sell items are escrowed
     immediately and the trade is open to anyone. Sell items for MUSU:
@@ -10566,7 +10666,7 @@ def create_trade(
             "One side of the trade must be MUSU (item index 1). "
             "Direct item-for-item barter is not supported."
         )
-    return _send_tx_owner(
+    return _send_tx(
         account,
         "system.trade.create",
         _ABI_TRADE_CREATE,
@@ -10576,7 +10676,7 @@ def create_trade(
 
 @mcp.tool()
 def cancel_trade(trade_id: str, account: str = "main") -> dict:
-    """Cancel a pending trade. Returns escrowed items to inventory. Owner wallet.
+    """Cancel a pending trade. Returns escrowed items to inventory.
 
     Only the maker can cancel, and only while the trade is in PENDING status.
 
@@ -10584,7 +10684,7 @@ def cancel_trade(trade_id: str, account: str = "main") -> dict:
         trade_id: Trade entity ID (decimal or hex string starting with 0x).
     """
     trade_int = int(trade_id, 16) if trade_id.startswith("0x") else int(trade_id)
-    return _send_tx_owner(
+    return _send_tx(
         account, "system.trade.cancel", _ABI_TRADE_CANCEL, [trade_int]
     )
 
@@ -11760,9 +11860,9 @@ def sacrifice_kami(kami_id: int, account: str = "main") -> dict:
     inventory. Sacrifice is NOT liquidation — it never counts toward
     LIQUIDATE quest objectives (that verb is liquidate_kami). Operator
     wallet. Preconditions (checked by an eth_call dry-run before
-    anything is sent): operator in room 19, kami owned and RESTING.
-    Returns commit entity IDs (input for sacrifice_reveal if the
-    auto-reveal ever fails).
+    anything is sent): operator in room 19, kami owned, RESTING and not
+    soulbound. Returns commit entity IDs (input for sacrifice_reveal if
+    the auto-reveal ever fails).
 
     Args:
         kami_id: Kami token index to sacrifice.
@@ -11783,20 +11883,23 @@ def sacrifice_kami(kami_id: int, account: str = "main") -> dict:
     except Exception:
         pass
 
-    # Authoritative dry-run via eth_call before submitting any tx.
-    commit_contract = w3.eth.contract(
-        address=_resolve_system("system.kami.sacrifice.commit"),
-        abi=_ABI_SACRIFICE_COMMIT,
-    )
+    # Patch 0.4.5: a soulbound kami cannot be sacrificed.
+    _require_not_soulbound([ki])
+
+    # Dry-run via the shared gate (5.0.0): an infrastructure failure is
+    # "not performed", and a refusal re-resolves a moved system once.
     try:
-        commit_contract.functions.executeTyped(ki).call({"from": op_addr})
-    except Exception as e:
-        raise ValueError(
-            f"dry-run reverted; no tx submitted: {e}. Kami {ki} state: "
-            f"{state}. Sacrifice requires the operator in room 19 (Temple "
-            f"of the Wheel), the kami owned by '{account}', and RESTING "
-            f"(stop any harvest first)."
-        )
+        _validated_fn("system.kami.sacrifice.commit", _ABI_SACRIFICE_COMMIT,
+                      "executeTyped", [ki], op_addr, account=account)
+    except PreTxValidationError as e:
+        e = _soulbind_race(e, [ki])
+        if getattr(e, "infrastructure", False) or _SOULBIND_REFUSES in str(e):
+            raise e
+        raise PreTxValidationError(
+            f"{e.detail}. Kami {ki} state: {state}. Sacrifice requires the "
+            f"operator in room 19 (Temple of the Wheel), the kami owned by "
+            f"'{account}', and RESTING (stop any harvest first)."
+        ) from None
 
     result = _send_tx(
         account,
@@ -11837,8 +11940,9 @@ def sacrifice_kami_batch(
     nothing sent), then the commit is submitted; each equipment
     reveal fires automatically on-chain into the inventory.
     Preconditions per kami (checked by the dry-run): operator in room
-    19, kami owned and RESTING. Duplicates de-duplicated; a client
-    cancel stops the loop at the next transaction. If any
+    19, kami owned, RESTING and not soulbound. Duplicates
+    de-duplicated; a client cancel stops the loop at the next
+    transaction. If any
     submitted commit fails, the call raises with every per-kami
     outcome (successes are final); allow_partial=true returns them
     without the error. Dry-run skips alone do not raise.
@@ -11854,10 +11958,6 @@ def sacrifice_kami_batch(
     if not kami_ids:
         raise PreTxValidationError("kami_ids is empty; pass kami token indices")
 
-    commit_contract = w3.eth.contract(
-        address=_resolve_system("system.kami.sacrifice.commit"),
-        abi=_ABI_SACRIFICE_COMMIT,
-    )
     results: list[dict] = []
     submitted = 0
     skipped = 0
@@ -11874,11 +11974,20 @@ def sacrifice_kami_batch(
         if processed > 0 and delay_seconds and delay_seconds > 0:
             time.sleep(delay_seconds)
         processed += 1
-        # Per-kami dry-run gate (room/ownership/state) — no speculative tx.
+        # Per-kami gates — no speculative tx: the soulbind read (patch
+        # 0.4.5), then the shared dry-run gate (room/ownership/state; an
+        # infrastructure failure is "not performed", never a revert).
         try:
-            commit_contract.functions.executeTyped(ki).call({"from": op_addr})
-        except Exception as e:
-            results.append({"kami_id": ki, "status": "skipped", "reason": _err_text(e)[:140]})
+            _require_not_soulbound([ki])
+            try:
+                _validated_fn("system.kami.sacrifice.commit",
+                              _ABI_SACRIFICE_COMMIT, "executeTyped", [ki],
+                              op_addr, account=account)
+            except PreTxValidationError as e:
+                raise _soulbind_race(e, [ki])
+        except PreTxValidationError as e:
+            results.append({"kami_id": ki, "status": "skipped",
+                            "reason": e.detail[:200]})
             skipped += 1
             continue
         try:
@@ -13841,27 +13950,25 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
 
 
 def _send_gacha_reveal_tx(account: str, ids: list[int]) -> dict:
-    """Estimate-gas preflight + send for a gacha reveal (owner wallet).
+    """Estimate-gas preflight + send for a gacha reveal (operator wallet).
 
+    The reveal resolves no account at all (KamiGachaRevealSystem.reveal:
+    anyone may reveal a commit), so it signs with the operator, as the
+    commit has since 5.0.0 — an operator-only roster mints end to end.
     Reveal gas scales with the commit count (each reveal withdraws a
     kami from the pool). The estimate doubles as a preflight: a doomed
     reveal (same-block call, unknown or expired commit) raises
     PreTxValidationError here and nothing is signed or broadcast.
     """
     acct = _get_account(account)
-    if not acct.owner_addr:
-        raise ValueError(
-            f"Account '{account}' has no owner key. "
-            f"Set {account.upper()}_OWNER_KEY in "
-            f"{secrets_store.where(f'{account.upper()}_OWNER_KEY')}."
-        )
+    op_addr = acct.operator_addr
     contract = w3.eth.contract(
         address=_resolve_system("system.kami.gacha.reveal"),
         abi=_ABI_GACHA_REVEAL,
     )
     try:
         est = contract.functions.reveal(ids).estimate_gas(
-            {"from": acct.owner_addr}
+            {"from": op_addr}
         )
     except Exception as e:
         raise PreTxValidationError(
@@ -13878,7 +13985,6 @@ def _send_gacha_reveal_tx(account: str, ids: list[int]) -> dict:
         "reveal",
         [ids],
         gas_per_item=int(est * 3 // 2) // len(ids) + 1,
-        use_owner=True,
     )
 
 
@@ -13951,7 +14057,7 @@ def gacha_use(amount: int = 1, account: str = "main") -> dict:
     """Spend Gacha Tickets to mint new kamis (commit + reveal in one call).
 
     Spends `amount` Gacha Tickets (item 10) via system.kami.gacha.mint
-    (owner wallet; max 5 per transaction): the mint commits random
+    (max 5 per transaction): the mint commits random
     draws and adds `amount` newly created kamis to the shared pool —
     the kamis received are drawn at random from the whole pool, not
     necessarily the ones just created. The reveal is a second transaction
@@ -13964,8 +14070,8 @@ def gacha_use(amount: int = 1, account: str = "main") -> dict:
     arrive RESTING at level 1 with random traits.
 
     Validates before signing (no gas spent on failure): amount 1-5,
-    owner-wallet account registered, inventory holds `amount` tickets,
-    then an eth_call dry-run.
+    account registered, inventory holds `amount` tickets, then an
+    eth_call dry-run.
 
     Args:
         amount: Number of mints (1-5); spends this many Gacha Tickets.
@@ -13975,12 +14081,11 @@ def gacha_use(amount: int = 1, account: str = "main") -> dict:
             f"amount is {amount}; system.kami.gacha.mint takes 1-5 mints "
             f"per transaction"
         )
-    _require_registered_owner(account)
+    aid = _require_registered_operator(account)
     _require_item_balance(
-        account, _account_entity_id(account), _GACHA_TICKET_INDEX, amount,
-        "gacha_use",
+        account, aid, _GACHA_TICKET_INDEX, amount, "gacha_use",
     )
-    commit_result = _send_tx_owner(
+    commit_result = _send_tx(
         account,
         "system.kami.gacha.mint",
         _ABI_GACHA_MINT,
@@ -14003,8 +14108,8 @@ def gacha_reroll(kami_ids: list[int], account: str = "main") -> dict:
     replacements (commit + reveal in one call).
 
     Spends one Reroll Ticket (item 11) per kami via
-    system.kami.gacha.reroll (owner wallet). Each deposited kami must
-    be RESTING and owned; it is unequipped automatically, loses its
+    system.kami.gacha.reroll. Each deposited kami must be RESTING,
+    owned and not soulbound; it is unequipped automatically, loses its
     progress (level, XP, skills), and enters the shared pool; the
     reveal draws the same number of random kamis in a later block. The
     call waits and reveals automatically (3 attempts); commits expire
@@ -14014,8 +14119,8 @@ def gacha_reroll(kami_ids: list[int], account: str = "main") -> dict:
     ticket spend are final either way.
 
     Validates before signing (no gas spent on failure): kami_ids
-    non-empty, owner-wallet account registered, each kami owned and
-    RESTING, one Reroll Ticket per kami, then an eth_call dry-run.
+    non-empty, account registered, each kami owned, RESTING and not
+    soulbound, one Reroll Ticket per kami, then an eth_call dry-run.
 
     Args:
         kami_ids: Token indices of the kamis to reroll.
@@ -14024,25 +14129,27 @@ def gacha_reroll(kami_ids: list[int], account: str = "main") -> dict:
         raise PreTxValidationError(
             "kami_ids is empty; gacha_reroll requires at least one kami"
         )
-    _require_registered_owner(account)
-    aid = _account_entity_id(account)
+    aid = _require_registered_operator(account)
     _require_kamis_owned(
         kami_ids, account, aid, "gacha_reroll"
     )
+    _require_not_soulbound(kami_ids)
     _require_item_balance(
         account, aid, _REROLL_TICKET_INDEX, len(kami_ids), "gacha_reroll"
     )
     entity_ids = [_kami_entity_id(k) for k in kami_ids]
-    commit_result = _send_batch_tx(
-        account,
-        "system.kami.gacha.reroll",
-        _ABI_GACHA_REROLL,
-        "reroll",
-        [entity_ids],
-        gas_per_item=3_000_000,
-        use_owner=True,
-        return_receipt=True,
-    )
+    try:
+        commit_result = _send_batch_tx(
+            account,
+            "system.kami.gacha.reroll",
+            _ABI_GACHA_REROLL,
+            "reroll",
+            [entity_ids],
+            gas_per_item=3_000_000,
+            return_receipt=True,
+        )
+    except PreTxValidationError as e:
+        raise _soulbind_race(e, kami_ids)
     result = _gacha_commit_and_reveal(account, commit_result, "gacha_reroll")
     result["kami_ids"] = kami_ids
     return result
@@ -14056,13 +14163,11 @@ def gacha_reveal(commit_ids: list[str], account: str = "main") -> dict:
     this recovers commits whose in-call reveal failed, taking their
     commit_ids from those tools' results or error text. The reveal must
     run in a later block than the commit and within 256 blocks (~4 min)
-    of it; past the window no player transaction can reveal it. Owner
-    wallet.
+    of it; past the window no player transaction can reveal it.
 
     Args:
         commit_ids: Commit entity IDs as decimal or 0x-hex strings
             (uint256 exceeds JSON float precision).
-        account: Account label; its owner wallet signs.
     """
     if not commit_ids:
         raise PreTxValidationError(
@@ -14229,7 +14334,8 @@ def newbie_vendor_buy(
     exceeds max_price_eth, and the transaction carries exactly that
     price as its value (the contract refunds any excess). The purchased
     kami joins the account RESTING and is soulbound for 3 days (no
-    listing, unstaking, or offers; play is unaffected). Owner wallet.
+    listing, offer acceptance, unstaking, sending, rerolling or
+    sacrificing; play is unaffected). Owner wallet.
 
     Validates before signing (no gas spent on failure): owner-wallet
     account registered, live price within max_price_eth, owner balance
@@ -14280,7 +14386,8 @@ def newbie_vendor_buy(
         "kami_index": kami_index,
         "price_eth": str(w3.from_wei(price_wei, "ether")),
         "note": "The purchased kami is soulbound for 3 days (no listing, "
-                "unstaking, or offers).",
+                "offer acceptance, unstaking, sending, rerolling or "
+                "sacrificing).",
     })
     return result
 

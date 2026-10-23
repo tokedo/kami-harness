@@ -620,8 +620,8 @@ def test_the_surface_fingerprint_and_the_standing_text():
     stays 4.4.0's byte for byte (957 characters at the default
     KAMI_CALL_BUDGET_S): kami-agent pairs on its sha256."""
     assert server.TOOLS_HASH == (
-        "fb65e0db8f875629d5091cacdbf54864c4548dcfb5bb8aaf6f8986899722fac0")
-    assert server.registry_mass() == 71_133
+        "1b26c220fbf476e79dc7d46ec00cde66c11a2c638a9daed6e0850106f4e1aadf")
+    assert server.registry_mass() == 71_065
     assert server.CALL_BUDGET_S == 90
     assert len(server.STANDING_TEXT) == 957
     assert hashlib.sha256(server.STANDING_TEXT.encode()).hexdigest() == (

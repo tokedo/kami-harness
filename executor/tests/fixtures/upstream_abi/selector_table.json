@@ -78,7 +78,7 @@
    "target": "system.auction.buy",
    "signature": "executeTyped(uint32,uint32)",
    "selector": "0x276aaa75",
-   "signer": "owner"
+   "signer": "operator"
   },
   {
    "tool": "bridge_eth_from_mainnet",
@@ -114,7 +114,7 @@
    "target": "system.trade.cancel",
    "signature": "executeTyped(uint256)",
    "selector": "0x3e991df3",
-   "signer": "owner"
+   "signer": "operator"
   },
   {
    "tool": "cast_item",
@@ -135,7 +135,7 @@
    "target": "system.trade.complete",
    "signature": "executeTyped(uint256)",
    "selector": "0x3e991df3",
-   "signer": "owner"
+   "signer": "operator"
   },
   {
    "tool": "complete_quest",
@@ -149,7 +149,7 @@
    "target": "system.trade.complete",
    "signature": "executeTyped(uint256)",
    "selector": "0x3e991df3",
-   "signer": "owner"
+   "signer": "operator"
   },
   {
    "tool": "craft_item",
@@ -163,7 +163,7 @@
    "target": "system.trade.create",
    "signature": "executeTyped(uint32[],uint256[],uint32[],uint256[],uint256)",
    "selector": "0x34d8e3a1",
-   "signer": "owner"
+   "signer": "operator"
   },
   {
    "tool": "drop_quest",
@@ -248,35 +248,35 @@
    "target": "system.kami.gacha.reroll",
    "signature": "reroll(uint256[])",
    "selector": "0xc32ffe1b",
-   "signer": "owner"
+   "signer": "operator"
   },
   {
    "tool": "gacha_reroll",
    "target": "system.kami.gacha.reveal",
    "signature": "reveal(uint256[])",
    "selector": "0xb93f208a",
-   "signer": "owner"
+   "signer": "operator"
   },
   {
    "tool": "gacha_reveal",
    "target": "system.kami.gacha.reveal",
    "signature": "reveal(uint256[])",
    "selector": "0xb93f208a",
-   "signer": "owner"
+   "signer": "operator"
   },
   {
    "tool": "gacha_use",
    "target": "system.kami.gacha.mint",
    "signature": "executeTyped(uint256)",
    "selector": "0x3e991df3",
-   "signer": "owner"
+   "signer": "operator"
   },
   {
    "tool": "gacha_use",
    "target": "system.kami.gacha.reveal",
    "signature": "reveal(uint256[])",
    "selector": "0xb93f208a",
-   "signer": "owner"
+   "signer": "operator"
   },
   {
    "tool": "harvest_collect",
@@ -534,14 +534,14 @@
    "target": "system.trade.execute",
    "signature": "executeTyped(uint256)",
    "selector": "0x3e991df3",
-   "signer": "owner"
+   "signer": "operator"
   },
   {
    "tool": "transfer_items",
    "target": "system.item.transfer",
    "signature": "executeTyped(uint32[],uint256[],uint256)",
    "selector": "0x9032746d",
-   "signer": "owner"
+   "signer": "operator"
   },
   {
    "tool": "transfer_kami",
@@ -647,12 +647,19 @@
     "accept_quest",
     "act_sequence",
     "allocate_skills",
+    "auction_buy",
     "burn_items",
+    "buy_kami",
     "cancel_kami_listing",
+    "cancel_trade",
     "cast_item",
     "chat_send",
+    "check_quest_completable",
+    "complete_all_trades",
     "complete_quest",
+    "complete_trade",
     "craft_item",
+    "create_trade",
     "drop_quest",
     "droptable_reveal",
     "equip_all_batch",
@@ -662,6 +669,7 @@
     "gacha_reroll",
     "gacha_reveal",
     "gacha_use",
+    "get_scavenge_points",
     "harvest_collect",
     "harvest_start",
     "harvest_stop",
@@ -677,6 +685,7 @@
     "portal_cancel",
     "portal_claim",
     "portal_withdraw",
+    "quest_state",
     "revive_kami",
     "sacrifice_kami",
     "sacrifice_kami_batch",
@@ -685,6 +694,8 @@
     "scavenge_claim_and_reveal",
     "skill_respec",
     "speed_craft_batch",
+    "take_trade",
+    "transfer_items",
     "transfer_kami",
     "travel_to_room",
     "unequip_all_batch",
@@ -946,12 +957,8 @@
     "string"
    ],
    "tools": [
-    "auction_buy",
+    "(_is_registered_account)",
     "buy_kami",
-    "cancel_trade",
-    "complete_all_trades",
-    "complete_trade",
-    "create_trade",
     "gacha_reroll",
     "gacha_reveal",
     "gacha_use",
@@ -962,9 +969,7 @@
     "portal_deposit",
     "portal_withdraw",
     "register_account",
-    "sacrifice_reveal",
-    "take_trade",
-    "transfer_items"
+    "sacrifice_reveal"
    ]
   },
   {
@@ -1087,6 +1092,7 @@
     "uint256"
    ],
    "tools": [
+    "(_soulbound_until)",
     "act_sequence",
     "burn_items",
     "cast_item",

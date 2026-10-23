@@ -297,6 +297,39 @@ address has one lane, because a chain account has one nonce sequence.
   component cache is dropped too). An unchanged address keeps the
   original refusal.
 
+**The signer (5.0.0, upstream patch 0.4.5, `04cb25f8`).** The systems
+of auction buys, trades, item transfers and gacha mint and reroll resolve
+the sender with `LibAccount.getByOwnerOrOperator` (the account the sender
+owns, else the account that named it operator), so nine tools sign with
+the account's OPERATOR key on the operator's lane: `auction_buy`,
+`create_trade`, `take_trade`, `cancel_trade`, `complete_trade`,
+`complete_all_trades`, `transfer_items`, `gacha_use`, `gacha_reroll`;
+the gacha reveal (`gacha_reveal`, and the two gacha tools' in-call
+reveal) resolves no account and signs with the operator too. The tools
+whose systems stay owner-only at the pin keep the owner signer —
+`register_account`, `buy_kami`, `newbie_vendor_buy`, `portal_deposit`,
+`portal_withdraw(to="owner")` and an owner receipt's `portal_claim` /
+`portal_cancel` — and on a roster without an owner key each refuses,
+naming the missing key, before it reads or signs anything. An
+operator-only roster (an operator key, no owner key) reaches every other
+game action; its account entity is the one its operator is bound to on
+chain.
+
+**Two pre-send reads of patch 0.4.5 (5.0.0).** `transfer_items` refuses a
+target that is not an account — its Name component unset — before any
+dry-run: "target <label or address> is not a registered account; items
+can only be sent to an account (the chain refuses with 'ItemTransfer:
+target is not an account')"; an unreadable answer is left to the
+dry-run. `transfer_kami`, `gacha_reroll`, `sacrifice_kami` and
+`sacrifice_kami_batch` read each kami's soulbind expiry from the chain —
+`component.value` at `keccak256(abi.encode(kamiID, "SOULBOUND"))` — and
+refuse a kami bound past the latest block's time with "kami <index> is
+soulbound until <ISO UTC> (<n> h left); the chain refuses send / reroll
+/ sacrifice / listing / offers / unstaking until then" (the batch skips
+it with that reason); a dry-run the chain refuses with "kami is
+soulbound" (a bind the read did not see) reads the same, re-read. The
+only binder at the pin is the newcomer vendor (3 days).
+
 **Concurrency and cancellation (4.0.0).** Every tool body runs on a
 worker thread (an `async def` body on a private event loop inside it);
 the registered name, description and schema are unchanged, so the
@@ -1285,6 +1318,10 @@ writer; no other module opens the keys file or the Keychain.
 | All five send paths read their nonce at the `pending` block, asserted at the site, so a stale `latest` sequence from a lagging load-balanced node cannot invite a retry of a non-idempotent transfer | `test_validation.py::TestPendingNonce`, `test_reporting_fidelity.py::TestSenderTerminalStates::test_send_eth_reads_pending_nonce`, `test_bridge.py::TestBroadcastIsFireAndForget::test_mainnet_nonce_read_at_pending` |
 | The three batch level tools read the current level from the chain's Level component and make no third-party call (the guard forbids the HTTP clients), and an unreadable level refuses the call naming its cause rather than defaulting | `test_batch_wrappers.py::TestLevelPathReadsTheChain` |
 | `SPEC.md` exists, is well-formed, and its `describes:` names a ref that resolves in this repository | `test_spec.py::test_spec_frontmatter`, `::test_describes_resolves` |
+| Nine tools sign with the OPERATOR (patch 0.4.5): the node sees the operator as the sender of `auction_buy`, `create_trade`, `take_trade`, `cancel_trade`, `complete_trade`, `complete_all_trades`, `transfer_items`, `gacha_use`, `gacha_reroll` and the gacha reveal, on a roster whose owner and operator differ; an operator-only roster lands each of the nine (5.0.0) | `test_owner_only.py::TestTheOperatorSigns`, `::TestAnOperatorOnlyRoster` |
+| The owner-signed set — `register_account`, `buy_kami`, `newbie_vendor_buy`, `portal_deposit`, `portal_withdraw(to="owner")` — refuses an operator-only roster naming the missing owner key, before any read or signature (5.0.0) | `test_owner_only.py::TestTheOwnerOnlySetStillRefuses` |
+| An item transfer to a target that is not an account is refused before the dry-run with the chain's rule named, by address or by roster label; a registered target goes on to the dry-run and lands (5.0.0) | `test_h500_patch045.py::test_an_unregistered_target_is_refused_before_the_dry_run`, `::test_an_unregistered_roster_label_is_named`, `::test_a_registered_target_goes_on_to_the_dry_run_and_lands` |
+| A soulbound kami is refused by `transfer_kami`, `gacha_reroll`, `sacrifice_kami` (no dry-run runs) and skipped by `sacrifice_kami_batch`, each with its end time; an expired bind passes; a dry-run refused "kami is soulbound" reads the same; the expiry entity is `abi.encode`, not packed (5.0.0) | `test_h500_patch045.py::test_a_bound_kami_is_refused_with_its_end_time`, `::test_the_batch_skips_a_bound_kami_with_its_end_time`, `::test_an_expired_bind_passes`, `::test_a_bind_the_read_missed_reads_the_same_from_the_dry_run`, `::test_the_soulbind_entity_is_abi_encoded_not_packed` |
 
 ---
 

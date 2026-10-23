@@ -72,7 +72,7 @@ After a Kami is purchased (via listing buy or offer acceptance), the Kami enters
 
 ### Soulbound Lock
 
-Certain actions apply a **soulbound lock** to a Kami via `LibSoulbound`. The lock stores an expiry timestamp (`block.timestamp + duration`). While soulbound, the Kami cannot be listed, have offers accepted, or be unstaked. The lock is checked with `LibSoulbound.verify()`, which reverts with `"kami is soulbound"` if the current time is before the expiry.
+Certain actions apply a **soulbound lock** to a Kami via `LibSoulbound`. The lock stores an expiry timestamp (`block.timestamp + duration`). While soulbound, the Kami cannot be listed, have offers accepted, be unstaked, or — since patch 0.4.5 — be sent (`system.kami.send`), rerolled (`system.kami.gacha.reroll`) or sacrificed (`system.kami.sacrifice.commit`). The only binder at upstream `04cb25f8` is the Newbie Vendor (3 days): a gacha-minted or traded Kami is never soulbound. The expiry sits in `component.value` at `keccak256(abi.encode(kamiID, "SOULBOUND"))` (`abi.encode`, not packed). The lock is checked with `LibSoulbound.verify()`, which reverts with `"kami is soulbound"` if the current time is before the expiry.
 
 ---
 
@@ -541,7 +541,7 @@ The Newbie Vendor is an alternative Kami acquisition path for new players. It of
 | **One-time** | Yes — each account can buy exactly once |
 | **Time limit** | Must purchase within 24 hours of account registration |
 | **Pricing** | `max(TWAP price, minimum price)` — minimum defaults to 0.005 ETH |
-| **Soulbound** | Purchased Kami is soulbound for 3 days (cannot list, unstake, or accept offers) |
+| **Soulbound** | Purchased Kami is soulbound for 3 days (cannot list, accept offers, unstake, send, reroll or sacrifice) |
 
 ### Parameters
 

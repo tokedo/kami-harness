@@ -112,7 +112,7 @@ Buy items from the auction house.
 | Property | Value |
 |----------|-------|
 | **System ID** | `system.auction.buy` |
-| **Wallet** | 🔐 Owner |
+| **Wallet** | 🔐 Owner or 🎮 Operator (since patch 0.4.5) |
 | **Gas** | Default |
 
 #### Parameters
@@ -163,6 +163,7 @@ try {
 
 Throughout this documentation:
 - 🔐 **Owner** — Must be called from the owner wallet
+- 🔐 **Owner or 🎮 Operator** — Either wallet (the system resolves the owner first, else the account that named the sender its operator; patch 0.4.5)
 - 🎮 **Operator** — Can be called from the operator wallet
 
 ---

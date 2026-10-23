@@ -15,7 +15,7 @@ Mint new Kamis using gacha tickets.
 | Property | Value |
 |----------|-------|
 | **System ID** | `system.kami.gacha.mint` |
-| **Wallet** | 🔐 Owner |
+| **Wallet** | 🔐 Owner or 🎮 Operator (since patch 0.4.5) |
 | **Gas** | **4,000,000 + 3,000,000 per Kami** |
 
 ### Parameters
@@ -114,7 +114,7 @@ Reroll Kamis.
 | Property | Value |
 |----------|-------|
 | **System ID** | `system.kami.gacha.reroll` |
-| **Wallet** | 🔐 Owner |
+| **Wallet** | 🔐 Owner or 🎮 Operator (since patch 0.4.5) |
 | **Gas** | Default |
 
 ### Parameters
@@ -155,7 +155,7 @@ console.log("Kamis rerolled!");
 | Property | Value |
 |----------|-------|
 | **System ID** | `system.auction.buy` |
-| **Wallet** | 🔐 Owner |
+| **Wallet** | 🔐 Owner or 🎮 Operator (since patch 0.4.5) |
 | **Gas** | Default |
 
 ### Parameters

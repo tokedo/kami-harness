@@ -456,7 +456,7 @@ class TestWholeLotTake:
         self._setup(monkeypatch, 415)
         sent = []
         monkeypatch.setattr(
-            server, "_send_tx_owner", lambda *a, **k: sent.append(1)
+            server, "_send_tx", lambda *a, **k: sent.append(1)
         )
         with pytest.raises(server.PreTxValidationError) as ei:
             server.take_trade("0x2a", account="testa")
@@ -469,7 +469,7 @@ class TestWholeLotTake:
     def test_an_affordable_take_is_not_blocked(self, accounts, monkeypatch):
         self._setup(monkeypatch, 200000)
         monkeypatch.setattr(
-            server, "_send_tx_owner", lambda *a, **k: {"status": "success"}
+            server, "_send_tx", lambda *a, **k: {"status": "success"}
         )
         assert server.take_trade("0x2a", account="testa")["status"] == "success"
 
@@ -479,7 +479,7 @@ class TestWholeLotTake:
         """A gate that cannot read its precondition must not invent one."""
         monkeypatch.setattr(server, "_trade_terms", lambda t: None)
         monkeypatch.setattr(
-            server, "_send_tx_owner", lambda *a, **k: {"status": "success"}
+            server, "_send_tx", lambda *a, **k: {"status": "success"}
         )
         assert server.take_trade("0x2a", account="testa")["status"] == "success"
 
@@ -499,7 +499,7 @@ class TestAuctionHoldings:
             lambda aid: {"index": 1, "name": "t", "stamina": 100, "room": 66},
         )
         monkeypatch.setattr(
-            server, "_send_tx_owner",
+            server, "_send_tx",
             _revert("arithmetic underflow or overflow"),
         )
 

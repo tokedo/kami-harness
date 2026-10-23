@@ -78,8 +78,10 @@ The vendor shows **3 Kamis** from a rotating pool. Display rotates every
 
 ### Restrictions
 
-- Purchased Kami is **soulbound for 3 days** (can't list, unstake, or accept
-  offers; harvest, equip, and other gameplay are unaffected)
+- Purchased Kami is **soulbound for 3 days** (can't list, accept offers,
+  unstake, send, reroll or sacrifice; harvest, equip, and other gameplay
+  are unaffected). The vendor is the only binder: a gacha-minted or
+  traded Kami is never soulbound.
 - Only 1 purchase per account, ever
 
 ## Global Auctions

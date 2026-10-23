@@ -129,8 +129,9 @@ Two wallets per player:
 
 | Wallet | Purpose | Actions |
 |---|---|---|
-| **Owner** | High-security. Holds ETH + tokens | Register account, trade (P2P + Kami market), mint, ERC-20 approvals |
+| **Owner** | High-security. Holds ETH + tokens | Register account, set the operator, Kami-market purchases, Newbie Vendor, token-portal deposits and owner withdrawals, ERC-20 approvals |
 | **Operator** | Day-to-day gameplay | Harvest, move, equip, quest, craft, use items, level up, sacrifice |
+| **Either** | Since patch 0.4.5 (upstream `04cb25f8`) | P2P trades, item transfers, auction buys, gacha mint and reroll: the system takes the owner's account first, else the account that named the sender its operator. This server signs these with the operator |
 
 The operator is set by the owner via `system.account.set.operator`.
 
