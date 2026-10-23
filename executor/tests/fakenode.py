@@ -27,7 +27,16 @@ What the node models, and why each piece is here:
   old count and `eth_sendRawTransaction` admits a stale nonce as if it
   were new (returning its hash). A stale-nonce transaction the canonical
   node already has (same hash) changes nothing; one it does not have is
-  dropped on gossip and never mines.
+  dropped on gossip and never mines. (This re-broadcast model was
+  written for 4.0.0's send path; it has not been observed live.)
+* A replica whose STATE lags at `eth_call` (`state_lag`, 5.0.0): for the
+  next k calls it is `behind` blocks old — a call at `latest` is
+  evaluated at that older block, and a call at a numbered block above
+  its head answers the readiness error, as Initia's replicas do. A
+  backend that refuses NUMBERED blocks altogether (`refuse_numbered`, a
+  pruned or non-archive node) answers every such call with the given
+  message. Handlers that model history read `node.call_block`, the
+  block the current `eth_call` is evaluated at (None while mining).
 * Injected FAULTS: the next k requests of a method answer a given
   JSON-RPC error object (e.g. the replica readiness error) instead.
 * Contract HANDLERS keyed by (to address, 4-byte selector): each one
@@ -159,6 +168,7 @@ class Lag:
     sender: str
     times: int
     behind: int
+    stuck_at: int | None = None   # state_lag: the replica's fixed head
 
 
 # What a game system's `executeTyped(...) returns (bytes)` answers.
@@ -208,6 +218,10 @@ class FakeNode:
         self.lookups: list[tuple[int, str, str, float]] = []
         self.clock = None
         self.hold_mining = False
+        self.state_lags: list[Lag] = []       # eth_call replicas behind
+        self.refuse_numbered: str | None = None
+        self.call_block: int | None = None    # block of the current call
+        self.call_blocks: list = []           # the block each eth_call named
         self._sid = itertools.count(1)
         self._tls = threading.local()
 
@@ -234,6 +248,12 @@ class FakeNode:
 
     def lag(self, sender: str, times: int = 1, behind: int = 1) -> None:
         self.lags.append(Lag(sender.lower(), times, behind))
+
+    def state_lag(self, times: int = 1, behind: int = 1,
+                  stuck_at: int | None = None) -> None:
+        """The next `times` eth_calls are served `behind` blocks old, or by
+        a replica whose head is stuck at block `stuck_at`."""
+        self.state_lags.append(Lag("", times, behind, stuck_at))
 
     def set_nonce(self, sender: str, count: int) -> None:
         self.latest[sender.lower()] = count
@@ -342,7 +362,31 @@ class FakeNode:
         return hex(count)
 
     def _eth_call(self, call, block="latest"):
-        res = self._run(call, commit=False)
+        self.call_blocks.append(block)
+        head = self.block
+        lag = next((lg for lg in self.state_lags if lg.times > 0), None)
+        if lag is not None:
+            lag.times -= 1
+        replica_head = head if lag is None else (
+            lag.stuck_at if lag.stuck_at is not None else head - lag.behind)
+        numbered = isinstance(block, str) and block.startswith("0x")
+        if numbered:
+            want = int(block, 16)
+            if self.refuse_numbered:
+                raise _RpcError({"code": -32000,
+                                 "message": self.refuse_numbered})
+            if want > replica_head:
+                raise _RpcError(dict(READINESS_ERROR) if lag is not None
+                                else {"code": -32000,
+                                      "message": "header not found"})
+            at = want
+        else:
+            at = replica_head
+        self.call_block = at
+        try:
+            res = self._run(call, commit=False)
+        finally:
+            self.call_block = None
         if res.status != 1:
             raise _RpcError(BARE_REVERT if res.bare
                             else _revert_payload(res.revert))

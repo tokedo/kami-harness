@@ -1141,10 +1141,33 @@ _PANIC_CODES = {
 }
 
 
+# 5.0.0: the sibling list — what a backend answers when it will not serve
+# state at a NUMBERED block it does not hold (pruned, or not an archive):
+# geth's "missing trie node" / "header not found", Initia's "historical
+# version not found ... invalid height". Every one is also infrastructure
+# above. A replica that is merely behind answers the readiness class
+# ("historical version not ready"), which the read layer retries; it is
+# not in this list.
+_HISTORICAL_STATE_MARKERS = (
+    "missing trie node",
+    "header not found",
+    "historical version not found",
+    "state not available",
+    "pruned",
+    "block not found",
+)
+
+
 def _is_replay_infra_error(text: str) -> bool:
     """True when the text describes a failed replay, not a revert."""
     lo = text.lower()
     return any(m in lo for m in _REPLAY_INFRA_MARKERS)
+
+
+def _is_historical_refusal(text: str) -> bool:
+    """True when a backend refused to serve state at a numbered block."""
+    lo = str(text).lower()
+    return any(m in lo for m in _HISTORICAL_STATE_MARKERS)
 
 
 def _extract_revert_data(e: Exception) -> str | None:
@@ -2341,6 +2364,42 @@ def _require_gas_balance(
         )
 
 
+def _own_receipt_block(addr: str) -> int | None:
+    """The block of the latest receipt this process saw land for `addr`
+    (its lane's), or None when none has landed in this process."""
+    try:
+        lane = _LANES.get((CHAIN_ID, Web3.to_checksum_address(addr)))
+    except (TypeError, ValueError):
+        return None
+    return lane.receipt_block if lane is not None else None
+
+
+def _dry_run_block(from_addr: str) -> int | None:
+    """The block a dry-run from `from_addr` reads at (5.0.0).
+
+    None — `latest` — until a transaction of this signer has landed in
+    this process. After one, the read is bound to state no older than
+    that receipt: a load-balanced backend can answer `latest` from a
+    replica that has not applied it yet (a walk's next hop refused from
+    the room it had just left). The bound is max(that receipt's block,
+    the head this read sees), never the receipt's block alone: a dry-run
+    pinned to an old block would evaluate time-based rules (a cooldown)
+    at that block's timestamp and refuse what the chain now accepts. A
+    replica that cannot serve the bound answers the readiness class,
+    which the read layer retries on a fresh session."""
+    floor = _own_receipt_block(from_addr)
+    if floor is None:
+        return None
+    head = _safe_read(lambda: int(w3.eth.block_number))
+    return max(floor, head or 0)
+
+
+def _call_at(fn, params: dict, block):
+    if block is None:
+        return fn.call(params)
+    return fn.call(params, block_identifier=block)
+
+
 def _dry_run(
     fn, from_addr: str, value_wei: int = 0, account: str | None = None
 ):
@@ -2349,6 +2408,11 @@ def _dry_run(
     Returns the call's decoded output. A revert here raises
     PreTxValidationError carrying the chain's revert string; nothing has
     been signed or broadcast.
+
+    Read at _dry_run_block (5.0.0): no older than the signer's last own
+    receipt in this process. A backend that will not serve that block
+    (_HISTORICAL_STATE_MARKERS) is asked once at `latest` instead, and a
+    refusal from that read says it ran at `latest` and why.
 
     Note what this check does NOT cover: it runs without a gas ceiling,
     so it validates the logic of the call and nothing about whether the
@@ -2360,9 +2424,20 @@ def _dry_run(
     params: dict = {"from": from_addr}
     if value_wei:
         params["value"] = value_wei
+    block = _dry_run_block(from_addr)
+    fell_back = None
     try:
-        return fn.call(params)
+        return _call_at(fn, params, block)
     except Exception as first:
+        if block is not None and _is_historical_refusal(_revert_text(first)):
+            # The backend will not serve the bound block: ask once at
+            # latest, and say so if that refuses.
+            fell_back = (block, _revert_text(first))
+            block = None
+            try:
+                return fn.call(params)
+            except Exception as at_latest:
+                first = at_latest
         # A refused eth_call is not a reverted one. Reporting infra
         # failure as "dry-run reverted" invents a revert that never
         # happened, so the transient classes are retried once — and a
@@ -2374,20 +2449,25 @@ def _dry_run(
         ):
             time.sleep(1)
             try:
-                return fn.call(params)
+                return _call_at(fn, params, block)
             except Exception as second:
                 first = second
         e = first
         text = _revert_text(e)
+        where = "" if fell_back is None else (
+            f" (the dry-run ran at latest because the node could not serve "
+            f"block {fell_back[0]}, this signer's last receipt or later: "
+            f"{fell_back[1][:200]})")
         if _is_replay_infra_error(text) or _is_readiness(text):
             err = PreTxValidationError(
                 f"transaction dry-run not performed: the node failed to "
                 f"run it twice (infrastructure, not a game revert): {text}"
+                + where
             )
             err.infrastructure = True
             raise err
         raise PreTxValidationError(
-            f"transaction dry-run reverted: {text}",
+            f"transaction dry-run reverted: {text}{where}",
             mechanics={
                 "call_args": getattr(fn, "args", None),
                 "account": account,
@@ -3244,6 +3324,7 @@ def _lane_await(lane, entry, tx_hash, built, timeout=None,
     except OnChainRevertError as e:
         with lane.critical():
             lane.mined(entry.hash, entry.nonce)
+            lane.saw_receipt(e.block)
         _INFLIGHT.pop(_hex_hash(tx_hash).lower(), None)
         ctl.step(e.tx_hash, "reverted")
         raise
@@ -3255,6 +3336,7 @@ def _lane_await(lane, entry, tx_hash, built, timeout=None,
         raise
     with lane.critical():
         lane.mined(entry.hash, entry.nonce)
+        lane.saw_receipt(receipt.blockNumber)
     _INFLIGHT.pop(_hex_hash(tx_hash).lower(), None)
     ctl.step(_hex_hash(receipt.transactionHash), "success")
     return receipt
@@ -13731,6 +13813,7 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
         except Exception:
             pass
         _lane_mined(lane, f["ledger_hash"], f["nonce"])
+        lane.saw_receipt(f.get("block"))
         fill_open.remove(f)
 
     while pend or fill_open:
@@ -13886,6 +13969,7 @@ def act_sequence(steps: list[dict], account: str = "main") -> dict:
     for i, row in enumerate(rows):
         if row["status"] in ("success", "reverted") and i in entries:
             _lane_mined(lane, entries[i].hash, nonce_by_step[i])
+            lane.saw_receipt(row.get("block"))
             _INFLIGHT.pop(hashes.get(i, "").lower(), None)
         if i in hashes:
             ctl.step(row.get("tx_hash", hashes[i]), row["status"])

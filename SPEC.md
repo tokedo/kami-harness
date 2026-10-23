@@ -296,6 +296,27 @@ address has one lane, because a chain account has one nonce sequence.
   if the system moved it is retried once against the new address (the
   component cache is dropped too). An unchanged address keeps the
   original refusal.
+- **The dry-run reads no older state than the signer's own last
+  receipt (5.0.0).** Once a transaction of the signer has landed in this
+  process (success or revert, single send or sequence step or gap
+  fill), every dry-run from that signer is an `eth_call` at block
+  max(that receipt's block, the head the dry-run reads) — never
+  `latest` alone, which a load-balanced backend can answer from a
+  replica that has not applied the receipt (a walk's next hop refused
+  from the room it had just left), and never the receipt's block alone,
+  which would judge a time-based rule (a cooldown) at that block's
+  timestamp. Before any receipt in this process the dry-run reads
+  `latest`. A replica that does not hold the block answers the
+  readiness class and is retried; a backend that refuses a numbered
+  block (`server._HISTORICAL_STATE_MARKERS`: "missing trie node",
+  "header not found", "historical version not found", ...) is asked
+  once at `latest`, and a refusal from that read ends "(the dry-run ran
+  at latest because the node could not serve block N, this signer's
+  last receipt or later: <its words>)". Every write that goes through
+  the dry-run gate inherits it — including, since 5.0.0, the pre-send
+  checks `register_account`, `transfer_kami`, `transfer_items`,
+  `sacrifice_kami`, `sacrifice_kami_batch`, `equip_all_batch` and
+  `unequip_all_batch` used to word themselves.
 
 **The signer (5.0.0, upstream patch 0.4.5, `04cb25f8`).** The systems
 of auction buys, trades, item transfers and gacha mint and reroll resolve
@@ -1318,6 +1339,7 @@ writer; no other module opens the keys file or the Keychain.
 | All five send paths read their nonce at the `pending` block, asserted at the site, so a stale `latest` sequence from a lagging load-balanced node cannot invite a retry of a non-idempotent transfer | `test_validation.py::TestPendingNonce`, `test_reporting_fidelity.py::TestSenderTerminalStates::test_send_eth_reads_pending_nonce`, `test_bridge.py::TestBroadcastIsFireAndForget::test_mainnet_nonce_read_at_pending` |
 | The three batch level tools read the current level from the chain's Level component and make no third-party call (the guard forbids the HTTP clients), and an unreadable level refuses the call naming its cause rather than defaulting | `test_batch_wrappers.py::TestLevelPathReadsTheChain` |
 | `SPEC.md` exists, is well-formed, and its `describes:` names a ref that resolves in this repository | `test_spec.py::test_spec_frontmatter`, `::test_describes_resolves` |
+| After a landed transaction of the signer, the dry-run reads at max(that receipt's block, the head) — never `latest` from a replica behind the receipt (B19's shape: a walk's third hop lands), never the old receipt's block alone (a time-based rule is judged at the head); before any receipt it reads `latest`; a backend that refuses numbered blocks is asked once at `latest` and a refusal there names the block it could not serve (5.0.0) | `test_h500_dry_run_block.py::test_a_lagging_replica_does_not_refuse_the_third_hop`, `::test_the_dry_run_names_a_block_no_older_than_the_last_receipt`, `::test_a_backend_that_refuses_numbered_blocks_falls_back_and_says_so`, `::test_a_fallback_read_that_passes_sends`, `::test_the_pruning_answers_are_a_named_list`, `::test_a_time_based_rule_is_judged_at_the_head` |
 | Nine tools sign with the OPERATOR (patch 0.4.5): the node sees the operator as the sender of `auction_buy`, `create_trade`, `take_trade`, `cancel_trade`, `complete_trade`, `complete_all_trades`, `transfer_items`, `gacha_use`, `gacha_reroll` and the gacha reveal, on a roster whose owner and operator differ; an operator-only roster lands each of the nine (5.0.0) | `test_owner_only.py::TestTheOperatorSigns`, `::TestAnOperatorOnlyRoster` |
 | The owner-signed set — `register_account`, `buy_kami`, `newbie_vendor_buy`, `portal_deposit`, `portal_withdraw(to="owner")` — refuses an operator-only roster naming the missing owner key, before any read or signature (5.0.0) | `test_owner_only.py::TestTheOwnerOnlySetStillRefuses` |
 | An item transfer to a target that is not an account is refused before the dry-run with the chain's rule named, by address or by roster label; a registered target goes on to the dry-run and lands (5.0.0) | `test_h500_patch045.py::test_an_unregistered_target_is_refused_before_the_dry_run`, `::test_an_unregistered_roster_label_is_named`, `::test_a_registered_target_goes_on_to_the_dry_run_and_lands` |

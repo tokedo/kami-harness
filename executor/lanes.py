@@ -105,6 +105,10 @@ class Lane:
     mined_top: int = -1      # highest nonce this harness saw mined
     entries: dict = field(default_factory=dict)   # hash -> Entry
     recent: list = field(default_factory=list)    # recently mined, in memory
+    # The block of the latest receipt this PROCESS saw land for this
+    # signer (success or revert; never persisted: None after a restart).
+    # The dry-run reads no older state than it (5.0.0).
+    receipt_block: int | None = None
 
     def __post_init__(self):
         self._lock = threading.RLock()
@@ -260,6 +264,15 @@ class Lane:
     def offered(self, e: Entry) -> None:
         e.state = OFFERED
         self.floor = max(self.floor, e.nonce + 1)
+
+    def saw_receipt(self, block) -> None:
+        """A receipt of this signer landed in `block` (this process)."""
+        try:
+            b = int(block)
+        except (TypeError, ValueError):
+            return
+        if self.receipt_block is None or b > self.receipt_block:
+            self.receipt_block = b
 
     def mined(self, tx_hash: str, nonce: int | None = None) -> None:
         """The transaction has a receipt: final. Drop it from the ledger."""
