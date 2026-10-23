@@ -336,3 +336,7 @@ records everything that was removed.
 | MUD ECS architecture overview | [`integration/architecture.md`](integration/architecture.md) |
 | Game-data tables (nodes, rooms, items) | [`integration/game-data.md`](integration/game-data.md) |
 | Versioning policy + changelog | [`CHANGELOG.md`](CHANGELOG.md) |
+
+## Licence
+
+This repository's own code and text are MIT (see LICENSE). The game content it quotes — the catalogs' names and descriptions — is Asphodel Studios' and is used under the Kamigotchi NOTICE's community-use allowance; see NOTICE.md.
