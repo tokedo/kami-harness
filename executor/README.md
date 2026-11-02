@@ -352,7 +352,7 @@ which bridges an ERC-20 into an in-game item and back: Onyx Shard, item
 World-state reads. They sign nothing and change no remote state.
 
 27 of them are thin wrappers over the local **kami-lens** daemon
-(release 1.0.5, commit `e604290`, declared in [`SPEC.md`](../SPEC.md)
+(release 1.1.0, commit `379d2e7`, declared in [`SPEC.md`](../SPEC.md)
 D1; 1.0.1 or newer is required for correct reads, see
 [`SETUP.md`](../SETUP.md) §7). A
 wrapper

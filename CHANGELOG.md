@@ -38,7 +38,7 @@ headroom), `tools_hash`
 handshake's standing text is unchanged (957 characters, sha256
 `7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b`) — all
 measured off a stdio child at this release. `SCHEMA_VERSION` **5.0.0**.
-kami-lens **1.0.5** (`e604290`); 1.0.1 or newer is still required.
+kami-lens **1.1.0** (`379d2e7`); 1.0.1 or newer is still required.
 
 **Why MAJOR, by this file's own rule.** Nine tools are removed; the
 signer of nine others (and of the gacha reveal) moves from the owner

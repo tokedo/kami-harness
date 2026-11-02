@@ -183,8 +183,8 @@ is running, the 27 raise
 never return an empty result in its place. ACT and META tools do not
 depend on it.
 
-This server version is pinned to kami-lens release **1.0.5**, commit
-`e604290`, as declared in [`SPEC.md`](SPEC.md) D1. **1.0.1 or newer is
+This server version is pinned to kami-lens release **1.1.0**, commit
+`379d2e7`, as declared in [`SPEC.md`](SPEC.md) D1. **1.0.1 or newer is
 required for correct reads:** when several transactions in one block
 wrote the same value (an account's item balance, a kami's state), a
 1.0.0 daemon could keep an earlier write and serve that wrong value as
@@ -199,7 +199,7 @@ from the repository:
 ```bash
 git clone https://github.com/tokedo/kami-lens
 cd kami-lens
-git checkout e604290        # kami-lens 1.0.5, the pin this server version runs against
+git checkout 379d2e7        # kami-lens 1.1.0, the pin this server version runs against
 npm install && npm run build
 node dist/cli.js daemon      # long-running: sync daemon + query socket
 ```
