@@ -160,19 +160,22 @@ One file per game system — the rules an agent's world model needs.
 ### Catalogs (`catalogs/`)
 
 CSV reference data — some is loaded directly by tools (e.g.
-`get_expected_objective` reads `catalogs/quests/`).
+`get_expected_objective` reads `catalogs/quests/`). Upstream paths are
+in `Asphodel-OS/kamigotchi-open`; a pinned file's commit and sha256 are
+recorded in `executor/tests/test_catalog_pins.py`, which fails on any
+other bytes.
 
 | File | Contents |
 |---|---|
-| [nodes.csv](catalogs/nodes.csv) | Harvest nodes: affinity, drops, level limits, yield item, scav cost — upstream deploy data `packages/contracts/deployment/world/data/rooms/nodes.csv` at `04cb25f8`, in this repo's eight columns |
-| [items.csv](catalogs/items.csv) | Items: type, tradability, stats |
-| [skills.csv](catalogs/skills.csv) | Skill trees: effects, costs, tiers, exclusions |
-| [recipes.csv](catalogs/recipes.csv) | Crafting recipes: inputs, outputs, stamina cost |
-| [rooms.csv](catalogs/rooms.csv) | Room map: coordinates and special exits |
-| [room-gates.csv](catalogs/room-gates.csv) | Room-exit access conditions (quest / item / goal), per destination |
-| [shop-listings.csv](catalogs/shop-listings.csv) | NPC shop items and prices |
-| [scavenge-droptables.csv](catalogs/scavenge-droptables.csv) | Node scavenge reward tables |
-| [quests/](catalogs/quests/) | Quests, objectives, requirements, rewards |
+| [nodes.csv](catalogs/nodes.csv) | Harvest nodes: affinity, drops, level limits, yield item, scav cost — upstream deploy data `packages/contracts/deployment/world/data/rooms/nodes.csv` at `8fb6ea58` (byte-identical upstream since `04cb25f8`), in this repo's eight columns |
+| [items.csv](catalogs/items.csv) | Items: type, tradability, stats — derived table (its own columns); last changed 2026-10-03; not pinned — see register item 22 |
+| [skills.csv](catalogs/skills.csv) | Skill trees: effects, costs, tiers, exclusions — upstream `skills/skills.csv` as of 2026-04-01 (its header); at `8fb6ea58` upstream differs only by trailing spaces in 25 descriptions; not pinned — see register item 22 |
+| [recipes.csv](catalogs/recipes.csv) | Crafting recipes: inputs, outputs, stamina cost — derived table (its own columns); last changed 2026-04-01; not pinned — see register item 22 |
+| [rooms.csv](catalogs/rooms.csv) | Room map: coordinates and special exits — derived table (its own columns); last changed 2026-04-11; not pinned — see register item 22 |
+| [room-gates.csv](catalogs/room-gates.csv) | Room-exit access conditions (quest / item / goal), per destination — derived table (from the lens `room` query); last changed 2026-08-27; not pinned — see register item 22 |
+| [shop-listings.csv](catalogs/shop-listings.csv) | NPC shop items and prices — derived table (its own columns); last changed 2026-04-01; not pinned — see register item 22 |
+| [scavenge-droptables.csv](catalogs/scavenge-droptables.csv) | Node scavenge reward tables — derived table (its own columns); last changed 2026-04-01; not pinned — see register item 22 |
+| [quests/](catalogs/quests/) | Quests, objectives, requirements, rewards — upstream deploy data `packages/contracts/deployment/world/data/quests/` at `8fb6ea58`, byte for byte (re-vendored 2026-11-07); a quest on chain that is newer than the pin has no row |
 
 ### Integration (`integration/`)
 
@@ -295,7 +298,7 @@ The tool contract is versioned with `SCHEMA_VERSION`, surfaced as the MCP
   path for future studies.
 - **PATCH** — doc/non-semantic changes.
 
-Current: **`5.0.0`**, pinned to kami-lens **1.1.0** (1.0.1 or newer is
+Current: **`5.0.1`**, pinned to kami-lens **1.1.0** (1.0.1 or newer is
 required for correct reads; see [`SETUP.md`](SETUP.md) §7) — world
 reads served as thin `kami-lens` wrappers with verbatim envelope
 pass-through, and a read that waits for your own transaction's block; every tool class-tagged ACT / PERCEIVE / META; no

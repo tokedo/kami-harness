@@ -29,6 +29,100 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [5.0.1] — 2026-11-07 — the quest catalogs at the world pin
+
+PATCH. **100 tools** — ACT 59 / PERCEIVE 34 / META 7 — registry mass
+**71,968** against the 73,000 budget, `tools_hash`
+`3291008d8940b55823f2b052194107d226db8f0c620864f6e07910262e6ca02a`, and
+the handshake's standing text (957 characters, sha256
+`7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b`) are
+all 5.0.0's, measured off a stdio child at this release.
+`SCHEMA_VERSION` **5.0.1**. kami-lens **1.1.0** (`379d2e7`); 1.0.1 or
+newer is still required.
+
+**Why PATCH, by this file's own rule.** A catalog data refresh is PATCH.
+No tool, parameter, description or result shape changes; `tools_hash`
+unchanged. `get_expected_objective`'s code, its result keys and types
+and its `note` text are 5.0.0's; the rows it answers from are the
+refreshed ones.
+
+### The quest catalogs at the pin
+
+`get_expected_objective` answers from this repository's own copy of the
+quest catalogs, `catalogs/quests/`. Until this release that copy was the
+one committed on 2026-05-01 (155 quests), six months behind the upstream
+commit the release pins (`8fb6ea58`, 196 quests): it answered `no row`
+for the 41 quests the pinned data has and it did not (3032 among them),
+and quests 49 and 50 carried each other's titles.
+
+The four files are now the upstream deploy data at
+`8fb6ea58be5f773909a4d6d8db32f4726512b8e0`
+(`packages/contracts/deployment/world/data/quests/` in
+`Asphodel-OS/kamigotchi-open`), byte for byte:
+
+| File | Lines | Bytes | sha256 |
+|---|---|---|---|
+| `quests.csv` | 1,308 -> 1,855 | 185,073 | `2331fee0...44b6` |
+| `objectives.csv` | 167 -> 203 | 11,869 | `6d50746b...e389` |
+| `requirements.csv` | 159 -> 201 | 7,686 | `79473c04...9a8a` |
+| `rewards.csv` | 55 -> 68 | 2,539 | `4fdf7cd0...f98e` |
+
+- 155 -> **196 quests**, none removed. The 41 added: 2100, 2101,
+  3028–3045, 3100–3102, 3104, 3105, 3107–3118, 3802, 3803, 3900 and
+  10001.
+- Of the quests in both copies, 8 titles (10–13, 49, 50, 59, 60), 12
+  statuses, 14 objective texts, 17 reward texts and 8 requirement texts
+  differ. Quest 49 is now "You Smelt It…" (craft 1 Ingot) and quest 50
+  "Community Service" (scavenge 15 Cigarette Butts).
+- Every objective a quest names still resolves to an objectives row.
+  One row present in both copies changed in the fields the tool serves:
+  "Give 1 Otherworld Coin" is now `ITEM_BURN` of item 1019, value 1 (it
+  had no type, index or value).
+- Headers are unchanged; `objectives.csv`, `requirements.csv` and
+  `rewards.csv` keep their BOM, which the loader strips.
+- A quest deployed after the pin (3119 and 3120, for example) still
+  answers `no row`, by design: the catalog documents the pinned world,
+  and `quest_state` / `check_quest_completable` read the chain.
+
+`catalogs/nodes.csv` is unchanged: upstream `rooms/nodes.csv` at
+`8fb6ea58` is byte-identical to the file at `04cb25f8`, and this
+repository's eight columns of it are what 5.0.0 committed.
+
+### The pin test
+
+`executor/tests/test_catalog_pins.py`: `CATALOG_PINS` records, for the
+four quest files and `catalogs/nodes.csv`, the upstream commit, the
+file's sha256 and the upstream path, and one parametrized test asserts
+each file's digest. A stale or edited copy fails, naming the upstream
+path to re-vendor from at the release pin. `nodes.csv`'s digest is of
+its eight-column projection. Against 5.0.0's files the four quest cases
+fail and the nodes case passes.
+
+### Documents
+
+- `SETUP.md`: the troubleshooting entry on `no row in
+  catalogs/quests/quests.csv` read that answer as an incomplete clone.
+  It now says that the catalog is the upstream data at the release pin
+  (`test_catalog_pins.py` names it), that a quest newer than the pin
+  answers `no row` by design, and that `quest_state` /
+  `check_quest_completable` read the chain.
+- `README.md` "Catalogs": every row names its provenance — the quest
+  files and `nodes.csv` their upstream path and pin; `skills.csv`
+  upstream `skills/skills.csv` as of 2026-04-01 (at `8fb6ea58` upstream
+  differs only by trailing spaces in 25 descriptions); the six derived
+  tables their last change, not pinned.
+- `SPEC.md` D6 states the quest catalogs' source and the pin test, and
+  one invariant row names the test.
+
+### Version and tests
+
+`SCHEMA_VERSION` 5.0.1 in `executor/schema_version.py`, `SPEC.md` (P3,
+the registry-mass line, the invariant row), `README.md`, the handshake
+example in `executor/README.md`, and `test_schema_version`. 1,267
+tests, 4 skipped: 5 added (`test_catalog_pins.py`, one case per pinned
+file); `test_expected_objective.py`'s quest-49 case follows the pinned
+data (`test_q49_q50_at_the_pin`, failing against 5.0.0's files).
+
 ## [5.0.0] — 2026-10-23 — the operator signs; the strategy service leaves; reads at the signer's own receipt
 
 MAJOR. **100 tools** — ACT 59 / PERCEIVE 34 / META 7; registry mass

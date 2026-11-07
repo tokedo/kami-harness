@@ -400,9 +400,15 @@ The daemon is degraded or still catching up and is serving from
 last-synced state. This is reported, not hidden: the flag reaches you
 untouched. `lens_status()` says why. A cold start needs a minute.
 
-### Tests fail with `no row in catalogs/quests/quests.csv`
-The quest catalogs are committed in `catalogs/quests/`. If they're
-missing, you have an incomplete clone — `git pull` to refresh.
+### `get_expected_objective` answers `note: no row in catalogs/quests/quests.csv`
+The quest catalogs in `catalogs/quests/` are the upstream deploy data
+(`packages/contracts/deployment/world/data/quests/` in
+`Asphodel-OS/kamigotchi-open`) at this harness's release pin, byte for
+byte; `executor/tests/test_catalog_pins.py` names the pin and fails on
+any other bytes. A quest that is on chain but not in the catalog — one
+newer than the pin — answers `note: no row …` by design: the catalog is
+documentation of the pinned world. `quest_state` and
+`check_quest_completable` read the chain, for any quest.
 
 
 ### A large harvest batch is refused before it is sent

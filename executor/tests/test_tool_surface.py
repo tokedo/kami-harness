@@ -1,4 +1,4 @@
-"""Tool-contract surface checks for the 5.0.0 interface.
+"""Tool-contract surface checks for the 5.0.1 interface.
 
 Verifies the advertised tool count (100: 3.7.0's 104 less
 stop_harvest_batch and the nine strategy-service tools, plus the four
@@ -99,7 +99,7 @@ def _tools():
 
 
 def test_schema_version():
-    assert SCHEMA_VERSION == "5.0.0"
+    assert SCHEMA_VERSION == "5.0.1"
 
 
 def test_readme_current_version_matches_schema_version():
