@@ -170,7 +170,7 @@ questRegistryId = BigInt(ethers.keccak256(ethers.solidityPacked(
 
 ## Cross-References
 
-- Quest data: no quest catalog CSV exists yet — read quest config on-chain via registry entities
+- Quest data: `catalogs/quests/` — the upstream deploy data at the release pin (`executor/tests/test_catalog_pins.py` names the commit); `get_expected_objective` serves it. Live quest config is on-chain registry entities: `quest_state` / `check_quest_completable` read the chain, and a quest newer than the pin has no catalog row
 - Faction reputation: [factions.md](factions.md)
 - Room requirements: [rooms.md](rooms.md)
 - Day/night phases (for phase-gated quests): [day-night.md](day-night.md)
