@@ -37,7 +37,9 @@ PATCH. **100 tools** — ACT 59 / PERCEIVE 34 / META 7 — registry mass
 the handshake's standing text (957 characters, sha256
 `7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b`) are
 all 5.0.0's, measured off a stdio child at this release.
-`SCHEMA_VERSION` **5.0.1**. kami-lens **1.1.0** (`379d2e7`); 1.0.1 or
+`SCHEMA_VERSION` **5.0.1**. kami-lens **1.1.1** (`3fec1e0`; a PATCH over
+1.1.0 — `meta.stale` keys on the daemon's gating classes, and the CLI gains
+usage lines; no field or envelope this module reads changed); 1.0.1 or
 newer is still required.
 
 **Why PATCH, by this file's own rule.** A catalog data refresh is PATCH.
