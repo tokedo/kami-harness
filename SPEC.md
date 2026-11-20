@@ -1255,6 +1255,13 @@ writer; no other module opens the keys file or the Keychain.
 
 - `catalogs/rooms.csv` backs `rooms_graph` BFS routing (rooms with
   `Status == "In Game"` only; unknown special-exit targets are skipped).
+  Since 5.1.0 it is a pinned projection of upstream's
+  `rooms/rooms.csv` at `a99b4b64` (room 0 left out, text in ASCII).
+- `catalogs/items.csv` names items in results, and its `For`,
+  `Effects` and `Flags` cells choose `travel_to_room`'s stamina item and
+  whether a use reports an HP read-back. Since 5.1.0 it is a pinned
+  projection of upstream's `items/items.csv` at `a99b4b64` (ten columns,
+  text in ASCII).
 - `catalogs/quests/` backs `get_expected_objective`. Since 5.0.1 its
   four files are the upstream deploy data
   (`packages/contracts/deployment/world/data/quests/`) at the pinned
@@ -1435,7 +1442,7 @@ writer; no other module opens the keys file or the Keychain.
 | The three batch level tools read the current level from the chain's Level component and make no third-party call (the guard forbids the HTTP clients), and an unreadable level refuses the call naming its cause rather than defaulting | `test_batch_wrappers.py::TestLevelPathReadsTheChain` |
 | `SPEC.md` exists, is well-formed, and its `describes:` names a ref that resolves in this repository | `test_spec.py::test_spec_frontmatter`, `::test_describes_resolves` |
 | `catalogs/nodes.csv` is the upstream deploy data at the pin in eight columns and names its source; every commit-reveal window (six descriptions, the reveal error texts, `systems/gacha.md`) is counted in blocks with the measured cadence, never a fixed number of minutes; `integration/system-ids.md`'s count equals its list (68 at 5.0.0, 70 since 5.1.0); the harvesting page states each node's yield item; `requests` is pinned (5.0.0) | `test_h500_catalogs_docs.py` (8 tests) |
-| The four quest catalogs and `catalogs/nodes.csv` are the upstream deploy data at the release pin (`8fb6ea58` at 5.0.1, `a99b4b64` since 5.1.0): each file's sha256 is the one recorded for it, the quest files upstream's own bytes, `nodes.csv` its eight-column projection (5.0.1) | `test_catalog_pins.py::test_the_catalog_is_the_upstream_data_at_the_pin` (5 cases) |
+| The four quest catalogs, `catalogs/nodes.csv` and (since 5.1.0) `catalogs/items.csv` and `catalogs/rooms.csv` are the upstream deploy data at the release pin (`8fb6ea58` at 5.0.1, `a99b4b64` since 5.1.0): each file's sha256 is the one recorded for it, the quest files upstream's own bytes, `nodes.csv`, `items.csv` and `rooms.csv` their projections (5.0.1; items and rooms 5.1.0) | `test_catalog_pins.py::test_the_catalog_is_the_upstream_data_at_the_pin` (7 cases) |
 | `skill_respec` refuses a kami that is not RESTING before signing, from the single state table (5.1.0) | `test_h510_return.py::test_respec_refuses_a_kami_that_is_not_resting` (3 states), `::test_the_respec_gate_is_in_the_state_table` |
 | The order book's trade-ID scan never reads an empty log answer below the endpoint's floor as "no trades": a first needed block that answers null while the head is served fails closed with the re-run-the-bootstrap error, reading and persisting nothing; the overlap below the snapshot is not the gap; a head that answers null too is "retry", not a floor (5.1.0) | `test_h510_return.py::test_a_scan_that_must_start_below_the_floor_fails_closed`, `::test_a_scan_above_the_floor_reads_on`, `::test_the_overlap_below_the_snapshot_is_not_the_gap`, `::test_a_head_that_answers_null_too_is_not_called_a_floor` |
 | A ledger entry that may have mined below the endpoint's floor is never reported "NOT executed"; one signed after the floor keeps the proven verdict; the floor is measured by height, never by the `earliest` tag (5.1.0) | `test_h510_return.py::test_an_entry_that_mined_below_the_floor_is_not_called_not_executed`, `::test_an_entry_signed_after_the_floor_keeps_the_proven_verdict`, `::test_the_floor_is_measured_by_height_not_by_the_earliest_tag` |

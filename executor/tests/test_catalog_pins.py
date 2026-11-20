@@ -15,6 +15,22 @@ column), so the digest recorded for it is of that projection. The
 projection of upstream's file at 8fb6ea58 is byte-identical to the one
 5.0.0 committed from 04cb25f8; at a99b4b64 it differs in one field
 (node 56's level limit, 35 then, blank now).
+
+catalogs/items.csv and catalogs/rooms.csv (pinned since 5.1.0) are
+projections too, so each digest is of the projection. Both keep upstream's
+row order, write UTF-8 without a BOM, LF line ends and minimal csv
+quoting, and rewrite every cell to ASCII: U+2019 and U+2018 become ',
+U+2026 becomes ..., every run of whitespace one space, ends stripped.
+
+- items.csv is upstream's items/items.csv in the columns Index, Name,
+  Type, Rarity, For, Flags, Effects, Requirements, Status, Description
+  (every row with an Index); U+201C and U+201D are removed. This rule
+  gives every name of the file it replaced (178 items) unchanged.
+- rooms.csv is upstream's rooms/rooms.csv in the columns Index, Name,
+  Status, X, Y, Z, Exits, Description (every row with an Index of 1 or
+  more: room 0 is upstream's debugging room, which the route graph never
+  had); U+201C and U+201D become ". Name, Status, coordinates and exits
+  equal those of the file it replaced.
 """
 
 import hashlib
@@ -43,14 +59,26 @@ CATALOG_PINS = {
         "a99b4b64b505b722203b2337f76a5b604539c1e0",
         "fee1f4e9ae8b994910fba8d36458e09b2b30f78f76c4563619a19f2715eb6801",
         "packages/contracts/deployment/world/data/quests/rewards.csv"),
-    # The eight-column projection (module docstring), not upstream's bytes.
+    # Projections (module docstring), not upstream's bytes.
+    "catalogs/items.csv": (
+        "a99b4b64b505b722203b2337f76a5b604539c1e0",
+        "d4d8d19be6803a627829a0629247c8a7906f21f036c78030623fb7874caa269d",
+        "packages/contracts/deployment/world/data/items/items.csv"),
+    "catalogs/rooms.csv": (
+        "a99b4b64b505b722203b2337f76a5b604539c1e0",
+        "6b042fbc9f4e161de3d27ee000a0e04f77fa6c1e079d015b8c447ea631b6004f",
+        "packages/contracts/deployment/world/data/rooms/rooms.csv"),
     "catalogs/nodes.csv": (
         "a99b4b64b505b722203b2337f76a5b604539c1e0",
         "06c0784e62ddf02f18844b32810e9328197fcfe2ad10f60aba3a8a3fec1dcc1e",
         "packages/contracts/deployment/world/data/rooms/nodes.csv"),
 }
 
-PROJECTED = {"catalogs/nodes.csv": " in this repo's eight columns"}
+PROJECTED = {
+    "catalogs/nodes.csv": " in this repo's eight columns",
+    "catalogs/items.csv": " by the projection in the module docstring",
+    "catalogs/rooms.csv": " by the projection in the module docstring",
+}
 
 
 @pytest.mark.parametrize("path", sorted(CATALOG_PINS))

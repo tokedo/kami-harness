@@ -197,3 +197,15 @@ def test_the_floor_is_measured_by_height_not_by_the_earliest_tag(chain_env):  # 
     assert server._endpoint_floor() == {"block": 6_543, "timestamp": 1_234_567}
     asked = [p for m, p in node.requests if m == "eth_getBlockByNumber"]
     assert all(p[0] != "earliest" for p in asked)
+
+
+# The item and room catalogs at a99b4b64 ------------------------------------
+
+def test_items_added_upstream_have_names():
+    assert server._get_item_name(21007) == "Silt-Caked Box"
+    assert server._get_item_name(100012) == "Igors Amulet"
+    assert server._get_item_name(13) == "Ballot"
+    # Names of items the previous file had keep their ASCII form.
+    assert server._get_item_name(11002) == (
+        "Melkarth's Heroic Awakening Spell Card")
+    assert server._get_item_name(100006) == "KW Maps Data Chip"

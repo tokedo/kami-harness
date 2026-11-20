@@ -1,179 +1,191 @@
 Index,Name,Type,Rarity,For,Flags,Effects,Requirements,Status,Description
-1,MUSU,Misc,Common,,,,,"In Game","Kamigotchi kurrency"
-2,VIPP,Consumable,Common,Account,,VIP1,VIP_ROOM,"In Game","Sacred paper which can be sacrificed for VIP status."
-10,Gacha Ticket,Misc,Legendary,,,,,"In Game","Redeemable for one Kami. You should take this to the vending machine..."
-11,Reroll Ticket,Misc,Epic,,,,,"In Game","Allows you to reroll a Kami once. You should take this to the vending machine..."
-12,Coat Check Ticket,Misc,Epic,Account,NOT_TRADABLE,,,"To Deploy","This ticket says it can be exchanged for an exclusive Operator cosmetic item. But who will take the ticket?"
-20,Kamigotchi World Passport (Yellow),NFT,Rare,Passport_slot,,,,"In Game","Your ticket to great fortunes. In yellow."
-21,Kamigotchi World Passport (Orange),NFT,Rare,Passport_slot,,,,"In Game","Your ticket to great fortunes. In orange."
-22,Kamigotchi World Passport (Pink),NFT,Rare,Passport_slot,,,,"In Game","Your ticket to great fortunes. In pink."
-23,Kamigotchi World Passport (Red),NFT,Rare,Passport_slot,,,,"In Game","Your ticket to great fortunes. In red."
-24,Kamigotchi World Passport (Blue),NFT,Rare,Passport_slot,,,,"In Game","Your ticket to great fortunes. In blue."
-25,Kamigotchi World Passport (Green),NFT,Rare,Passport_slot,,,,"In Game","Your ticket to great fortunes. In green."
-26,Kamigotchi World Passport (White),NFT,Epic,Passport_slot,,,,"In Game","Your ticket to great fortunes. In white."
-27,Kamigotchi World Passport (Grey),NFT,Epic,Passport_slot,,,,"In Game","Your ticket to great fortunes. In grey."
-28,Kamigotchi World Passport (Purple),NFT,Epic,Passport_slot,,,,"In Game","Your ticket to great fortunes. In purple."
-29,Kamigotchi World Passport (Lime Green),NFT,Epic,Passport_slot,,,,"In Game","Your ticket to great fortunes. In lime green."
-30,Kamigotchi World Passport (1-bit Red and White),NFT,Legendary,Passport_slot,,,,"In Game","Your ticket to great fortunes. In 1-bit red."
-31,Kamigotchi World Passport (1-bit Pink),NFT,Legendary,Passport_slot,,,,"In Game","Your ticket to great fortunes. In 1-bit pink."
-32,Kamigotchi World Passport (1-bit Green),NFT,Legendary,Passport_slot,,,,"In Game","Your ticket to great fortunes. In 1-bit green."
-33,Kamigotchi World Passport (1-bit Black and White),NFT,Legendary,Passport_slot,,,,"In Game","Your ticket to great fortunes. In 1-bit black."
-100,Onyx Shard,ERC20,Uncommon,,,,,"In Game","Kamigotchi World's premium game currency. You want this. You want this so bad."
-103,Ether Shard,ERC20,Uncommon,,,,,"In Game","Crystallized gas. Not the kind you breathe."
-1001,Wooden Stick,Material,Common,,,,,"In Game","Wood in its unprocessed form. Grows on trees."
-1002,Stone,Material,Common,,,,,"In Game","It's just a stone. Can be used to get Stone."
-1003,Plastic Bottle,Material,Uncommon,,,,,"In Game","Can be reprocessed into valuable raw Microplastics."
-1004,Pine Cone,Material,Uncommon,,,,,"In Game","It's a pine cone. Slightly sacred."
-1005,Scrap Metal,Material,Common,,,,,"In Game","A small chunk of scrap metal. Maybe useful if processed."
-1006,Glass Jar,Material,Rare,,,,,"In Game","A somehow-unbroken jar of clear glass."
-1007,Red Amber Crystal,Material,Epic,,,,,"In Game","A crystal of pure red amber, formed deep in the forest."
-1010,Black Poppy,Material,Rare,,,,,"In Game","You can't tell whether it's a very dark purple or actually black. A rare flower."
-1011,Daffodil,Material,Uncommon,,,,,"In Game","A reflection of fallen Narcissus... Has its own uses and applications."
-1012,Mint,Material,Epic,,,,,"In Game","A herb with many applications. Not often found here..."
-1013,Sanguine Shroom,Material,Uncommon,,,,,"In Game","A mushroom that bruises and bleeds like flesh. Some believe that they feed on decaying spirits."
-1014,Chalkberry,Material,Uncommon,,,,,"In Game","A dry and bitter berry coated with chalky white fungus. The berry itself is inedible; useless except as a medium for a unique wild yeast."
-1015,Obol,Misc,Uncommon,,,,,"In Game","An ancient coin. Despite a worn and dull finish, it still glitters in the light. Valuable to certain individuals."
-1016,Dried Stems,Material,Common,,,,,"In Game","Long-stemmed mushrooms dried in a small bundle. Although this mushroom has no known medicinal, culinary, or recreational use, it may be a functional building material."
-1017,Patinated Pipe,Material,Common,,,,,"In Game","These verdigris-coated pipes jut from the cave walls with no connection to any apparent plumbing system. Their presence defies conventional explanation."
-1018,Cigarette Butt,Material,Common,,,,,"In Game","Even something as small and disposable as a cigarette can be tied to a memory and be given a spiritual essence. You can break this down into Microplastics."
-1019,Otherworld Coin,Material,Uncommon,,,,,"In Game","The woman on the face of this coin has long pointed ears like a caracal. The language inscribed is incomprehensible. Unless you find a collector, this coin is only valuable as scrap."
-1020,Bone Chunk,Material,Common,,,,,"In Game","Petrified bone in the form of a large stony chunk. If this fragment came from the skeleton of an animal, it must have been the size of a whale."
-1021,Irradiated Root,Material,Rare,,,,,"In Game","A dried root found wrapped around a glowing crystal. The tips have turned blue and taken on a waxen texture."
-1102,Empty Cup,Material,Uncommon,,,,,"In Game","A small reusable cup crafted from stone. Useful for drinking potions or other beverages."
-1103,Microplastics,Material,Uncommon,,,,,"In Game","Fine translucent powder. A promising new substance in hexerei."
-1104,Pine Pollen,Material,Uncommon,,,,,"In Game","Some people think this is very good for you."
-1107,Powdered Red Amber,Material,Epic,,,,,"In Game","Fine powder made from crushing a red amber crystal. Can be used to sand and polish metals."
-1110,Black Poppy Extract,Material,Rare,,,,,"In Game","Useful alkaloids in a sticky black goo. One of the most ancient ingredients."
-1111,Essence of Daffodil,Material,Uncommon,,,,,"In Game","Poisonous to living things, but useful when making medicines and potions."
-1112,Shredded Mint,Material,Epic,,,,,"In Game","Makes a cooling and relaxing tea. Also used in various magical applications."
-1113,Sanguineous Powder,Material,Uncommon,,,,,"In Game","A dark, reddish powder that resembles dried blood, or maybe just coffee. Edible, but can also be used as an ink or dye."
-1114,Berry Chalk,Material,Uncommon,,,,,"In Game","A chalky fungus scraped from a rare berry. Can ferment certain materials to produce a rejuvenating beverage."
-1121,Pallid Root Extract,Material,Rare,,,,,"In Game","The waxen paste extracted from an Irradiated Root. The jar has a pale gleam even in the deepest darkness."
-1201,Holy Syrup,Material,Rare,,,,,"In Game","Holy Dust diluted into a quantity of water. Forms a thin syrup that can be measured out for crafting."
-1202,Resin Tincture,Material,Uncommon,,,,,"In Game","A sweet, spicy syrup made from the natural resin found in the trees of Kamigotchi World. Useful for a number of recipes."
-1203,Fuliginous Ooze,Material,Epic,,,,,"In Game","Like crude oil with the texture of clay. It seems to absorb the light around it. Could be an ingredient in powerful magic."
-1301,Ashlar,Material,Uncommon,,,,,"In Game","A heavy block of unpolished and imperfect stone. Symbolic of unrefined potential. Masters can craft this into something useful."
-1302,Timber,Material,Uncommon,,,,,"In Game","Laminated timber made from thin strips of material that have been pressed and glued together. It can be cut into useful planks after a large mass has been shaped and dried."
-1303,Ingot,Material,Uncommon,,,,,"In Game","A rough ingot of greenish metal. Soft enough to shape with force and heat and strong enough to hold an edge. Only .888 percent pure, so be careful when you work."
-6001,Essence of Hearing,Material,Rare,,,,,"In Game","One of the six essences. A coil of roaring blue flame."
-6002,Essence of Smell,Material,Rare,,,,,"In Game","One of the six essences. A skyfish in a perfumed cloud."
-6003,Essence of Sight,Material,Rare,,,,,"In Game","One of the six essences. A weeping orb of sludge."
-6004,Essence of Taste,Material,Rare,,,,,"In Game","One of the six essences. A stone flower bud."
-6005,Essence of Touch,Material,Rare,,,,,"In Game","One of the six essences. A hole in space with grasping tentacles."
-6006,Essence of Thought,Material,Rare,,,,,"In Game","One of the six essences. A leafless tree with a reflective surface."
-6007,Pure Essence,Material,Epic,,,,,"In Game","The combined six essences. A ball of pure sensation."
-11001,Red Ribbon Gummy,Revive,Rare,Kami,,"STATE-RESTING,HP+10",,"In Game","This candy ribbon is so delicious that it can bring a Kami back after it's been liquidated. They can't say no to the flavor."
-11002,"Melkarth's Heroic Awakening Spell Card",Revive,Rare,Kami,NOT_TRADABLE,"STATE-RESTING,HP+50",,"In Game","The card depicts the figure of an ancient god silhouetted by a wreath of energy. Melkarth grants a blessing of rebirth to fallen warriors. Activating this Spell Card will revive a Kamigotchi that has been incapacitated."
-11003,Djed Pillar,Consumable,Epic,Kami,,"STATE-RESTING,HP+5",,"In Game","An artifact that carries the magic of resurrection. Scholars say it resembles a sheaf of reeds, or a spine, or a tree. Use this on a liquidated Kami to bring it back from death."
-11004,Pale Potion,Potion,Rare,Kami,,"STATE-RESTING,HP+75",,"In Game","A unique potion that can draw a Kami back from beyond. The bottle glows blue with a wan phosphorescence."
-11011,Holy Dust,Misc,Rare,Kami,,,,"In Game","This sacred dust can be used to rename Kamigotchi... At the proper place."
-11020,Cleaning Fluid,Potion,Rare,Kami,,CLEARALL,,"In Game","A suspension of pleasant-smelling reagents in holy syrup. Used for ritual purification and ablution."
-11110,Gaokerena Mochi,Food,Epic,Kami,,HEALTH+10,MOCHI_LIMIT,"In Game","A glossy purple mochi. It's filled with a green and fibrous root paste confection made with milk. Permanently adds +10 to a Kamigotchi's Health."
-11120,Sunset Apple Mochi,Food,Epic,Kami,,POWER+1,MOCHI_LIMIT,"In Game","A deep red and orange mochi. It's filled with a golden apple jam that has a warm, heavenly flavor. Permanently adds +1 to a Kamigotchi's Power."
-11130,Kami Mochi,Food,Epic,Kami,,VIOLENCE+1,MOCHI_LIMIT,"In Game","A deep blue mochi with a butterfly stamp. It's filled with soft, white curds that resemble a fresh cheese. Permanently adds +1 to a Kamigotchi's Violence."
-11140,Mana Mochi,Food,Epic,Kami,,HARMONY+1,MOCHI_LIMIT,"In Game","A sky blue mochi. It's filled with small white grains that burst with a honey-sweet flavor. Permanently adds +1 to a Kamigotchi's Harmony."
-11201,XP Candy (Small),Food,Uncommon,Kami,NOT_TRADABLE,"HP+5,XP+25",,"In Game","Feed this to a Kamigotchi to give them a little bit of experience."
-11202,XP Candy (Medium),Food,Uncommon,Kami,NOT_TRADABLE,"HP+10,XP+100",,"In Game","Provides a decent amount of XP when fed to a Kami."
-11203,XP Candy (Large),Food,Uncommon,Kami,NOT_TRADABLE,"HP+20,XP+200",,"In Game","This gives a lot of XP when fed to a Kamigotchi."
-11204,XP Candy (Huge),Food,Rare,Kami,NOT_TRADABLE,"HP+50,XP+1000",,"In Game","This is far larger than any XP Candy you've seen before. Gives a huge amount of XP when fed to a Kamigotchi."
-11211,Cultivation I Spell Card,Food,Uncommon,Kami,NOT_TRADABLE,"XP+100,HP+20",,"In Game","The card depicts a pale sprout emerging from rich, black soil. Activating this Spell Card on a Kamigotchi will restore 20 HP and grant 100 XP."
-11212,Cultivation II Spell Card,Food,Uncommon,Kami,NOT_TRADABLE,"XP+200,HP+50",,"In Game","The card depicts a teardrop-shaped flowerbud growing out of light brown soil. Activating this Spell Card on a Kamigotchi will restore 50 HP and grant 200 XP."
-11213,Cultivation III Spell Card,Food,Rare,Kami,NOT_TRADABLE,"XP+1000,HP+100",,"In Game","The card depicts a flower heartily blooming in pale and sandy earth. Activating this Spell Card on a Kamigotchi will restore 100 HP and grant 1000 XP."
-11214,Cultivation IV Spell Card,Food,Rare,Kami,NOT_TRADABLE,"XP+5000,HP+100",,"In Game","The card depicts a massive flower spreading across the frame. A baby sleeps in the center. Activating this Spell Card on a Kamigotchi will restore 100 HP and grant 5000 XP."
-11221,Full Heart Crystal,Food,Rare,Kami,,XP+15000,,"In Game","It pulses with warmth. Give this to your Kami to grant it a large amount of XP."
-11222,Half Heart Crystal,Food,Uncommon,Kami,,XP+1000,,"In Game","It feels slightly warm in your hand. Give this to your Kami to grant it a moderate amount of XP."
-11223,Great Heart Crystal,Food,Epic,Kami,,XP+50000,,"In Game","The crystal beats like a real heart. It radiates with heat enough to warm your surroundings. Give this to your kami to grant it a very large amount of XP."
-11224,Inverted Teardrop Jewel,Food,Rare,Kami,BYPASS_BONUS_RESET,ATR+10%,,"In Game","A rare gem with an incandescent color. Some say the stone has a wild spirit and will leap out of your pack if unattended."
-11225,Teardrop Jewel,Food,Rare,Kami,BYPASS_BONUS_RESET,HFB+50%,,"In Game","A rare gem with a tranquil color. Some say that if you drop it into water, it won't disturb the surface. This jewel boosts a kami's Fertility, enhancing its type advantages when harvesting."
-11226,Ash Pearl,Food,Rare,Kami,BYPASS_BONUS_RESET,"TEMP1HARMONY,TEMP1VIOLENCE",,"In Game","The Wonder Egg was filled with soot and ash, but also a large blue pearl. Give this pearl to your Kami to grant it a temporary +1 to Harmony and Violence. If your Kami is liquidated, the pearl breaks and the power is lost."
-11227,Fetid Egg,Food,Uncommon,Kami,,HP+35,,"In Game","This egg seems fresh, and refuses to spoil even out of the shell. Still, it reeks of sulfur. Your Kami can eat this to restore HP."
-11233,Gingerbread Cookie,Food,Rare,Kami,,"XP+1000,HP+25",,"In Game","A gingerbread cookie... feed this to a Kamigotchi for some extra experience."
-11301,Maple-Flavor Ghost Gum,Food,Uncommon,Kami,,HP+25,,"In Game","The most basic form of food available in this world - restores 25 Health to a Kamigotchi."
-11302,Cheeseburger,Food,Uncommon,Kami,,HP+50,,"In Game","These burgers, still in their original wrapping, are occasionally found in the scrapyard. Apparently Kamigotchi love them."
-11303,Pom-Pom Fruit Candy,Food,Uncommon,Kami,,HP+50,,"In Game","These fruit candies contain a huge amount of energy. Restores 50 Health to a Kamigotchi."
-11304,Gakki Cookie Sticks,Food,Rare,Kami,,HP+100,,"In Game","Heavy duty rations by a Kami's standards. Restores 100 Health to a Kamigotchi."
-11305,Paeon's Field of Flowers Spell Card,Food,Rare,Kami,NOT_TRADABLE,HP+100,,"In Game","The card depicts a mortally wounded man lying in a field of flowers. Some flowers take root on his body and knit the wounds closed while others bloom from the spilled blood. Activating this Spell Card on a Kamigotchi will restore 100 Health."
-11311,Resin,Food,Uncommon,Kami,,HP+35,,"In Game","Sticky sap with a flavor like spiced honey. An energizing snack by itself, but also useful in a number of recipes."
-11312,Honeydew Scale,Food,Rare,Kami,,HP+75,,"In Game","A sweet confection that appears on mushrooms and bones. Close inspection reveals this candy is actually the honeydew of a scale insect."
-11313,Golden Apple,Food,Rare,Kami,,HP+150,,"In Game","Sweet golden apples on a dry silver branch. Said to be a divine gift, they are extremely rare. They're more often found in places without trees."
-11314,Blue Pansy,Food,Uncommon,Kami,,HP+25,,"In Game","A deep blue flower with a shape reminiscent of the blue butterflies common across the Kamigotchi World. It has a crisp, sweet, and refreshing flavor."
-11401,XP Potion,Food,Uncommon,Kami,BYPASS_BONUS_RESET,"XP+1000,ITEM1003",,"In Game","Give to a Kami to increase their XP by 1000."
-11402,Greater XP Potion,Food,Epic,Kami,BYPASS_BONUS_RESET,"XP+15000,ITEM1006",,"In Game","Give to a Kami to increase their XP by 15000."
-11403,Respec Potion,Misc,Epic,Kami,BYPASS_BONUS_RESET,ITEM1003,,"In Game","Give to a Kami to reset their skill points."
-11404,Grace Potion,Food,Rare,Kami,BYPASS_BONUS_RESET,"STRAIN-25%,ITEM1003",,"In Game","Give to a Kami to decrease loss of health during the next Harvest by 25%."
-11405,Bless Potion,Food,Uncommon,Kami,BYPASS_BONUS_RESET,"BOUNTY+25%,ITEM1003",,"In Game","Give to a Kami to increase the MUSU gained from the next Harvest by 25%."
-11406,Apology Letter,Food,Uncommon,Kami,BYPASS_BONUS_RESET,ARB-25%,,"In Game","A letter written by a Kami with sincere remorse for its actions. Lowers Recoil when liquidating other Kami."
-11407,MUSU Magnet,Food,Rare,Kami,BYPASS_BONUS_RESET,DSR+25%,,"In Game","This shiny purple rock attracts grains of $MUSU. It dramatically increases the proportion of $MUSU a kami retains when it's liquidated."
-11408,Festival Chime,Food,Rare,Kami,BYPASS_BONUS_RESET,HIB+25,,"In Game","Magical bells that gradually increase Harvest Intensity over the next long-term harvest. Your Kami will ring this chime until it breaks."
-11409,Energy Drink,Food,Uncommon,Kami,BYPASS_BONUS_RESET,COOLDOWN-30s,,"In Game","A lightly fermented beverage that grants a burst of spiritual energy. Dramatically reduces Cooldown Shift for a kami's next action."
-11410,Hostility Potion,Food,Uncommon,Kami,BYPASS_BONUS_RESET,"ATS+3%,ITEM1102",,"In Game","Most Kamigotchi find this bitter potion unpleasant, but some thrive on it. Expands a Kami's Attack Threshold Shift by a small percentage."
-11411,Fortified XP Potion,Potion,Epic,Kami,,"XP+50000,ITEM1006",,"In Game","A deep-green potion with a grainy texture and dense mouthfeel. Fortified with rare red amber and the essences of old memories."
-11412,Flash Talisman,Potion,Epic,Enemy_Kami,,"ATR+10%_KK,DTR-10%_KK",,"To Update","A magical talisman that burns easily. Using this on a Kami intensifies their overall sensitivity to Types, buffing their advantages on liquidations but nerfing their advantages on defense."
-11413,Mistletoe,Food,Rare,Kami,BYPASS_BONUS_RESET,BOUNTY+25%,,"In Game","Sacred, at this time of year... can be used on Kami to Bless them!"
-11501,Toadstool Liquor,Potion,Rare,Kami,BYPASS_BONUS_RESET,"TEMP10HEALTH,TEMP1POWER",,"In Game","Liquor distilled from a mash made from mushrooms and black poppy. An underworld favorite."
-11502,Sarcophagus Honey,Potion,Uncommon,Kami,BYPASS_BONUS_RESET,TEMP30HEALTH,,"In Game","Legendary medicine believed to be the stuff of rumors. A piece of flesh has been preserved inside using ancient techniques. Give this to a Kami to grant them a temporary bonus to maximum Health."
-19001,Spirit Glue,Potion,Uncommon,Enemy_Kami,,"NEXT_COOLDOWN+180,ITEM1003",,"In Game","This glue even sticks to intangible things. Can be used to add additional Cooldown to an enemy Kami and temporarily lock it down to a Node."
-19101,Animistic Poison,Potion,Rare,Enemy_Kami,,STRAIN+50%,,"In Game","Dangerous to both living and nonliving beings. When used on Kamigotchi, it causes them to lose HP at a faster rate while Harvesting."
-19201,Cthonic Blight,Potion,Rare,Enemy_Kami,BYPASS_BONUS_RESET,DTS-5%,,"In Game","Highly corrosive. Can be used to clear barriers of plant or fungal matter. It can also be used on a Kamigotchi to lower its defenses."
-19301,Curse Tablet,Potion,Rare,Enemy_Kami,,ATS-30%_KK,,"In Game","Also called a Defixio or Katadesmos. This ancient tablet is inscribed with a curse of weakness. Although it was meant for a long-dead human, Kami can use it on their own kind."
-21001,Giftbox,Lootbox,Uncommon,Account,,DT OG,,"In Game","The lowest tier of giftbox. You can get XP candies, cheeseburgers, and even a few rare item drops from this!"
-21002,Kamigotchi World Citizen Giftbox,Lootbox,Rare,Account,,DT Passport,,"In Game","A gold-trimmed and colorfully painted treasure chest. The gift inside must be particularly valuable."
-21003,Wonder Egg,Lootbox,Rare,Account,,DT Wonder Egg,,"In Game","A cracked egg held together by blood-red wax. The contents are a surprise."
-21004,Booster Pack,Lootbox,Rare,Account,,DT Booster Pack,,"In Game","Open this magical booster pack to receive a Spell Card. You might find something super rare!"
-21005,Mochibox,Lootbox,Epic,Account,,DT Mochibox,,"In Game","A sacred box containing exactly one Mochi."
-21006,Atonement Box,Lootbox,Epic,Account,,,,"To Deploy","A box with 'From: Dimidiatus' scrawled on it in an unsettling script. Something inside is making noise and desperate to get out."
-21201,Ice Cream,Food,Uncommon,Account,,SP+20,,"In Game","Restorative ice-cream. Food for you, personally. Restores a little bit of your stamina."
-21202,Better Ice Cream,Food,Rare,Account,,SP+40,,"In Game","A slightly larger and higher-quality ice-cream. What is this made of? Restores a medium amount of stamina."
-21203,Best Ice Cream,Food,Rare,Account,,SP+80,,"In Game","A huge, lavishly decorated ice-cream. It doesn't seem to be melting at all... Restores a lot of stamina."
-21204,Neith's River of Life Spell Card,Food,Rare,Account,NOT_TRADABLE,SP+80,,"In Game","The card depicts a flooding river beneath the night sky. The magical waters grant a bounty of stamina, and the reeds grow nearly as tall as the pyramids. Activating this Spell Card on an Operator will restore 80 Stamina."
-21205,Rock Candyfloss,Food,Uncommon,Account,,SP+80,,"In Game","This rare crystal formation is soft to the touch, sweet, and edible. You can consume it to restore a large amount of Stamina."
-21206,Uninteresting Paste,Potion,Rare,Account,,SP+150,,"In Game","A matte-black paste in a plastic jar. A secret incense recipe created by Mina that allows individuals without bodies to smoke tobacco."
-23100,Spice Grinder,Tool,Rare,,,,,"In Game","Can be used to break down ingredients."
-23101,Portable Burner,Tool,Rare,,,,,"In Game","Can be used to make Potions at a riverside."
-23102,Screwdriver,Tool,Epic,,,,,"In Game","For driving screws. May be of practical use..."
-30001,Mask of Avarice,Equipment,Common,Kami_Pet_Slot,,E_POWER+3,,"In Game","The empty eyes of the old theatre mask stare back at you, its empty grimace seems to whisper of musu and power."
-30002,Veil of Avarice,Equipment,Uncommon,Kami_Pet_Slot,,E_POWER+4,,"In Game","The theatre veil's eye sockets glint hungrily, its haunting whisper offers a promise of musu and power."
-30003,Visage of Avarice,Equipment,Rare,Kami_Pet_Slot,,E_POWER+5,,"In Game","The visage of avarice hungers, greedy eyes and a haunting grimace demand the pursuit of ever greater musu and power."
-30004,Mask of Contempt,Equipment,Common,Kami_Pet_Slot,,E_DTS+6%,,"In Game","The empty eyes of the old ogre mask stare back at you, its hollow frown seems to whisper of armor and defense."
-30005,Veil of Contempt,Equipment,Uncommon,Kami_Pet_Slot,,E_DTS+8%,,"In Game","The ogre veil's eye sockets glint disdainfully, its murmuring voice offers a promise of armor and defense."
-30006,Visage of Contempt,Equipment,Rare,Kami_Pet_Slot,,E_DTS+10%,,"In Game","The visage of contempt glowers, haughty eyes and a sneering frown demand the pursuit of ever greater armor and defense."
-30007,Mask of Mischief,Equipment,Common,Kami_Pet_Slot,,E_ASR+6%,,"In Game","The empty eyes of the old goblin mask stare back at you, its unmoving grin seems to whisper of battle and plunder."
-30008,Veil of Mischief,Equipment,Uncommon,Kami_Pet_Slot,,E_ASR+8%,,"In Game","The goblin veil's eye sockets glint impishly, its taunting whisper offers a promise of battle and plunder."
-30009,Visage of Mischief,Equipment,Rare,Kami_Pet_Slot,,E_ASR+10%,,"In Game","The visage of mischief snickers, malevolent eyes and a fiendish smirk demand the pursuit of ever greater battle and plunder."
-30010,Old Leafling,Equipment,Common,Kami_Pet_Slot,,E_BOUNTY+12%,,"In Game","The old leafling bounces happily and shares a few tricks to increase your kami's bounty."
-30011,Wise Leafling,Equipment,Uncommon,Kami_Pet_Slot,,E_BOUNTY+16%,,"In Game","The wise leafling hops contentedly and shares its skillful techniques to increase your kami's bounty."
-30012,Elder Leafling,Equipment,Rare,Kami_Pet_Slot,,E_BOUNTY+20%,,"In Game","The elder leafling wiggles affectionately and shares its foraging secrets to increase your kami's bounty."
-30013,Old Gumdrop,Equipment,Common,Kami_Pet_Slot,,RMB+15%,,"In Game","The old gumdrop offers soft hugs and reminds your kami to rest and drink water."
-30014,Wise Gumdrop,Equipment,Uncommon,Kami_Pet_Slot,,RMB+20%,,"In Game","The wise gumdrop offers gentle cuddles and reminds your kami to rest and drink water."
-30015,Elder Gumdrop,Equipment,Rare,Kami_Pet_Slot,,RMB+25%,,"In Game","The elder gumdrop offers a shoulder to cry on and reminds your kami to rest and drink water."
-30016,Old Critter,Equipment,Common,Kami_Pet_Slot,,E_HEALTH+30,,"In Game","The skittish old critter is constantly on guard for threats to your kami's health."
-30017,Wise Critter,Equipment,Uncommon,Kami_Pet_Slot,,E_HEALTH+40,,"In Game","The wise experienced critter is constantly on guard for threats to your kami's health."
-30018,Elder Critter,Equipment,Rare,Kami_Pet_Slot,,E_HEALTH+50,,"In Game","The esteemed elder critter is constantly on guard for threats to your kami's health."
-30019,Crawling Greed,Equipment,Common,Kami_Pet_Slot,,E_HFB+18%,,"In Game","A condensation of hunger and greed in the form of cute crawling ladybugs provide your kami with increased harvest fertility."
-30020,Teeming Greed,Equipment,Uncommon,Kami_Pet_Slot,,E_HFB+24%,,"In Game","A distillation of hunger and greed in the form of adorable teeming ladybugs provide your kami with increased harvest fertility."
-30021,Swarming Greed,Equipment,Rare,Kami_Pet_Slot,,E_HFB+30%,,"In Game","A crystallization of hunger and greed in the form of happily swarming ladybugs provide your kami with increased harvest fertility."
-30022,Crawling Wrath,Equipment,Common,Kami_Pet_Slot,,E_VIOLENCE+3,,"In Game","A condensation of predatory aggression in the form of cute crawling bees fill your kami with a desire for violence."
-30023,Teeming Wrath,Equipment,Uncommon,Kami_Pet_Slot,,E_VIOLENCE+4,,"In Game","A distillation of predatory aggression in the form of adorable teeming bees fill your kami with a desire for violence."
-30024,Swarming Wrath,Equipment,Rare,Kami_Pet_Slot,,E_VIOLENCE+5,,"In Game","A crystallization of predatory aggression in the form of happily swarming bees fill your kami with a desire for violence."
-30025,Crawling Cope,Equipment,Common,Kami_Pet_Slot,,E_DSR+6%,,"In Game","A condensation of fearful cowardice in the form of cute crawling worms protect your kami's harvest from predators."
-30026,Teeming Cope,Equipment,Uncommon,Kami_Pet_Slot,,E_DSR+8%,,"In Game","A distillation of fearful cowardice in the form of adorable teeming worms protect your kami's harvest from predators."
-30027,Swarming Cope,Equipment,Rare,Kami_Pet_Slot,,E_DSR+10%,,"In Game","A crystallization of fearful cowardice in the form of happily swarming worms protect your kami's harvest from predators."
-30028,Antique Tape,Equipment,Common,Kami_Pet_Slot,,E_ATS+6%,,"In Game","This antique tape may not be very sticky anymore, and yet still it remains filled with hatred for kami."
-30029,Heirloom Tape,Equipment,Uncommon,Kami_Pet_Slot,,E_ATS+8%,,"In Game","What this heirloom tape has lost in stickiness has more than been made up for by its powerful hatred for kami."
-30030,Ancient Tape,Equipment,Rare,Kami_Pet_Slot,,E_ATS+10%,,"In Game","An ancient tape from an earlier age, it's adhesiveness long gone, all that remains is a distilled and concentrated hatred for kami."
-30031,Antique Automata,Equipment,Common,Kami_Pet_Slot,,E_HIB+15P,,"In Game","This antique automata may be partly broken, and yet still it drives your kami to harvest with ever greater intensity."
-30032,Heirloom Automata,Equipment,Uncommon,Kami_Pet_Slot,,E_HIB+20,,"In Game","What this heirloom automata has lost in functional machinery has more than been made up for in the way it drives your kami to harvest with ever greater intensity."
-30033,Ancient Automata,Equipment,Rare,Kami_Pet_Slot,,E_HIB+25P,,"In Game","An ancient automata from an earlier age, it's gears long frozen, all that remains is a frantic force driving your kami to harvest with ever greater intensity."
-30034,Antique Ledger,Equipment,Common,Kami_Pet_Slot,,E_HARMONY+3,,"In Game","This antique ledger is mostly drained of funds, and yet it remains filled with a desire for peace and harmony among kamikind."
-30035,Heirloom Ledger,Equipment,Uncommon,Kami_Pet_Slot,,E_HARMONY+4,,"In Game","What this heirloom ledger has lost in account balance has more than been made up for by its desire for peace and harmony among kamikind."
-30036,Ancient Ledger,Equipment,Rare,Kami_Pet_Slot,,E_HARMONY+5,,"In Game","An ancient ledger from an earlier age, it's wallet long emptied, all that remains is a powerful longing for peace and harmony among kamikind."
-100001,Astrolabe Disk,Key Item,Epic,,,,,"In Game","A golden disk. It resembles the tympan of an astrolabe, but the engraving doesn't look right."
-100002,Ancient Machine Part,Key Item,Epic,,,,,"In Game","A durable part of some kind of high-tech machinery. It has wear and corrosion like it's been exposed to the elements for thousands of years."
-100003,Disc-Shaped Map,Key Item,Epic,,,,,"In Game","A golden disk inlaid with other metals. It resembles an overhead map of a temple complex. Seems to depict roads, pyramids, and other structures."
-100004,Aetheric Sextant,Key Item,Legendary,,,,,"In Game","Capable of divining some things beyond the perception of mortals."
-100005,Pyramid Engine,Key Item,Epic,,NOT_TRADABLE,,,"In Game","This device dates to thousands of years old and is constructed in Egyptian style. It can be used to generate electrical power. The process through which this occurs is unknown."
-100006,KW Maps Data Chip,Key Item,Rare,Account,,,,"In Game","Kamigotchi World Maps. A data chip found in the Lost Skeleton's laptop. It looks damaged, but it might still be readable."
-100007,Unmarked Data Chip,Key Item,Rare,Account,,,,"In Game","A data chip found in the Techno Temple. Looks to be in good working condition."
-100008,Rock Crystal Lens,Key Item,Epic,,,,,"In Game","Although this lens has a slight crack, it can still be used to focus and magnify light. Scans indicate this item to be hundreds of thousands of years old."
-100009,Switchbox Imp,Key Item,Epic,,,,,"In Game","Looks like a small wired relay box on the surface. A tiny humanoid imp lives under the faceplate and manually operates the contacts. This item can be used in crafting certain complex devices."
-100010,Dowsing Rod,Key Item,Epic,,,,,"In Game","The crystal in the caves radiates a strange power. Mina alleges that this item can sense traces of that power."
+1,MUSU,Misc,Common,,,,,In Game,Kamigotchi kurrency
+2,VIPP,Consumable,Common,Account,,VIP1,VIP_ROOM,In Game,Sacred paper which can be sacrificed for VIP status.
+10,Gacha Ticket,Misc,Epic,,,,,In Game,Redeemable for one Kami. You should take this to the vending machine...
+11,Reroll Ticket,Misc,Epic,,,,,In Game,Allows you to reroll a Kami once. You should take this to the vending machine...
+12,Coat Check Ticket,Misc,Epic,,NOT_TRADABLE,,,In Game,This ticket says it can be exchanged for an exclusive Operator cosmetic item. But who will take the ticket?
+13,Ballot,Misc,Uncommon,,NOT_TRADABLE,,,In Game,Proof you spoke for Yominet at the gauge. Spend it at Alaina's Shop in the Forest Hut.
+14,Golden Ballot,Misc,Epic,,NOT_TRADABLE,,,In Game,"Five epochs in a row, one voice. A gilded slip handed to those who keep showing up for Yominet."
+15,Voter Badge I,Cosmetic,Uncommon,,NOT_TRADABLE,,,In Game,Five epochs in a row. Someone at the gauge is starting to recognise your face.
+16,Voter Badge II,Cosmetic,Rare,,NOT_TRADABLE,,,In Game,Ten epochs in a row. You know the way to the gauge by heart now.
+17,Voter Badge III,Cosmetic,Rare,,NOT_TRADABLE,,,In Game,"Twenty-six epochs in a row, a whole year. The other voters nod at you as you pass."
+18,Voter Badge IV,Cosmetic,Epic,,NOT_TRADABLE,,,In Game,"Fifty-two epochs at the gauge without wavering, two whole years. The ink on this one never quite dries."
+20,Kamigotchi World Passport (Yellow),NFT,Rare,,,,,In Game,Your ticket to great fortunes. In yellow.
+21,Kamigotchi World Passport (Orange),NFT,Rare,,,,,In Game,Your ticket to great fortunes. In orange.
+22,Kamigotchi World Passport (Pink),NFT,Rare,,,,,In Game,Your ticket to great fortunes. In pink.
+23,Kamigotchi World Passport (Red),NFT,Rare,,,,,In Game,Your ticket to great fortunes. In red.
+24,Kamigotchi World Passport (Blue),NFT,Rare,,,,,In Game,Your ticket to great fortunes. In blue.
+25,Kamigotchi World Passport (Green),NFT,Rare,,,,,In Game,Your ticket to great fortunes. In green.
+26,Kamigotchi World Passport (White),NFT,Epic,,,,,In Game,Your ticket to great fortunes. In white.
+27,Kamigotchi World Passport (Grey),NFT,Epic,,,,,In Game,Your ticket to great fortunes. In grey.
+28,Kamigotchi World Passport (Purple),NFT,Epic,,,,,In Game,Your ticket to great fortunes. In purple.
+29,Kamigotchi World Passport (Lime Green),NFT,Epic,,,,,In Game,Your ticket to great fortunes. In lime green.
+30,Kamigotchi World Passport (1-bit Red and White),NFT,Legendary,,,,,In Game,Your ticket to great fortunes. In 1-bit red.
+31,Kamigotchi World Passport (1-bit Pink),NFT,Legendary,,,,,In Game,Your ticket to great fortunes. In 1-bit pink.
+32,Kamigotchi World Passport (1-bit Green),NFT,Legendary,,,,,In Game,Your ticket to great fortunes. In 1-bit green.
+33,Kamigotchi World Passport (1-bit Black and White),NFT,Legendary,,,,,In Game,Your ticket to great fortunes. In 1-bit black.
+100,Onyx Shard,ERC20,Uncommon,,,,,In Game,Kamigotchi World's premium game currency. You want this. You want this so bad.
+103,Ether Shard,ERC20,Uncommon,,,,,In Game,Crystallized gas. Not the kind you breathe.
+1001,Wooden Stick,Material,Common,,,,,In Game,Wood in its unprocessed form. Grows on trees.
+1002,Stone,Material,Common,,,,,In Game,It's just a stone. Can be used to get Stone.
+1003,Plastic Bottle,Material,Uncommon,,,,,In Game,Can be reprocessed into valuable raw Microplastics.
+1004,Pine Cone,Material,Uncommon,,,,,In Game,It's a pine cone. Slightly sacred.
+1005,Scrap Metal,Material,Common,,,,,In Game,A small chunk of scrap metal. Maybe useful if processed.
+1006,Glass Jar,Material,Rare,,,,,In Game,A somehow-unbroken jar of clear glass.
+1007,Red Amber Crystal,Material,Epic,,,,,In Game,"A crystal of pure red amber, formed deep in the forest."
+1010,Black Poppy,Material,Rare,,,,,In Game,You can't tell whether it's a very dark purple or actually black. A rare flower.
+1011,Daffodil,Material,Uncommon,,,,,In Game,A reflection of fallen Narcissus... Has its own uses and applications.
+1012,Mint,Material,Epic,,,,,In Game,A herb with many applications. Not often found here....
+1013,Sanguine Shroom,Material,Uncommon,,,,,In Game,A mushroom that bruises and bleeds like flesh. Some believe that they feed on decaying spirits.
+1014,Chalkberry,Material,Uncommon,,,,,In Game,A dry and bitter berry coated with chalky white fungus. The berry itself is inedible; useless except as a medium for a unique wild yeast.
+1015,Obol,Misc,Uncommon,,,,,In Game,"An ancient coin. Despite a worn and dull finish, it still glitters in the light. Valuable to certain individuals."
+1016,Dried Stems,Material,Common,,,,,In Game,"Long-stemmed mushrooms dried in a small bundle. Although this mushroom has no known medicinal, culinary, or recreational use, it may be a functional building material."
+1017,Patinated Pipe,Material,Common,,,,,In Game,These verdigris-coated pipes jut from the cave walls with no connection to any apparent plumbing system. Their presence defies conventional explanation.
+1018,Cigarette Butt,Material,Common,,,,,In Game,Even something as small and disposable as a cigarette can be tied to a memory and be given a spiritual essence. You can break this down into Microplastics.
+1019,Otherworld Coin,Material,Common,,,,,In Game,"The woman on the face of this coin has long pointed ears like a caracal. The language inscribed is incomprehensible. Unless you find a collector, this coin is only valuable as scrap."
+1020,Bone Chunk,Material,Common,,,,,In Game,"Petrified bone in the form of a large stony chunk. If this fragment came from the skeleton of an animal, it must have been the size of a whale."
+1021,Irradiated Root,Material,Rare,,,,,In Game,A dried root found wrapped around a glowing crystal. The tips have turned blue and taken on a waxen texture.
+1102,Empty Cup,Material,Uncommon,,,,,In Game,A small reusable cup crafted from stone. Useful for drinking potions or other beverages.
+1103,Microplastics,Material,Uncommon,,,,,In Game,Fine translucent powder. A promising new substance in hexerei.
+1104,Pine Pollen,Material,Uncommon,,,,,In Game,Some people think this is very good for you.
+1107,Powdered Red Amber,Material,Epic,,,,,In Game,Fine powder made from crushing a red amber crystal. Can be used to sand and polish metals.
+1110,Black Poppy Extract,Material,Rare,,,,,In Game,Useful alkaloids in a sticky black goo. One of the most ancient ingredients.
+1111,Essence of Daffodil,Material,Uncommon,,,,,In Game,"Poisonous to living things, but useful when making medicines and potions."
+1112,Shredded Mint,Material,Epic,,,,,In Game,Makes a cooling and relaxing tea. Also used in various magical applications.
+1113,Sanguineous Powder,Material,Uncommon,,,,,In Game,"A dark, reddish powder that resembles dried blood, or maybe just coffee. Edible, but can also be used as an ink or dye."
+1114,Berry Chalk,Material,Uncommon,,,,,In Game,A chalky fungus scraped from a rare berry. Can ferment certain materials to produce a rejuvenating beverage.
+1121,Pallid Root Extract,Material,Rare,,,,,In Game,The waxen paste extracted from an Irradiated Root. The jar has a pale gleam even in the deepest darkness.
+1201,Holy Syrup,Material,Rare,,,,,In Game,Holy Dust diluted into a quantity of water. Forms a thin syrup that can be measured out for crafting.
+1202,Resin Tincture,Material,Uncommon,,,,,In Game,"A sweet, spicy syrup made from the natural resin found in the trees of Kamigotchi World. Useful for a number of recipes."
+1203,Fuliginous Ooze,Material,Legendary,,,,,In Game,Like crude oil with the texture of clay. It seems to absorb the light around it. Could be an ingredient in powerful magic.
+1301,Ashlar,Material,Uncommon,,,,,In Game,A heavy block of unpolished and imperfect stone. Symbolic of unrefined potential. Masters can craft this into something useful.
+1302,Timber,Material,Uncommon,,,,,In Game,Laminated timber made from thin strips of material that have been pressed and glued together. It can be cut into useful planks after a large mass has been shaped and dried.
+1303,Ingot,Material,Uncommon,,,,,In Game,"A rough ingot of greenish metal. Soft enough to shape with force and heat and strong enough to hold an edge. Only .888 percent pure, so be careful when you work."
+6001,Essence of Hearing,Material,Rare,,,,,In Game,One of the six essences. A coil of roaring blue flame.
+6002,Essence of Smell,Material,Rare,,,,,In Game,One of the six essences. A skyfish in a perfumed cloud.
+6003,Essence of Sight,Material,Rare,,,,,In Game,One of the six essences. A weeping orb of sludge.
+6004,Essence of Taste,Material,Rare,,,,,In Game,One of the six essences. A stone flower bud.
+6005,Essence of Touch,Material,Rare,,,,,In Game,One of the six essences. A hole in space with grasping tentacles.
+6006,Essence of Thought,Material,Rare,,,,,In Game,One of the six essences. A leafless tree with a reflective surface.
+6007,Pure Essence,Material,Epic,,,,,In Game,The combined six essences. A ball of pure sensation.
+11001,Red Ribbon Gummy,Consumable,Uncommon,Kami,,"STATE-RESTING,HP+10",KAMI_DEAD,In Game,This candy ribbon is so delicious that it can bring a Kami back after it's been liquidated. They can't say no to the flavor.
+11002,Melkarth's Heroic Awakening Spell Card,Spell Card,Uncommon,Kami,NOT_TRADABLE,"STATE-RESTING,HP+50",KAMI_DEAD,In Game,The card depicts the figure of an ancient god silhouetted by a wreath of energy that obscures the details of his face and attire. Melkarth grants a blessing of rebirth to fallen warriors. Activating this Spell Card will revive a Kamigotchi that has been incapacitated.
+11003,Djed Pillar,Consumable,Uncommon,Kami,,"STATE-RESTING,HP+5",KAMI_DEAD,In Game,"An artifact that carries the magic of resurrection. Scholars say it resembles a sheaf of reeds, or a spine, or a tree. Use this on a liquidated Kami to bring it back from death."
+11004,Pale Potion,Potion,Rare,Kami,,"STATE-RESTING,HP+75",KAMI_DEAD,In Game,A unique potion that can draw a Kami back from beyond. The bottle glows blue with a wan phosphorescence.
+11011,Holy Dust,Material,Uncommon,,,,,In Game,This sacred dust can be used to rename Kamigotchi... At the proper place.
+11020,Cleaning Fluid,Potion,Rare,Kami,,CLEARALL,KAMI_CAN_EAT,In Game,A suspension of pleasant-smelling reagents in holy syrup. Used for ritual purification and ablution.
+11110,Gaokerena Mochi,Food,Epic,Kami,,"HEALTH+10,MOCHI_USED","KAMI_CAN_EAT,MOCHI_LIMIT",In Game,A glossy purple mochi. It's filled with a green and fibrous root paste confection made with milk. Permanently adds +10 to a Kamigotchi's Health.
+11120,Sunset Apple Mochi,Food,Epic,Kami,,"POWER+1,MOCHI_USED","KAMI_CAN_EAT,MOCHI_LIMIT",In Game,"A deep red and orange mochi. It's filled with a golden apple jam that has a warm, heavenly flavor. Permanently adds +1 to a Kamigotchi's Power."
+11130,Kami Mochi,Food,Epic,Kami,,"VIOLENCE+1,MOCHI_USED","KAMI_CAN_EAT,MOCHI_LIMIT",In Game,"A deep blue mochi with a butterfly stamp. It's filled with soft, white curds that resemble a fresh cheese. Permanently adds +1 to a Kamigotchi's Violence."
+11140,Mana Mochi,Food,Epic,Kami,,"HARMONY+1,MOCHI_USED","KAMI_CAN_EAT,MOCHI_LIMIT",In Game,A sky blue mochi. It's filled with small white grains that burst with a honey-sweet flavor. Permanently adds +1 to a Kamigotchi's Harmony.
+11201,XP Candy (Small),Food,Uncommon,Kami,NOT_TRADABLE,"HP+5,XP+25",KAMI_CAN_EAT,In Game,Feed this to a Kamigotchi to give them a little bit of experience.
+11202,XP Candy (Medium),Food,Uncommon,Kami,NOT_TRADABLE,"HP+10,XP+100",KAMI_CAN_EAT,In Game,Provides a decent amount of XP when fed to a Kami.
+11203,XP Candy (Large),Food,Uncommon,Kami,NOT_TRADABLE,"HP+20,XP+200",KAMI_CAN_EAT,In Game,This gives a lot of XP when fed to a Kamigotchi.
+11204,XP Candy (Huge),Food,Rare,Kami,NOT_TRADABLE,"HP+50,XP+1000",KAMI_CAN_EAT,In Game,This is far larger than any XP Candy you've seen before. Gives a huge amount of XP when fed to a Kamigotchi.
+11211,Cultivation I Spell Card,Spell Card,Uncommon,Kami,NOT_TRADABLE,"HP+20,XP+100",KAMI_CAN_EAT,In Game,"The card depicts a pale sprout emerging from rich, black soil. Activating this Spell Card on a Kamigotchi will restore 20 HP and grant 100 XP."
+11212,Cultivation II Spell Card,Spell Card,Uncommon,Kami,NOT_TRADABLE,"HP+50,XP+1000",KAMI_CAN_EAT,In Game,The card depicts a teardrop-shaped flowerbud growing out of light brown soil. Activating this Spell Card on a Kamigotchi will restore 50 HP and grant 1000 XP.
+11213,Cultivation III Spell Card,Spell Card,Rare,Kami,NOT_TRADABLE,"HP+100,XP+10000",KAMI_CAN_EAT,In Game,The card depicts a flower heartily blooming in pale and sandy earth. Activating this Spell Card on a Kamigotchi will restore 100 HP and grant 10000 XP.
+11214,Cultivation IV Spell Card,Spell Card,Epic,Kami,NOT_TRADABLE,"HP+100,XP+50000",KAMI_CAN_EAT,In Game,The card depicts a massive flower spreading across the frame. A baby sleeps in the center. Activating this Spell Card on a Kamigotchi will restore 100 HP and grant 50000 XP.
+11221,Full Heart Crystal,Food,Rare,Kami,,XP+15000,KAMI_CAN_EAT,In Game,It pulses with warmth. Give this to your Kami to grant it a large amount of XP.
+11222,Half Heart Crystal,Food,Uncommon,Kami,,XP+1000,KAMI_CAN_EAT,In Game,It feels slightly warm in your hand. Give this to your Kami to grant it a moderate amount of XP.
+11223,Great Heart Crystal,Food,Epic,Kami,,XP+50000,KAMI_CAN_EAT,In Game,The crystal beats like a real heart. It radiates with heat enough to warm your surroundings. Give this to your kami to grant it a very large amount of XP.
+11224,Inverted Teardrop Jewel,Consumable,Rare,Kami,BYPASS_BONUS_RESET,ATR+10%,KAMI_CAN_EAT,In Game,A rare gem with an incandescent color. Some say the stone has a wild spirit and will leap out of your pack if unattended.
+11225,Teardrop Jewel,Consumable,Rare,Kami,BYPASS_BONUS_RESET,HFB+50%,KAMI_CAN_EAT,In Game,"A rare gem with a tranquil color. Some say that if you drop it into water, it won't disturb the surface. This jewel boosts a kami's Fertility, enhancing its type advantages when harvesting."
+11226,Ash Pearl,Food,Rare,Kami,BYPASS_BONUS_RESET,"TEMP1HARMONY,TEMP1VIOLENCE",KAMI_CAN_EAT,In Game,"The Wonder Egg was filled with soot and ash, but also a large blue pearl. Give this pearl to your Kami to grant it a temporary +1 to Harmony and Violence. If your Kami is liquidated, the pearl breaks and the power is lost."
+11227,Fetid Egg,Food,Uncommon,Kami,,HP+35,KAMI_CAN_EAT,In Game,"This egg seems fresh, and refuses to spoil even out of the shell. Still, it reeks of sulfur. Your Kami can eat this to restore HP."
+11233,Gingerbread Cookie,Food,Rare,Kami,,"XP+1000,HP+25",KAMI_CAN_EAT,In Game,A gingerbread cookie... feed this to a Kamigotchi for some extra experience.
+11301,Maple-Flavor Ghost Gum,Food,Common,Kami,,HP+25,KAMI_CAN_EAT,In Game,The most basic form of food available in this world - restores 25 Health to a Kamigotchi.
+11302,Cheeseburger,Food,Uncommon,Kami,,HP+50,KAMI_CAN_EAT,In Game,"These burgers, still in their original wrapping, are occasionally found in the scrapyard. Apparently Kamigotchi love them."
+11303,Pom-Pom Fruit Candy,Food,Uncommon,Kami,,HP+50,KAMI_CAN_EAT,In Game,These fruit candies contain a huge amount of energy. Restores 50 Health to a Kamigotchi.
+11304,Gakki Cookie Sticks,Food,Uncommon,Kami,,HP+100,KAMI_CAN_EAT,In Game,Heavy duty rations by a Kami's standards.. Restores 100 Health to a Kamigotchi.
+11305,Paeon's Field of Flowers Spell Card,Spell Card,Uncommon,Kami,NOT_TRADABLE,HP+100,KAMI_CAN_EAT,In Game,The card depicts a mortally wounded man lying in a field of flowers. Some flowers take root on his body and knit the wounds closed while others bloom from the spilled blood. Activating this Spell Card on a Kamigotchi will restore 100 Health.
+11311,Resin,Food,Uncommon,Kami,,HP+35,KAMI_CAN_EAT,In Game,"Sticky sap with a flavor like spiced honey. An energizing snack by itself, but also useful in a number of recipes."
+11312,Honeydew Scale,Food,Rare,Kami,,HP+75,KAMI_CAN_EAT,In Game,A sweet confection that appears on mushrooms and bones. Close inspection reveals this candy is actually the honeydew of a scale insect.
+11313,Golden Apple,Food,Rare,Kami,,HP+150,KAMI_CAN_EAT,In Game,"Sweet golden apples on a dry silver branch. Said to be a divine gift, they are extremely rare. They're more often found in places without trees."
+11314,Blue Pansy,Food,Uncommon,Kami,,HP+25,KAMI_CAN_EAT,In Game,"A deep blue flower with a shape reminiscent of the blue butterflies common across the Kamigotchi World. It has a crisp, sweet, and refreshing flavor."
+11401,XP Potion,Potion,Uncommon,Kami,BYPASS_BONUS_RESET,"XP+1000,ITEM1003",KAMI_CAN_EAT,In Game,Give to a Kami to increase their XP by 1000.
+11402,Greater XP Potion,Potion,Rare,Kami,BYPASS_BONUS_RESET,"XP+15000,ITEM1006",KAMI_CAN_EAT,In Game,Give to a Kami to increase their XP by 15000.
+11403,Respec Potion,Potion,Epic,RESPEC,BYPASS_BONUS_RESET,ITEM1003,,In Game,Give to a Kami to reset their skill points.
+11404,Grace Potion,Potion,Rare,Kami,BYPASS_BONUS_RESET,"STRAIN-25%,ITEM1003",KAMI_CAN_EAT,In Game,Give to a Kami to decrease loss of health during the next Harvest by 25%.
+11405,Bless Potion,Potion,Uncommon,Kami,BYPASS_BONUS_RESET,"BOUNTY+25%,ITEM1003",KAMI_CAN_EAT,In Game,Give to a Kami to increase the MUSU gained from the next Harvest by 25%.
+11406,Apology Letter,Consumable,Uncommon,Kami,BYPASS_BONUS_RESET,ARB-25%,KAMI_CAN_EAT,In Game,A letter written by a Kami with sincere remorse for its actions. Lowers Recoil when liquidating other Kami.
+11407,MUSU Magnet,Consumable,Rare,Kami,BYPASS_BONUS_RESET,DSR+25%,KAMI_CAN_EAT,In Game,This shiny purple rock attracts grains of $MUSU. It dramatically increases the proportion of $MUSU a kami retains when it's liquidated.
+11408,Festival Chime,Consumable,Uncommon,Kami,BYPASS_BONUS_RESET,HIB+25,KAMI_CAN_EAT,In Game,Magical bells that gradually increase Harvest Intensity over the next long-term harvest. Your Kami will ring this chime until it breaks.
+11409,Energy Drink,Consumable,Uncommon,Kami,BYPASS_BONUS_RESET,COOLDOWN-30s,KAMI_CAN_EAT,In Game,A lightly fermented beverage that grants a burst of spiritual energy. Dramatically reduces Cooldown Shift for a kami's next action.
+11410,Hostility Potion,Potion,Uncommon,Kami,BYPASS_BONUS_RESET,"ATS+3%,ITEM1102",KAMI_CAN_EAT,In Game,"Most Kamigotchi find this bitter potion unpleasant, but some thrive on it. Expands a Kami's Attack Threshold Shift by a small percentage."
+11411,Fortified XP Potion,Potion,Epic,Kami,,"XP+50000,ITEM1006",KAMI_CAN_EAT,In Game,A deep-green potion with a grainy texture and dense mouthfeel. Fortified with rare red amber and the essences of old memories.
+11412,Flash Talisman,Consumable,Rare,Any_Kami,BYPASS_BONUS_RESET,"ATR+10%_KK,DTR-10%_KK",KAMI_CAN_EAT,In Game,"A magical talisman that burns easily. Using this on a Kami intensifies their overall sensitivity to Types, buffing their advantages on liquidations but nerfing their advantages on defense."
+11413,Mistletoe,Food,Rare,Kami,BYPASS_BONUS_RESET,BOUNTY+25%,KAMI_CAN_EAT,In Game,"Sacred, at this time of year..... can be used on Kami to Bless them!"
+11414,Igors Candy,Food,Rare,Kami,BYPASS_BONUS_RESET,BOUNTY+50%,KAMI_CAN_EAT,In Game,Wrapped in wax paper with a date printed on it: 10/31/98. Give to a Kami to increase the MUSU gained from the next Harvest by 50%.
+11501,Toadstool Liquor,Potion,Rare,Kami,BYPASS_BONUS_RESET,"TEMP10HEALTH,TEMP1POWER",KAMI_CAN_EAT,In Game,Liquor distilled from a mash made from mushrooms and black poppy. An underworld favorite.
+11502,Sarcophagus Honey,Consumable,Epic,Kami,BYPASS_BONUS_RESET,TEMP30HEALTH,KAMI_CAN_EAT,In Game,Legendary medicine believed to be the stuff of rumors. A piece of flesh has been preserved inside using ancient techniques. Give this to a Kami to grant them a temporary bonus to maximum Health.
+19001,Spirit Glue,Potion,Uncommon,Enemy_Kami,,"NEXT_COOLDOWN+180,ITEM1003",KAMI_CAN_EAT,In Game,This glue even sticks to intangible things. Can be used to add additional Cooldown to an enemy Kami and temporarily lock it down to a Node.
+19101,Animistic Poison,Potion,Rare,Enemy_Kami,,STRAIN+50%,KAMI_CAN_EAT,In Game,"Dangerous to both living and nonliving beings. When used on Kamigotchi, it causes them to lose HP at a faster rate while Harvesting."
+19201,Cthonic Blight,Potion,Rare,Enemy_Kami,BYPASS_BONUS_RESET,DTS-5%,KAMI_CAN_EAT,In Game,Highly corrosive. Can be used to clear barriers of plant or fungal matter. It can also be used on a Kamigotchi to lower its defenses. The Blight is particularly dangerous to Normal-type Kami.
+19301,Curse Tablet,Consumable,Epic,Enemy_Kami,,ATS-30%_KK,KAMI_CAN_EAT,In Game,"Also called a Defixio or Katadesmos. This ancient tablet is inscribed with a curse of weakness. Although it was meant for a long-dead human, Kami can use it on their own kind."
+21001,Giftbox,Lootbox,Uncommon,Account,,DT OG,,Shelved,"The lowest tier of giftbox. You can get XP candies, cheeseburgers, and even a few rare item drops from this!"
+21002,Kamigotchi World Citizen Giftbox,Lootbox,Rare,Account,,DT Passport,,In Game,A gold-trimmed and colorfully painted treasure chest. The gift inside must be particularly valuable.
+21003,Wonder Egg,Lootbox,Rare,Account,,DT Wonder Egg,,In Game,A cracked egg held together by blood-red wax. The contents are a surprise.
+21004,Booster Pack,Lootbox,Rare,Account,NOT_TRADABLE,DT Booster Pack,,In Game,Open this magical booster pack to receive a Spell Card. You might find something super rare!
+21005,Mochibox,Lootbox,Epic,Account,,DT Mochibox,,In Game,A sacred box containing exactly one Mochi.
+21006,Atonement Box,Lootbox,Epic,Account,,,,In Game,A box with From: Dimidiatus scrawled on it in an unsettling script. Something inside is making noise and desperate to get out.
+21007,Silt-Caked Box,Lootbox,Uncommon,Account,NOT_TRADABLE,DT Silt-Caked Box,,In Game,"Dredged from the bottom of the basin, packed with silt from the collapsing caves. Most of what washes down here is junk. Most."
+21008,Golden Box,Lootbox,Epic,Account,NOT_TRADABLE,"5x Booster Pack,DT Golden Box",,In Game,"A gilded chest for those who keep showing up at the gauge. Five Booster Packs inside, and something rarer beneath them."
+21201,Ice Cream,Food,Uncommon,Account,,SP+20,,In Game,"Restorative ice-cream. Food for you, personally. Restores a little bit of your stamina."
+21202,Better Ice Cream,Food,Uncommon,Account,,SP+40,,In Game,A slightly larger and higher-quality ice-cream. What is this made of? Restores a medium amount of stamina.
+21203,Best Ice Cream,Food,Uncommon,Account,,SP+80,,In Game,"A huge, lavishly decorated ice-cream. It doesn't seem to be melting at all... Restores a lot of stamina."
+21204,Neith's River of Life Spell Card,Spell Card,Rare,Account,NOT_TRADABLE,SP+80,,In Game,"The card depicts a flooding river beneath the night sky. The magical waters grant a bounty of stamina, and the reeds grow nearly as tall as the pyramids. Activating this Spell Card on an Operator will restore 80 Stamina."
+21205,Rock Candyfloss,Consumable,Rare,Account,,SP+80,,In Game,"This rare crystal formation is soft to the touch, sweet, and edible. You can consume it to restore a large amount of Stamina."
+21206,Uninteresting Paste,Potion,Rare,Account,,SP+150,,In Game,A matte-black paste in a plastic jar. A secret incense recipe created by Mina that allows individuals without bodies to smoke tobacco.
+22802,Ring of Spirits,Key Item,Epic,,,,,In Game,"A ring made of polished bone, twisted into the image of a skull. Allows the bearer to speak with lost souls."
+23100,Spice Grinder,Tool,Uncommon,,,,,In Game,Can be used to break down ingredients.
+23101,Portable Burner,Tool,Uncommon,,,,,In Game,Can be used to make Potions at a riverside.
+23102,Screwdriver,Tool,Rare,,,,,In Game,For driving screws. May be of practical use....
+30001,Mask of Avarice,Equipment,Rare,Kami_Pet_Slot,,E_POWER+3,,In Game,"The empty eyes of the old theatre mask stare back at you, its empty grimace seems to whisper of musu and power."
+30002,Veil of Avarice,Equipment,Epic,Kami_Pet_Slot,,E_POWER+4,,In Game,"The theatre veil's eye sockets glint hungrily, its haunting whisper offers a promise of musu and power."
+30003,Visage of Avarice,Equipment,Legendary,Kami_Pet_Slot,,E_POWER+5,,In Game,"The visage of avarice hungers, greedy eyes and a haunting grimace demand the pursuit of ever greater musu and power."
+30004,Mask of Contempt,Equipment,Rare,Kami_Pet_Slot,,E_DTS+6%,,In Game,"The empty eyes of the old ogre mask stare back at you, its hollow frown seems to whisper of armor and defense."
+30005,Veil of Contempt,Equipment,Epic,Kami_Pet_Slot,,E_DTS+8%,,In Game,"The ogre veil's eye sockets glint disdainfully, its murmuring voice offers a promise of armor and defense."
+30006,Visage of Contempt,Equipment,Legendary,Kami_Pet_Slot,,E_DTS+10%,,In Game,"The visage of contempt glowers, haughty eyes and a sneering frown demand the pursuit of ever greater armor and defense."
+30007,Mask of Mischief,Equipment,Rare,Kami_Pet_Slot,,E_ASR+6%,,In Game,"The empty eyes of the old goblin mask stare back at you, its unmoving grin seems to whisper of battle and plunder."
+30008,Veil of Mischief,Equipment,Epic,Kami_Pet_Slot,,E_ASR+8%,,In Game,"The goblin veil's eye sockets glint impishly, its taunting whisper offers a promise of battle and plunder."
+30009,Visage of Mischief,Equipment,Legendary,Kami_Pet_Slot,,E_ASR+10%,,In Game,"The visage of mischief snickers, malevolent eyes and a fiendish smirk demand the pursuit of ever greater battle and plunder."
+30010,Old Leafling,Equipment,Rare,Kami_Pet_Slot,,E_BOUNTY+12%,,In Game,The old leafling bounces happily and shares a few tricks to increase your kami's bounty.
+30011,Wise Leafling,Equipment,Epic,Kami_Pet_Slot,,E_BOUNTY+16%,,In Game,The wise leafling hops contentedly and shares its skillful techniques to increase your kami's bounty.
+30012,Elder Leafling,Equipment,Legendary,Kami_Pet_Slot,,E_BOUNTY+20%,,In Game,The elder leafling wiggles affectionately and shares its foraging secrets to increase your kami's bounty.
+30013,Old Gumdrop,Equipment,Rare,Kami_Pet_Slot,,RMB+15%,,In Game,The old gumdrop offers soft hugs and reminds your kami to rest and drink water.
+30014,Wise Gumdrop,Equipment,Epic,Kami_Pet_Slot,,RMB+20%,,In Game,The wise gumdrop offers gentle cuddles and reminds your kami to rest and drink water.
+30015,Elder Gumdrop,Equipment,Legendary,Kami_Pet_Slot,,RMB+25%,,In Game,The elder gumdrop offers a shoulder to cry on and reminds your kami to rest and drink water.
+30016,Old Critter,Equipment,Rare,Kami_Pet_Slot,,E_HEALTH+30,,In Game,The skittish old critter is constantly on guard for threats to your kami's health.
+30017,Wise Critter,Equipment,Epic,Kami_Pet_Slot,,E_HEALTH+40,,In Game,The wise experienced critter is constantly on guard for threats to your kami's health.
+30018,Elder Critter,Equipment,Legendary,Kami_Pet_Slot,,E_HEALTH+50,,In Game,The esteemed elder critter is constantly on guard for threats to your kami's health.
+30019,Crawling Greed,Equipment,Rare,Kami_Pet_Slot,,E_HFB+18%,,In Game,A condensation of hunger and greed in the form of cute crawling ladybugs provide your kami with increased harvest fertility.
+30020,Teeming Greed,Equipment,Epic,Kami_Pet_Slot,,E_HFB+24%,,In Game,A distillation of hunger and greed in the form of adorable teeming ladybugs provide your kami with increased harvest fertility.
+30021,Swarming Greed,Equipment,Legendary,Kami_Pet_Slot,,E_HFB+30%,,In Game,A crystallization of hunger and greed in the form of happily swarming ladybugs provide your kami with increased harvest fertility.
+30022,Crawling Wrath,Equipment,Rare,Kami_Pet_Slot,,E_VIOLENCE+3,,In Game,A condensation of predatory aggression in the form of cute crawling bees fill your kami with a desire for violence.
+30023,Teeming Wrath,Equipment,Epic,Kami_Pet_Slot,,E_VIOLENCE+4,,In Game,A distillation of predatory aggression in the form of adorable teeming bees fill your kami with a desire for violence.
+30024,Swarming Wrath,Equipment,Legendary,Kami_Pet_Slot,,E_VIOLENCE+5,,In Game,A crystallization of predatory aggression in the form of happily swarming bees fill your kami with a desire for violence.
+30025,Crawling Cope,Equipment,Rare,Kami_Pet_Slot,,E_DSR+6%,,In Game,A condensation of fearful cowardice in the form of cute crawling worms protect your kami's harvest from predators.
+30026,Teeming Cope,Equipment,Epic,Kami_Pet_Slot,,E_DSR+8%,,In Game,A distillation of fearful cowardice in the form of adorable teeming worms protect your kami's harvest from predators.
+30027,Swarming Cope,Equipment,Legendary,Kami_Pet_Slot,,E_DSR+10%,,In Game,A crystallization of fearful cowardice in the form of happily swarming worms protect your kami's harvest from predators.
+30028,Antique Tape,Equipment,Rare,Kami_Pet_Slot,,E_ATS+6%,,In Game,"This antique tape may not be very sticky anymore, and yet still it remains filled with hatred for kami."
+30029,Heirloom Tape,Equipment,Epic,Kami_Pet_Slot,,E_ATS+8%,,In Game,What this heirloom tape has lost in stickiness has more than been made up for by its powerful hatred for kami.
+30030,Ancient Tape,Equipment,Legendary,Kami_Pet_Slot,,E_ATS+10%,,In Game,"An ancient tape from an earlier age, it's adhesiveness long gone, all that remains is a distilled and concentrated hatred for kami."
+30031,Antique Automata,Equipment,Rare,Kami_Pet_Slot,,E_HIB+15P,,In Game,"This antique automata may be partly broken, and yet still it drives your kami to harvest with ever greater intensity."
+30032,Heirloom Automata,Equipment,Epic,Kami_Pet_Slot,,E_HIB+20,,In Game,What this heirloom automata has lost in functional machinery has more than been made up for in the way it drives your kami to harvest with ever greater intensity.
+30033,Ancient Automata,Equipment,Legendary,Kami_Pet_Slot,,E_HIB+25P,,In Game,"An ancient automata from an earlier age, it's gears long frozen, all that remains is a frantic force driving your kami to harvest with ever greater intensity."
+30034,Antique Ledger,Equipment,Rare,Kami_Pet_Slot,,E_HARMONY+3,,In Game,"This antique ledger is mostly drained of funds, and yet it remains filled with a desire for peace and harmony among kamikind."
+30035,Heirloom Ledger,Equipment,Epic,Kami_Pet_Slot,,E_HARMONY+4,,In Game,What this heirloom ledger has lost in account balance has more than been made up for by its desire for peace and harmony among kamikind.
+30036,Ancient Ledger,Equipment,Legendary,Kami_Pet_Slot,,E_HARMONY+5,,In Game,"An ancient ledger from an earlier age, it's wallet long emptied, all that remains is a powerful longing for peace and harmony among kamikind."
+100001,Astrolabe Disk,Key Item,Epic,,,,,In Game,"A golden disk. It resembles the tympan of an astrolabe, but the engraving doesn't look right."
+100002,Ancient Machine Part,Key Item,Epic,,,,,In Game,A durable part of some kind of high-tech machinery. It has wear and corrosion like it's been exposed to the elements for thousands of years.
+100003,Disc-Shaped Map,Key Item,Epic,,,,,In Game,"A golden disk inlaid with other metals. It resembles an overhead map of a temple complex. Seems to depict roads, pyramids, and other structures."
+100004,Aetheric Sextant,Key Item,Legendary,,,,,In Game,Capable of divining some things beyond the perception of mortals.
+100005,Pyramid Engine,Key Item,Epic,,NOT_TRADABLE,,,In Game,This device dates to thousands of years old and is constructed in Egyptian style. It can be used to generate electrical power. The process through which this occurs is unknown.
+100006,KW Maps Data Chip,Key Item,Rare,,,,,In Game,"Kamigotchi World Maps. A data chip found in the Lost Skeleton's laptop. It looks damaged, but it might still be readable."
+100007,Unmarked Data Chip,Key Item,Rare,,,,,In Game,A data chip found in the Techno Temple. Looks to be in good working condition.
+100008,Rock Crystal Lens,Key Item,Epic,,,,,In Game,"Although this lens has a slight crack, it can still be used to focus and magnify light. Scans indicate this item to be hundreds of thousands of years old."
+100009,Switchbox Imp,Key Item,Epic,,,,,In Game,Looks like a small wired relay box on the surface. A tiny humanoid imp lives under the faceplate and manually operates the contacts. This item can be used in crafting certain complex devices.
+100010,Dowsing Rod,Key Item,Epic,,,,,In Game,The crystal in the caves radiates a strange power. Mina alleges that this item can sense traces of that power.
+100011,Homecoming Data Chip,Key Item,Epic,,,,,In Game,A data chip found at the Temple by the Waterfall to those who held the ground when the caves began to shake. It seems to point the way home.
+100012,Igors Amulet,Key Item,Uncommon,,NOT_TRADABLE,,,In Game,"A crude sigil of sticks and stone, held together with resin. An old forum post swears it summons something in the Butterfly Forest."

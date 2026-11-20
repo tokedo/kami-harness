@@ -62,6 +62,8 @@ digests and fails against 5.0.1's files.
 | `quests/requirements.csv` | 201 -> 206 | 7,913 | `159bfd54...a3bd` |
 | `quests/rewards.csv` | 68 -> 70 | 2,608 | `fee1f4e9...6801` |
 | `nodes.csv` (eight-column projection) | 65 | 3,959 -> 3,957 | `06c0784e...cc1e` |
+| `items.csv` (ten-column projection, new pin) | 179 -> 191 | 30,498 -> 32,666 | `d4d8d19b...269d` |
+| `rooms.csv` (eight-column projection, new pin) | 71 | 11,317 -> 11,304 | `6b042fbc...004f` |
 
 - 196 -> **202 quests**, none removed: 3119 The Legend, 3120, 3121, 3122
   Trick or Treat, 3901 Wash Your Hands (daily) and 3902 (daily); six
@@ -72,12 +74,28 @@ digests and fails against 5.0.1's files.
 - `nodes.csv`: node 56 (Butterfly Forest) has no level limit (35
   before). Upstream gains a Harvest Multiplier column (1 on all 64
   nodes); it is not one of this repository's eight columns.
-- Not refreshed in this release: the derived tables (`items.csv`,
-  `recipes.csv`, `shop-listings.csv`, `rooms.csv`,
-  `scavenge-droptables.csv`, `room-gates.csv`, `skills.csv`). Upstream's
-  items, recipes, item droptables, listings, npc and one room
-  description changed in the range; these tables are not byte copies
-  and have no generator in this repository.
+- `items.csv` and `rooms.csv`, which the server reads, are now pinned
+  projections of upstream's `items/items.csv` and `rooms/rooms.csv`, as
+  `nodes.csv` is: upstream's rows in this repository's columns, every
+  cell rewritten to ASCII (the rule is in `test_catalog_pins.py`).
+  - `items.csv` gains 12 items: the range's ten (13–18 the ballots and
+    voter badges, 11414 Igors Candy, 21007 Silt-Caked Box, 21008 Golden
+    Box, 100012 Igors Amulet) and two the previous file lacked (22802
+    Ring of Spirits, 100011 Homecoming Data Chip). Every name of the
+    178 items the previous file had is unchanged. What the server reads
+    from the file changes only by those 12 names and indices: the
+    `For` / `Effects` / `Flags` cells of the stamina items `travel_to_room`
+    picks from, and which items count as acting on HP, are the same.
+    Upstream's other changes (57 rarities, 52 requirements, 25 types,
+    21 `For` cells, 4 effects, 1 flag; and 21 cells of drift older than
+    the range) are carried in columns the server does not read.
+  - `rooms.csv`: room 64's description; its names, statuses,
+    coordinates and exits, which routing reads, are the previous file's.
+- Not refreshed: `recipes.csv`, `shop-listings.csv` and
+  `scavenge-droptables.csv` join item and NPC names into upstream's rows
+  and are documentation only; README's catalog table states that each
+  reflects upstream as committed here on 2026-04-01 and what upstream
+  changed since. `room-gates.csv` and `skills.csv` are unchanged.
 
 ### `skill_respec` refuses a kami that is not RESTING
 
@@ -89,7 +107,9 @@ before, and now reverts. `_TOOL_KAMI_STATES` gains
 mechanics snippet lists `skill_respec` among the tools whose gate
 accepts RESTING. The tool takes a kami index only, so the non-kami
 target the system now refuses cannot be expressed. Its description is
-5.0.1's.
+5.0.1's: the list of checks it says run before signing does not yet name
+the RESTING check. That list changes with the next release that moves the
+tool surface.
 
 ### History below the endpoint's floor is never "nothing there"
 
@@ -151,10 +171,10 @@ still answer.
 ### Version and tests
 
 `SCHEMA_VERSION` 5.1.0; `test_tool_surface.py` and the README "Current"
-line follow. New: `test_h510_return.py` (12 tests; 8 fail at 5.0.1).
+line follow. New: `test_h510_return.py` (13 tests; 9 fail at 5.0.1).
 `fakenode.py` models a floor (blocks, and the receipt and transaction
 of anything mined below it, answer null) and per-block timestamps.
-Suite: 1280 passed, 4 skipped.
+Suite: 1283 passed, 4 skipped.
 
 ## [5.0.1] — 2026-11-07 — the quest catalogs at the world pin
 

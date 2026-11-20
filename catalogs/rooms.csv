@@ -1,71 +1,71 @@
 Index,Name,Status,X,Y,Z,Exits,Description
-1,Misty Riverside,In Game,3,1,1,20,"The air is quiet and the trees grow thick overhead. In each direction the murky river disappears into mist and darkness."
+1,Misty Riverside,In Game,3,1,1,20,The air is quiet and the trees grow thick overhead. In each direction the murky river disappears into mist and darkness.
 2,Tunnel of Trees,In Game,3,3,1,13,"A gate marks the boundary between the forest and the plains. The incongruous ""SHOP"" door has a cool glow."
-3,Torii Gate,In Game,3,4,1,,"The Torii gate standing here radiates an aura of spiritual significance. Piles of scrap and garbage rise like mountains on the horizon."
+3,Torii Gate,In Game,3,4,1,,The Torii gate standing here radiates an aura of spiritual significance. Piles of scrap and garbage rise like mountains on the horizon.
 4,Vending Machine,In Game,3,6,1,,"A vending machine stands deep in the scrap, well stocked and operating despite the remote location and cut power cord."
 5,Restricted Area,In Game,3,9,1,,"A restricted area, but no one is watching. Follow this road lined with cherry trees to reach an office complex."
-6,Labs Entrance,In Game,4,10,1,28,"The exterior of this building was designed to resemble a shrine almost as much as an office."
-9,Forest: Old Growth,In Game,5,8,1,,"You step into the forest and seem to enter a primordial age. The buzz of giant insects overwhelms your hearing."
-10,Forest: Insect Node,In Game,5,5,1,,"The buzzing is loudest here. This mound draws insects of all types toward it. They writhe together in a trance."
+6,Labs Entrance,In Game,4,10,1,28,The exterior of this building was designed to resemble a shrine almost as much as an office.
+9,Forest: Old Growth,In Game,5,8,1,,You step into the forest and seem to enter a primordial age. The buzz of giant insects overwhelms your hearing.
+10,Forest: Insect Node,In Game,5,5,1,,The buzzing is loudest here. This mound draws insects of all types toward it. They writhe together in a trance.
 11,Temple by the Waterfall,In Game,6,11,1,"24,15","A humble shrine lends this waterfall basin a peaceful aura, but the air has an unpleasant aroma like dirty laundry."
-12,Scrap Confluence,In Game,1,6,1,,"A collection of strange and hard to identify objects buried deep in the scrapyard. It could be dangerous to get close."
+12,Scrap Confluence,In Game,1,6,1,,A collection of strange and hard to identify objects buried deep in the scrapyard. It could be dangerous to get close.
 13,Convenience Store,In Game,4,3,2,2,"The glowing blue door seems to lead to a convenience store. Where is this? That ""Exit"" sign might let you leave."
 15,Temple Cave,In Game,5,7,3,11,"A cave behind the waterfall. Friendly statues line a path to the back of the cave, away from ancient-looking temple ruins."
 16,Techno Temple,In Game,6,7,3,,"Inside the ruined temple. This place might have been traditional once, but now it sparks and rumbles with technology."
-18,Cave Crossroads,In Game,5,6,3,,"Deep in the cave the path branches. The bioluminescent fungi make it nearly as bright as day. You can hear bells in the air."
+18,Cave Crossroads,In Game,5,6,3,,Deep in the cave the path branches. The bioluminescent fungi make it nearly as bright as day. You can hear bells in the air.
 19,Temple of the Wheel,In Game,2,4,3,59,"Half eroded stone and mossy growth, half gleaming metal and glowing crystal. Whether temple or technology, it unsettles you."
-25,Lost Skeleton,In Game,6,9,1,,"A crumbling human skeleton lies prone on the ground. It looks to have been decomposing for decades."
-26,Trash-Strewn Graves,In Game,2,8,1,,"Ancient gravestones emerge from the thinning piles of trash at the farthest edge of the scrapyard."
-29,Misty Forest Path,In Game,3,2,1,,"Dense mist and canopy blocks the sky. It would be impossible to navigate in this forest of illusion. Just follow the path."
-30,Scrapyard Entrance,In Game,3,5,1,,"The detritus ahead stands in dark mountain peaks. A path has been dug for you through the towering piles of garbage."
+25,Lost Skeleton,In Game,6,9,1,,A crumbling human skeleton lies prone on the ground. It looks to have been decomposing for decades.
+26,Trash-Strewn Graves,In Game,2,8,1,,Ancient gravestones emerge from the thinning piles of trash at the farthest edge of the scrapyard.
+29,Misty Forest Path,In Game,3,2,1,,Dense mist and canopy blocks the sky. It would be impossible to navigate in this forest of illusion. Just follow the path.
+30,Scrapyard Entrance,In Game,3,5,1,,The detritus ahead stands in dark mountain peaks. A path has been dug for you through the towering piles of garbage.
 31,Scrapyard Exit,In Game,3,8,1,,"A literal and metaphorical fork in the road. Nature, man's work and its leftovers."
-32,Road To Labs,In Game,3,10,1,,"A paved road curled between green hills. The blacktop cracks as the world around it grows."
-33,Forest Entrance,In Game,4,8,1,,"The forest canopy blots out the sky above. An eerie silence overwhelms the expected sounds of life."
+32,Road To Labs,In Game,3,10,1,,A paved road curled between green hills. The blacktop cracks as the world around it grows.
+33,Forest Entrance,In Game,4,8,1,,The forest canopy blots out the sky above. An eerie silence overwhelms the expected sounds of life.
 34,Deeper Into Scrap,In Game,2,6,1,,"Deeper into the scrapyard down a narrow path. After every turn, the mountains of trash grow taller and more precarious."
 35,Elder Path,In Game,5,6,1,,"The forest grows so thick that the road is barely visible at times. The air is still, but the trees sway and twist in the darkness."
 36,Parting Path,In Game,5,9,1,,"It seems as if the trees are parting to clear a path ahead, then shuffling back together."
-37,Hollow Path,In Game,6,10,1,,"The mist is thinner here and the sky can be seen through holes in the canopy."
+37,Hollow Path,In Game,6,10,1,,The mist is thinner here and the sky can be seen through holes in the canopy.
 47,Scrap Paths,In Game,3,7,1,,"The mountains of trash look more like hills, but the forest is no longer visible on the horizon."
-48,Murky Forest Path,In Game,5,7,1,,"The forest is dark and impenetrable. Thick tree trunks stretch high above."
+48,Murky Forest Path,In Game,5,7,1,,The forest is dark and impenetrable. Thick tree trunks stretch high above.
 49,Clearing,In Game,7,9,1,,"A secluded clearing, away from both the illusory mists of the labyrinthine forest and the towering trash maze of the scrapyard."
-50,Ancient Forest Entrance,In Game,6,5,1,,"The undergrowth here is very thick; there's only a few paths to follow through the trees. The forest here feels packed, almost a jungle."
-51,Scrap-Littered Undergrowth,In Game,7,5,1,,"There are fragments of scrap metal littered around the forest here."
+50,Ancient Forest Entrance,In Game,6,5,1,,"The undergrowth here is very thick; there's only a few paths to follow through the trees.... The forest here feels packed, almost a jungle."
+51,Scrap-Littered Undergrowth,In Game,7,5,1,,There are fragments of scrap metal littered around the forest here.
 52,Airplane Crash,In Game,8,5,1,54,"The wreckage of a plane is resting here, deep in the forest."
-53,Blooming Tree,In Game,7,4,1,,"This tree has been... struck by lightning, perhaps?"
-54,Plane Interior,In Game,8,5,2,52,"The air inside this airplane is... sterile. Something's wrong here."
-55,Shady Path,In Game,4,3,1,,"The path runs along the edge of the forest for a little while. It's quiet here."
-56,Butterfly Forest,In Game,5,3,1,,"The forest here grows thicker once more. The blue butterflies seem particularly common in this place."
+53,Blooming Tree,In Game,7,4,1,,"This tree has been..... struck by lightning, perhaps?"
+54,Plane Interior,In Game,8,5,2,52,The air inside this airplane is.... sterile. Something's wrong here.
+55,Shady Path,In Game,4,3,1,,The path runs along the edge of the forest for a little while. It's quiet here.
+56,Butterfly Forest,In Game,5,3,1,,The forest here grows thicker once more. The blue butterflies seem particularly common in this place.
 57,River Crossing,In Game,6,3,1,,"This seems like a natural spot to try to cross the river... and indeed, there was once a bridge..."
-58,Mouth of Scrap,In Game,1,5,1,,"This path through the junkyard is hard to spot. Towering piles of scrap obscure the entrance."
-59,Black Pool,In Game,1,4,1,19,"Six huge stone towers loom over a pool of black ooze. An eerie feeling is in the air."
+58,Mouth of Scrap,In Game,1,5,1,,This path through the junkyard is hard to spot. Towering piles of scrap obscure the entrance.
+59,Black Pool,In Game,1,4,1,19,Six huge stone towers loom over a pool of black ooze. An eerie feeling is in the air.
 60,Scrap Trees,In Game,5,1,1,,"A clearing on the border between the forest and scrapyard. You see a shovel and a notebook lying on the grass, each bisected down the middle. The cuts are perfectly clean."
-61,Musty Forest Path,In Game,7,1,1,,"Dead stumps and knotted trees tell you the forest here is in declining health. Giant centipedes march back and forth; a living trail that leads deeper into the woods."
-62,Centipedes,In Game,8,1,1,,"A dark hollow beneath a dying tree choked with polypore fungi. Mushrooms coat every tree in this part of the forest. The centipedes seem to like this place."
-63,Deeper Forest Path,In Game,6,2,1,,"A stretch of forest road with light canopy and open sky. Wildflowers grow just off the path."
-64,Burning Room,In Game,5,5,2,65,"In the center of the hut, a large cauldron bubbles over a low fire. Dried flowers and herbs hang overhead, and jars with suspicious labels sit on a shelf in the back. Someone was just here brewing something, but the hut is empty for now."
-65,Forest Hut,In Game,6,1,1,64,"Smoke rises from a small reed hut that sits tucked behind boulders in a secluded part of the forest. The door is open."
+61,Musty Forest Path,In Game,7,1,1,,Dead stumps and knotted trees tell you the forest here is in declining health. Giant centipedes march back and forth; a living trail that leads deeper into the woods.
+62,Centipedes,In Game,8,1,1,,A dark hollow beneath a dying tree choked with polypore fungi. Mushrooms coat every tree in this part of the forest. The centipedes seem to like this place.
+63,Deeper Forest Path,In Game,6,2,1,,A stretch of forest road with light canopy and open sky. Wildflowers grow just off the path.
+64,Burning Room,In Game,5,5,2,65,"In the center of the hut, a large cauldron bubbles over a low fire. Dried flowers and herbs hang overhead, and jars with suspicious labels sit on a shelf in the back. A young woman in green stirs the cauldron, humming to the fire as if it could hear her. A frog has taken the warmest spot on the floor."
+65,Forest Hut,In Game,6,1,1,64,Smoke rises from a small reed hut that sits tucked behind boulders in a secluded part of the forest. The door is open.
 66,Marketplace,In Game,2,2,1,,"A strange machine adorned with Asphodel flowers sits here, deep in the forest. What could it be for?"
-67,Boulder Tunnel,In Game,4,6,3,,"The air is humid and salty. Stalagmites and stalactites crust over ancient stone construction. The tunnel ahead is blocked by what seems to be a roof collapse."
-68,Slippery Pit,In Game,3,6,3,,"These ladders prove you're not the first to explore this cave."
-69,Lotus Pool,In Game,3,7,3,,"Unsteady lights glimmer just outside your vision like will-o'-the-wisps. You can see a cluster of small craters filled with water. A colorful lotus flower grows in the largest pool."
-70,Still Stream,In Game,2,7,3,,"An arcing tunnel filled with still and shallow water. The air is salty and has a faint taste of metal."
-71,Shabby Deck,In Game,1,7,3,,"An observation deck above a pool of still water. Albino centipedes scurry away from a pile of bones as you enter. A grappling hook has been attached to the deck through a broken window."
+67,Boulder Tunnel,In Game,4,6,3,,The air is humid and salty. Stalagmites and stalactites crust over ancient stone construction. The tunnel ahead is blocked by what seems to be a roof collapse.
+68,Slippery Pit,In Game,3,6,3,,These ladders prove you're not the first to explore this cave.
+69,Lotus Pool,In Game,3,7,3,,Unsteady lights glimmer just outside your vision like will-o'-the-wisps. You can see a cluster of small craters filled with water. A colorful lotus flower grows in the largest pool.
+70,Still Stream,In Game,2,7,3,,An arcing tunnel filled with still and shallow water. The air is salty and has a faint taste of metal.
+71,Shabby Deck,In Game,1,7,3,,An observation deck above a pool of still water. Albino centipedes scurry away from a pile of bones as you enter. A grappling hook has been attached to the deck through a broken window.
 72,Hatch to Nowhere,In Game,1,6,3,88,"This facility seems ransacked as well as timeworn. A reinforced door is ajar, a tunnel up into the room above is broken, machinery has wires ripped out, a sticky ooze seeps from the vents, and spiderwebs fill the corners. The red light in the ceiling is dead, but it would flash a warning if there were any power."
-73,Broken Tube,In Game,1,5,3,,"Some kind of observation and testing environment. Readings indicate everything in this facility is ancient; even older than the graveyard under the scrap. Must be a bug."
+73,Broken Tube,In Game,1,5,3,,Some kind of observation and testing environment. Readings indicate everything in this facility is ancient; even older than the graveyard under the scrap. Must be a bug.
 74,Engraved Door,In Game,2,5,3,,"The narrow room is flanked by high walls cut from black crystal. Gargantuan stone stairs lead to an ornate engraved door. No matter how hard you and your kami try, you won't get it open without more help."
-75,Flood Mural,In Game,3,5,3,,"A flat steel wall with a high-tech door cuts through an otherwise natural cave room. The door is splintered into pieces and the frame is broken. There's a large mural painted across the curved rear wall."
-76,Fungus Garden,In Game,5,5,3,,"Two types of colorful fungus are cultivated here along the path. Seems like a garden."
+75,Flood Mural,In Game,3,5,3,,A flat steel wall with a high-tech door cuts through an otherwise natural cave room. The door is splintered into pieces and the frame is broken. There's a large mural painted across the curved rear wall.
+76,Fungus Garden,In Game,5,5,3,,Two types of colorful fungus are cultivated here along the path. Seems like a garden.
 77,Thriving Mushrooms,In Game,5,4,3,,"This fork in the road is flanked with fast-growing fungi. The mushrooms are slightly luminescent, and have steel-hard stalks. Exits to the north and east are blocked by the fungi."
-78,Toadstool Platforms,In Game,5,3,3,,"The stony mushrooms here have grown to a truly gargantuan size. The air is dry. A rope ladder hangs down from a cliff high above."
-79,Abandoned Campsite,In Game,5,2,3,,"An abandoned campsite. There's a charcoal drawing of a strange fish-like creature on one wall."
+78,Toadstool Platforms,In Game,5,3,3,,The stony mushrooms here have grown to a truly gargantuan size. The air is dry. A rope ladder hangs down from a cliff high above.
+79,Abandoned Campsite,In Game,5,2,3,,An abandoned campsite. There's a charcoal drawing of a strange fish-like creature on one wall.
 80,Radiant Crystal,In Game,6,2,3,,"A blue crystal that radiates with a soft glow illuminating the cave. Roots grasp tightly around the crystal, supporting it against the ceiling."
 81,Flower Mural,In Game,7,2,3,,"Someone has burned a pile of books to make charcoal soot, then used a brush to draw a flower on the wall."
 82,Geometric Cliffs,In Game,7,3,3,,"Sheer cliffs of jagged, geometric rock. The room is dark, but illuminated by a lantern glowing blue."
 83,Canyon Bridge,In Game,7,4,3,,"A rickety bridge over a dark canyon. There is an exit visible to the west, across the bridge and up an overlook. Close by, a long ladder allows descent into the dark."
-84,Reinforced Tunnel,In Game,6,4,3,,"A mined and reinforced tunnel. There's a note posted on the wall and a single book tucked behind a pole. Fast-growing luminous mushrooms peek through from the room to the west."
-85,Giant's Palm,In Game,7,5,3,,"The dark bottom of the canyon. A cave mouth is blocked by what appears to be a giant skeletal hand. The hand is fixed in place by some force and cannot be easily moved."
-86,Guardian Skull,In Game,8,5,3,,"A giant's skull is embedded into one wall and has roots growing through it. The rest of the giant's spine and ribcage is used to line a large pit in the ground."
-87,Sacrarium,In Game,8,6,3,,"A flooded and ruined temple built around the spine and pelvis of a giant skeleton. Black liquid floods the pit. The temple columns have crumbled."
-88,Treasure Hoard,In Game,3,1,4,72,"You find yourself in a medieval castle built from glassy purple bricks. In front of you is a large hoard of glittering treasure. You're rich! But who uses gold in this economy?"
-89,Trophies of the Hunt,In Game,2,1,4,,"Stuffed trophies of strange creatures rest on pedestals and sit mounted on walls all across this side of the room."
-90,Scenic View,In Game,1,1,4,,"You can see this castle is on an island of some kind. The tower you're standing in is impossibly high in the air. Dragons fly through the clouds below."
+84,Reinforced Tunnel,In Game,6,4,3,,A mined and reinforced tunnel. There's a note posted on the wall and a single book tucked behind a pole. Fast-growing luminous mushrooms peek through from the room to the west.
+85,Giant's Palm,In Game,7,5,3,,The dark bottom of the canyon. A cave mouth is blocked by what appears to be a giant skeletal hand. The hand is fixed in place by some force and cannot be easily moved.
+86,Guardian Skull,In Game,8,5,3,,A giant's skull is embedded into one wall and has roots growing through it. The rest of the giant's spine and ribcage is used to line a large pit in the ground.
+87,Sacrarium,In Game,8,6,3,,A flooded and ruined temple built around the spine and pelvis of a giant skeleton. Black liquid floods the pit. The temple columns have crumbled.
+88,Treasure Hoard,In Game,3,1,4,72,You find yourself in a medieval castle built from glassy purple bricks. In front of you is a large hoard of glittering treasure. You're rich! But who uses gold in this economy?
+89,Trophies of the Hunt,In Game,2,1,4,,Stuffed trophies of strange creatures rest on pedestals and sit mounted on walls all across this side of the room.
+90,Scenic View,In Game,1,1,4,,You can see this castle is on an island of some kind. The tower you're standing in is impossibly high in the air. Dragons fly through the clouds below.
