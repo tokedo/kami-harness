@@ -64,6 +64,7 @@ def _isolated_lanes(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "_INFLIGHT", {})
     monkeypatch.setattr(server, "_REOFFERED", set())
     monkeypatch.setattr(server, "_HEAD_SEEN", [0])
+    monkeypatch.setattr(server, "_floor_cache", {}, raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -161,6 +162,8 @@ def chain(monkeypatch):
         contract=lambda address=None, abi=None: registry[address],
         block_number=1_000,
         get_logs=lambda params: [],
+        # Every block is served unless a test models the endpoint's floor.
+        get_block=lambda n, full=False: {"number": n},
     )
     monkeypatch.setattr(server, "w3", SimpleNamespace(eth=eth))
     monkeypatch.setattr(server, "_resolve_component", lambda cid: cid)

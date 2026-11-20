@@ -37,6 +37,11 @@ What the node models, and why each piece is here:
   pruned or non-archive node) answers every such call with the given
   message. Handlers that model history read `node.call_block`, the
   block the current `eth_call` is evaluated at (None while mining).
+* A FLOOR (`floor`): the lowest block the endpoint still serves. Below
+  it a block, and the receipt and transaction of anything mined there,
+  answer null — what the production endpoint has done since the chain's
+  return on 2026-11-20. `block_times` gives a block its own timestamp
+  (otherwise every block reads the clock's now).
 * Injected FAULTS: the next k requests of a method answer a given
   JSON-RPC error object (e.g. the replica readiness error) instead.
 * Contract HANDLERS keyed by (to address, 4-byte selector): each one
@@ -220,6 +225,8 @@ class FakeNode:
         self.hold_mining = False
         self.state_lags: list[Lag] = []       # eth_call replicas behind
         self.refuse_numbered: str | None = None
+        self.floor = 0                        # lowest block served
+        self.block_times: dict[int, int] = {}  # block -> its timestamp
         self.call_block: int | None = None    # block of the current call
         self.call_blocks: list = []           # the block each eth_call named
         self._sid = itertools.count(1)
@@ -323,6 +330,10 @@ class FakeNode:
                     once[h] -= 1          # one null answer for the pair
                 return {"jsonrpc": "2.0", "id": rid, "result": None}
             if rep.get("blind_all") or h in rep["blind"]:
+                return {"jsonrpc": "2.0", "id": rid, "result": None}
+            t = self.txs.get(h)
+            if (t is not None and t.mined_block is not None
+                    and t.mined_block < self.floor):
                 return {"jsonrpc": "2.0", "id": rid, "result": None}
         if method == "eth_blockNumber" and rep["behind"]:
             return {"jsonrpc": "2.0", "id": rid,
@@ -445,12 +456,14 @@ class FakeNode:
 
     def _eth_getBlockByNumber(self, number, full=False):
         n = self.block if number in ("latest", "pending") else int(number, 16)
+        if n < self.floor:
+            return None
         txs = [
             self._eth_getTransactionByHash(t.hash) if full else t.hash
             for t in self.blocks.get(n, [])
         ]
         return {"number": hex(n), "hash": _bh(n), "transactions": txs,
-                "timestamp": hex(int(self._now()))}
+                "timestamp": hex(int(self.block_times.get(n, self._now())))}
 
     def _eth_getTransactionReceipt(self, h):
         return self.receipts.get(h.lower())

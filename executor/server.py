@@ -53,6 +53,7 @@ from web3 import Web3
 from web3._utils.method_formatters import receipt_formatter
 from web3.datastructures import AttributeDict
 from web3.exceptions import (
+    BlockNotFound,
     PersistentConnectionError,
     ProviderConnectionError,
     RequestTimedOut,
@@ -1926,6 +1927,9 @@ _TOOL_KAMI_STATES: dict[str, tuple[str, ...]] = {
     "liquidate_kami": ("HARVESTING",),  # the attacking kami
     "gacha_reroll": ("RESTING",),
     "transfer_kami": ("RESTING", "LISTED"),
+    # The respec system reverts on a kami that is not RESTING since the
+    # upstream change that made respec kami-only (5.1.0).
+    "skill_respec": ("RESTING",),
 }
 
 # Every kami state this module can read from component.state (_kami_state),
@@ -3028,6 +3032,77 @@ def _scan_consumer(addr: str, nonce: int) -> str | None:
     return None
 
 
+# The endpoint's floor: the lowest block it serves, measured by asking
+# heights (never the "earliest" tag, which this endpoint answers with its
+# head). Below it a block, a receipt and a transaction all answer null —
+# so for a transaction that MINED there, two lookups find nothing while
+# the sender's count shows its nonce used, which reads exactly like a
+# nonce another hash took. Measured only on that path, and kept briefly:
+# the floor of a pruning node rises.
+_FLOOR_TTL_S = 600
+# A transaction mines no earlier than it was signed, give or take the
+# signer's clock: one signed this long after the floor block's timestamp
+# mined in a block the endpoint serves.
+_FLOOR_SKEW_S = 300
+_floor_cache: dict = {}
+
+
+def _endpoint_floor() -> dict | None:
+    """{"block", "timestamp"} of the lowest block the endpoint serves
+    ({"block": 0, "timestamp": 0} when it serves block 1), or None when
+    that cannot be read now."""
+    now = time.time()
+    hit = _floor_cache.get("floor")
+    if hit is not None and now - _floor_cache.get("at", 0) < _FLOOR_TTL_S:
+        return hit
+
+    def block(n):
+        try:
+            return _rpc("eth_getBlockByNumber", [hex(n), False])
+        except _RpcUnavailable:
+            raise LookupError(n)
+
+    try:
+        head = int(_rpc("eth_blockNumber", []), 16)
+        top = block(head)
+        if top is None:
+            return None
+        if block(1) is not None:
+            found = {"block": 0, "timestamp": 0}
+        else:
+            lo, hi, hi_blk = 1, head, top
+            while hi - lo > 1:
+                mid = (lo + hi) // 2
+                b = block(mid)
+                if b is None:
+                    lo = mid
+                else:
+                    hi, hi_blk = mid, b
+            found = {"block": hi,
+                     "timestamp": int(str(hi_blk.get("timestamp", "0x0")), 16)}
+    except (LookupError, _RpcUnavailable, TypeError, ValueError):
+        return None
+    _floor_cache.update(floor=found, at=now)
+    return found
+
+
+def _below_floor(e: lanes.Entry) -> dict | None:
+    """The endpoint's floor when entry `e` may have mined below it (it was
+    signed before the floor block's time, plus the skew); else None."""
+    floor = _endpoint_floor()
+    if floor is None or not floor["block"]:
+        return None
+    if e.signed_at < floor["timestamp"] + _FLOOR_SKEW_S:
+        return floor
+    return None
+
+
+def _floor_text(floor: dict) -> str:
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(floor["timestamp"]))
+    return (f"the endpoint no longer serves blocks before {floor['block']} "
+            f"({stamp}), where it may have mined")
+
+
 def _lane_consumer(lane: lanes.Lane, nonce: int, exclude: str):
     """(hash, signed_by_harness, origin) of what consumed `nonce`."""
     rec = lane.recent_at(nonce)
@@ -3255,6 +3330,21 @@ def _lane_prepare(lane: lanes.Lane, addr: str, key: str,
             continue
         if st == "consumed":
             who, ours, origin = _lane_consumer(lane, e.nonce, e.hash)
+            floor = _below_floor(e) if who is None else None
+            if floor is not None:
+                # Neither ours nor another hash can be read at that nonce:
+                # "NOT executed" would be a guess.
+                lane.release(e, f"nonce {e.nonce} used; the endpoint serves "
+                                f"no block before {floor['block']}")
+                if e.call != ctl.id:
+                    ctl.notice(
+                        f"{_signer(e)} signed transaction {e.hash} "
+                        f"({_origin(e)}); its nonce {e.nonce} is used, but "
+                        f"whether by this transaction or another cannot be "
+                        f"read: {_floor_text(floor)}.")
+                    if not _signed_here(e):
+                        ctl.notice(_shared_lane(lane))
+                continue
             lane.release(e, f"nonce {e.nonce} consumed by {who}")
             if e.call != ctl.id:
                 ctl.notice(
@@ -9032,11 +9122,47 @@ _KWOB_CACHE_FILE = Path(__file__).parent / ".cache" / "kwob_trades.json"
 
 # All known trade entity IDs (bootstrap file ∪ log scan). Grows
 # monotonically; liveness is re-checked on-chain on every call.
+# "covered" is the last block whose trades the set is known to hold (the
+# snapshot's block, then each scan's head); the scan re-reads a small
+# overlap below it, but the first block it NEEDS is covered + 1.
 _trade_scan_cache: dict = {
     "next_block": 0,
     "ids": set(),
     "loaded": False,
 }
+
+# The endpoint can stop serving history below a height of its own — since
+# the chain's return on 2026-11-20 it answers null for every block before
+# 35,299,823 and an EMPTY log list, with no error, for any range below it.
+# An empty answer there is not "no trades". The scan therefore asks the
+# endpoint for the first block it needs before reading logs from it; a
+# start within this many blocks of the head is not asked (a replica a few
+# blocks behind answers null for a block it has not reached yet).
+_FLOOR_PROBE_MARGIN = 64
+
+
+def _kwob_start_served(need: int, latest: int) -> bool:
+    """Whether the endpoint serves block `need`, measured by asking it.
+
+    Twice, since one null answer is never proof on this endpoint; and
+    only a null while the head IS served means the history is gone. The
+    "earliest" tag is no guide: this endpoint answers it with the head.
+    """
+    for _ in range(2):
+        try:
+            if w3.eth.get_block(need) is not None:
+                return True
+        except BlockNotFound:
+            pass
+    try:
+        w3.eth.get_block(latest)
+    except BlockNotFound:
+        raise RuntimeError(
+            f"The RPC answers null for block {need} and for its own head "
+            f"{latest}, so whether the trade-ID scan can resume cannot be "
+            "read now. Retry shortly."
+        )
+    return False
 
 
 def _scan_trade_entity_ids() -> set[int]:
@@ -9061,6 +9187,7 @@ def _scan_trade_entity_ids() -> set[int]:
         cache["ids"] |= {int(x, 16) for x in data["trade_ids"]}
         # small overlap so nothing between snapshot and scan is missed
         cache["next_block"] = max(0, int(data["block"]) - 1_000)
+        cache["covered"] = int(data["block"])
         cache["loaded"] = True
 
     latest = w3.eth.block_number
@@ -9070,6 +9197,18 @@ def _scan_trade_entity_ids() -> set[int]:
             f"{cache['next_block']}, chain is at {latest}, and the RPC "
             f"prunes logs older than ~{_LOG_SCAN_MAX_RANGE} blocks, so the "
             "gap cannot be recovered from logs. Re-run "
+            "`python3 executor/kwob_bootstrap.py` to re-seed from the "
+            "Kamigaze state snapshot, then retry."
+        )
+    need = cache.get("covered", cache["next_block"] - 1) + 1
+    if (need < latest - _FLOOR_PROBE_MARGIN
+            and not _kwob_start_served(need, latest)):
+        raise RuntimeError(
+            f"Trade-ID cache is stale: the scan must resume at block "
+            f"{need}, and the RPC no longer serves that block (it answers "
+            f"null there while its head {latest} is served; its logs below "
+            "that height come back empty, never as an error), so the gap "
+            "cannot be recovered from logs. Re-run "
             "`python3 executor/kwob_bootstrap.py` to re-seed from the "
             "Kamigaze state snapshot, then retry."
         )
@@ -9088,6 +9227,7 @@ def _scan_trade_entity_ids() -> set[int]:
             cache["ids"].add(int.from_bytes(lg["topics"][3], "big"))
         frm = to + 1
     cache["next_block"] = latest + 1
+    cache["covered"] = latest
 
     # Persist the union so coverage survives server restarts even past the
     # log-retention window.

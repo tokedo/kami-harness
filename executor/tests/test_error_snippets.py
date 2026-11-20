@@ -83,6 +83,7 @@ class TestStateTable:
             "liquidate_kami": ("HARVESTING",),
             "gacha_reroll": ("RESTING",),
             "transfer_kami": ("RESTING", "LISTED"),
+            "skill_respec": ("RESTING",),    # 5.1.0
         }
         assert server._SENDABLE_STATES == {"RESTING", "LISTED"}
 
@@ -199,8 +200,8 @@ class TestSnippetExamples:
             "exists for kami #123; its harvest entity state is ''\n"
             "[mechanics] kami #123: state RESTING, harvest entity unset. "
             "Tools whose harness state gate accepts RESTING: gacha_reroll, "
-            "harvest_start, transfer_kami. harvest_collect requires harvest "
-            "ACTIVE."
+            "harvest_start, skill_respec, transfer_kami. harvest_collect "
+            "requires harvest ACTIVE."
         )
 
     def test_dry_run_revert(self, snippets_on, world):
@@ -215,7 +216,8 @@ class TestSnippetExamples:
             "[mechanics] account 'main': room 42, stamina 7. kami #123: "
             "state RESTING, harvest entity unset. Tools whose harness state "
             "gate accepts RESTING: gacha_reroll, harvest_start, "
-            "transfer_kami. Not read by the harness for this call: "
+            "skill_respec, transfer_kami. Not read by the harness for this "
+            "call: "
             "cooldowns, HP, node/room match, XP."
         )
 
