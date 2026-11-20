@@ -48,8 +48,9 @@ reward tables per node.
 
 Higher scav cost (points to fill bar) = rarer drops. The costs in
 [catalogs/nodes.csv](../catalogs/nodes.csv) at the upstream pin
-(`a99b4b64`; the same at `04cb25f8`): 100 on the starter nodes (10 nodes), 200 (18), 300 (8),
-400 (12), 500 (2), 600 (4) and 1000 (3) — the cave and castle nodes
+(`a99b4b64`; the same at `04cb25f8`): 100 on 11 nodes (the starter
+nodes among them), 200 on 19, 300 on 9, 400 on 12, 500 on 2, 600 on 5
+and 1000 on 6 (64 nodes). The cave and castle nodes
 cost twice what they did before that deploy data (e.g. Techno Temple,
 Lotus Pool and Fungus Garden 1000).
 

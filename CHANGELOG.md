@@ -82,13 +82,13 @@ digests and fails against 5.0.1's files.
     voter badges, 11414 Igors Candy, 21007 Silt-Caked Box, 21008 Golden
     Box, 100012 Igors Amulet) and two the previous file lacked (22802
     Ring of Spirits, 100011 Homecoming Data Chip). Every name of the
-    178 items the previous file had is unchanged. What the server reads
-    from the file changes only by those 12 names and indices: the
-    `For` / `Effects` / `Flags` cells of the stamina items `travel_to_room`
-    picks from, and which items count as acting on HP, are the same.
-    Upstream's other changes (57 rarities, 52 requirements, 25 types,
-    21 `For` cells, 4 effects, 1 flag; and 21 cells of drift older than
-    the range) are carried in columns the server does not read.
+    178 items the previous file had is unchanged. What the server
+    derives from the file changes only by those 12 names and indices.
+    Upstream's other changes are 57 rarities, 52 requirements, 25 types,
+    21 `For` cells, 4 effects and 1 flag, and 21 cells of drift older
+    than the range. The server reads `For`, `Effects` and `Flags`, but
+    what it derives from them is unchanged: the same six stamina items
+    for `travel_to_room`, and the same set of items that act on HP.
   - `rooms.csv`: room 64's description; its names, statuses,
     coordinates and exits, which routing reads, are the previous file's.
 - Not refreshed: `recipes.csv`, `shop-listings.csv` and
@@ -134,12 +134,19 @@ still answer.
   lookups cannot find, was reported "NOT executed: its nonce was
   consumed by another hash". For a transaction that mined below the
   floor that is false. When no consumer is found, the floor is now
-  measured (the lowest served block, by binary search over heights,
-  kept 10 minutes); an entry signed before the floor block's time
-  (+ 5 minutes) is released with "its nonce N is used, but whether by
-  this transaction or another cannot be read: the endpoint no longer
-  serves blocks before B (time), where it may have mined". An entry
-  signed after the floor keeps the proven verdict.
+  measured (the lowest served block, by binary search over heights;
+  a height counts as not served only when two asks, the second on a
+  fresh session, both answer null; kept 10 minutes); an entry signed
+  before the floor block's time (+ 5 minutes) is released with "its
+  nonce N is used, but whether by this transaction or another cannot be
+  read: the endpoint no longer serves blocks before B (time), where it
+  may have mined". An entry signed after the floor keeps the proven
+  verdict. When the floor cannot be read at all (the head answers null
+  three times, or a read fails), the entry is neither "NOT executed"
+  nor released: it is kept, and the notice says "its nonce N is used,
+  but whether by this transaction or another could not be determined on
+  this endpoint: the lowest block it serves could not be read now. The
+  entry is kept and checked again on the next call."
 - The other reads of the endpoint are of transactions this process just
   sent, or of the head: receipts of a sequence or of a single send, the
   proof lookups of a receipt wait, the consumer scan of the last 64
@@ -155,7 +162,7 @@ still answer.
   56's level limit.
 - `integration/api/harvesting.md`, `systems/liquidation.md`: salvage
   and spoils capped at 100 % (`ratio >= precision`; before `a99b4b64`
-  only from 200 %, and a salvage ratio in [100 %, 200 %) reverted the
+  only from 200 %, and a salvage ratio above 100 % and below 200 % reverted the
   kill); the liquidation page's divisor is `10^config[3]`, as the code
   computes it.
 - `integration/api/kami.md`, `integration/api/skills-and-relationships.md`:
@@ -164,17 +171,22 @@ still answer.
   (`system.ballot.claim`, owner or operator; `system.ballot.settle`,
   reporter only); 70 systems at `a99b4b64`.
 - `integration/game-data.md`: the revive items need a DEAD kami, the
-  mochi cap (two per kami) now binds, recipe 19's inputs and stamina,
-  the Respec Potion's type.
+  mochi cap (two per kami) now binds, recipe 19's inputs and stamina;
+  every name, type and rarity in its item tables is the catalog's at
+  `a99b4b64` (49 cells corrected, among them the equipment items'
+  realigned rarities).
+- `systems/harvesting.md`: the scavenge-cost node counts were wrong since
+  5.0.0; they are 100 on 11 nodes, 200 on 19, 300 on 9, 400 on 12, 500
+  on 2, 600 on 5 and 1000 on 6.
 - README's catalog table names the new pin.
 
 ### Version and tests
 
 `SCHEMA_VERSION` 5.1.0; `test_tool_surface.py` and the README "Current"
-line follow. New: `test_h510_return.py` (13 tests; 9 fail at 5.0.1).
+line follow. New: `test_h510_return.py` (26 tests).
 `fakenode.py` models a floor (blocks, and the receipt and transaction
 of anything mined below it, answer null) and per-block timestamps.
-Suite: 1283 passed, 4 skipped.
+Suite: 1303 passed, 4 skipped.
 
 ## [5.0.1] — 2026-11-07 — the quest catalogs at the world pin
 

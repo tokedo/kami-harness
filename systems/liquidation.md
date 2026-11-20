@@ -155,7 +155,7 @@ salvage = ratio >= 10^KAMI_LIQ_SALVAGE[3] ? bounty
 - Capped at 100% of bounty (`LibKill.calcSalvage`: `if (ratio >= precision)
   return amt`). Before upstream `a99b4b64` (deployed 2026-11-20) the
   guard was `ratio / precision > 1`, which capped only from 200 %: a
-  ratio in [100 %, 200 %) paid more than the bounty, and the kill reverted
+  ratio above 100 % and below 200 % paid more than the bounty, and the kill reverted
   when the victim's balance was reduced by it
 
 ### Attacker Gets (Spoils)
@@ -173,7 +173,7 @@ spoils = ratio >= 10^KAMI_LIQ_SPOILS[3] ? (bounty - salvage)
 - Spoils added to attacker's **harvest bounty** (not inventory)
 - Attacker's account receives **1 Obol** (item 1015)
 - Capped at 100% of remaining bounty (`LibKill.calcSpoils`, the same
-  guard; before `a99b4b64` a ratio in [100 %, 200 %) paid more than the
+  guard; before `a99b4b64` a ratio above 100 % and below 200 % paid more than the
   remainder)
 
 ### Remaining Bounty

@@ -21,11 +21,11 @@ Items are identified by a `uint32` index. The on-chain entity ID for an item is 
 | Index | Name | Type | Description |
 |-------|------|------|-------------|
 | 1 | MUSU | Misc | Kamigotchi kurrency — the primary in-game currency |
-| 2 | VIPP | Misc | VIP Points token — can be burned at Forest Hut (room 65) for VIP benefits |
+| 2 | VIPP | Consumable | VIP Points token — can be burned at Forest Hut (room 65) for VIP benefits |
 | 10 | Gacha Ticket | Misc | Redeemable for one Kami at the vending machine |
 | 11 | Reroll Ticket | Misc | Allows you to reroll a Kami once |
 | 100 | Onyx Shard | ERC20 | In-game form of $ONYX (1 ONYX = 100 Onyx Shards). Deposited/withdrawn via `system.erc20.portal` — see [Chain Configuration](chain.md#onyx-shards) |
-| 103 | ETH | ERC20 | In-game wrapped ETH balance. Deposited via `system.erc20.portal`. |
+| 103 | Ether Shard | ERC20 | In-game wrapped ETH balance. Deposited via `system.erc20.portal`. |
 
 ### Raw Materials
 
@@ -47,7 +47,7 @@ Items are identified by a `uint32` index. The on-chain entity ID for an item is 
 | 1016 | Dried Stems | Material | Common |
 | 1017 | Patinated Pipe | Material | Common |
 | 1018 | Cigarette Butt | Material | Common |
-| 1019 | Otherworld Coin | Material | Uncommon |
+| 1019 | Otherworld Coin | Material | Common |
 | 1020 | Bone Chunk | Material | Common |
 | 1021 | Irradiated Root | Material | Rare |
 
@@ -67,7 +67,7 @@ Items are identified by a `uint32` index. The on-chain entity ID for an item is 
 | 1121 | Pallid Root Extract | Material | Rare |
 | 1201 | Holy Syrup | Material | Rare |
 | 1202 | Resin Tincture | Material | Uncommon |
-| 1203 | Fuliginous Ooze | Material | Epic |
+| 1203 | Fuliginous Ooze | Material | Legendary |
 | 1301 | Ashlar | Material | Uncommon |
 | 1302 | Timber | Material | Uncommon |
 | 1303 | Ingot | Material | Uncommon |
@@ -91,7 +91,7 @@ Items are identified by a `uint32` index. The on-chain entity ID for an item is 
 | 11001 | Red Ribbon Gummy | Consumable | Revive + HP+10 (DEAD kami only) |
 | 11003 | Djed Pillar | Consumable | Revive + HP+5 (DEAD kami only) |
 | 11004 | Pale Potion | Potion | Revive + HP+75 (DEAD kami only) |
-| 11011 | Holy Dust | Misc | Rename a Kami at the shrine |
+| 11011 | Holy Dust | Material | Rename a Kami at the shrine |
 | 11020 | Cleaning Fluid | Potion | Clear all effects |
 | 11110 | Gaokerena Mochi | Food | Permanent Health +10 |
 | 11120 | Sunset Apple Mochi | Food | Permanent Power +1 |
@@ -104,11 +104,11 @@ Items are identified by a `uint32` index. The on-chain entity ID for an item is 
 | 11311 | Resin | Food | HP+35 |
 | 11312 | Honeydew Scale | Food | HP+75 |
 | 11313 | Golden Apple | Food | HP+150 |
-| 11401 | XP Potion | Food | XP+1000 |
+| 11401 | XP Potion | Potion | XP+1000 |
 | 11403 | Respec Potion | Potion | Reset skill points (RESTING kami only; used by `system.skill.respec`) |
-| 11404 | Grace Potion | Food | Strain -25% next harvest |
-| 11405 | Bless Potion | Food | Bounty +25% next harvest |
-| 11409 | Energy Drink | Food | Cooldown -30s |
+| 11404 | Grace Potion | Potion | Strain -25% next harvest |
+| 11405 | Bless Potion | Potion | Bounty +25% next harvest |
+| 11409 | Energy Drink | Consumable | Cooldown -30s |
 
 Since upstream `d6ff096f` (deployed 2026-11-04) the use rules are item requirements: the revive items need a DEAD kami (`KAMI_DEAD`), food a kami that can eat (`KAMI_CAN_EAT`). Each mochi now increments a per-kami counter (`MOCHI_USED`), and its `MOCHI_LIMIT` requirement (`MOCHI_USED MAX 1`) refuses a mochi once that counter is above 1, so a kami takes two mochi of any kind and the third reverts. Before that, nothing incremented the counter and the limit never applied.
 
@@ -117,7 +117,7 @@ Since upstream `d6ff096f` (deployed 2026-11-04) the use rules are item requireme
 | Index | Name | Type | Effect |
 |-------|------|------|--------|
 | 21001 | Giftbox | Lootbox | Basic lootbox |
-| 21002 | Citizen Giftbox | Lootbox | Passport-tier lootbox |
+| 21002 | Kamigotchi World Citizen Giftbox | Lootbox | Passport-tier lootbox |
 | 21003 | Wonder Egg | Lootbox | Surprise lootbox |
 | 21004 | Booster Pack | Lootbox | Spell Card booster |
 | 21005 | Mochibox | Lootbox | Contains one Mochi |
@@ -129,9 +129,9 @@ Since upstream `d6ff096f` (deployed 2026-11-04) the use rules are item requireme
 
 | Index | Name | Type | Rarity |
 |-------|------|------|--------|
-| 23100 | Spice Grinder | Tool | Rare |
-| 23101 | Portable Burner | Tool | Rare |
-| 23102 | Screwdriver | Tool | Epic |
+| 23100 | Spice Grinder | Tool | Uncommon |
+| 23101 | Portable Burner | Tool | Uncommon |
+| 23102 | Screwdriver | Tool | Rare |
 
 ### Key Items (selected)
 
@@ -527,44 +527,44 @@ All current equipment items occupy the `Kami_Pet_Slot`. They are obtained from B
 
 | Index | Name | Rarity | Effect | Description |
 |-------|------|--------|--------|-------------|
-| 30001 | Mask of Avarice | Common | Power +3 | Theatre mask — boosts Power |
-| 30002 | Veil of Avarice | Uncommon | Power +4 | Theatre veil — boosts Power |
-| 30003 | Visage of Avarice | Rare | Power +5 | Theatre visage — boosts Power |
-| 30004 | Mask of Contempt | Common | Def Type Shift +6% | Ogre mask — boosts defense |
-| 30005 | Veil of Contempt | Uncommon | Def Type Shift +8% | Ogre veil — boosts defense |
-| 30006 | Visage of Contempt | Rare | Def Type Shift +10% | Ogre visage — boosts defense |
-| 30007 | Mask of Mischief | Common | Atk Success Rate +6% | Goblin mask — boosts attack |
-| 30008 | Veil of Mischief | Uncommon | Atk Success Rate +8% | Goblin veil — boosts attack |
-| 30009 | Visage of Mischief | Rare | Atk Success Rate +10% | Goblin visage — boosts attack |
-| 30010 | Old Leafling | Common | Bounty +12% | Petpet — boosts harvest bounty |
-| 30011 | Wise Leafling | Uncommon | Bounty +16% | Petpet — boosts harvest bounty |
-| 30012 | Elder Leafling | Rare | Bounty +20% | Petpet — boosts harvest bounty |
-| 30013 | Old Gumdrop | Common | Rest Max +15% | Petpet — boosts resting recovery |
-| 30014 | Wise Gumdrop | Uncommon | Rest Max +20% | Petpet — boosts resting recovery |
-| 30015 | Elder Gumdrop | Rare | Rest Max +25% | Petpet — boosts resting recovery |
-| 30016 | Old Critter | Common | Health +30 | Petpet — boosts max health |
-| 30017 | Wise Critter | Uncommon | Health +40 | Petpet — boosts max health |
-| 30018 | Elder Critter | Rare | Health +50 | Petpet — boosts max health |
-| 30019 | Crawling Greed | Common | Harvest Fertility +18% | Ladybugs — boost fertility |
-| 30020 | Teeming Greed | Uncommon | Harvest Fertility +24% | Ladybugs — boost fertility |
-| 30021 | Swarming Greed | Rare | Harvest Fertility +30% | Ladybugs — boost fertility |
-| 30022 | Crawling Wrath | Common | Violence +3 | Bees — boost Violence |
-| 30023 | Teeming Wrath | Uncommon | Violence +4 | Bees — boost Violence |
-| 30024 | Swarming Wrath | Rare | Violence +5 | Bees — boost Violence |
-| 30025 | Crawling Cope | Common | Def Success Rate +6% | Worms — boost defense |
-| 30026 | Teeming Cope | Uncommon | Def Success Rate +8% | Worms — boost defense |
-| 30027 | Swarming Cope | Rare | Def Success Rate +10% | Worms — boost defense |
-| 30028 | Antique Tape | Common | Atk Type Shift +6% | Tape — boosts attack |
-| 30029 | Heirloom Tape | Uncommon | Atk Type Shift +8% | Tape — boosts attack |
-| 30030 | Ancient Tape | Rare | Atk Type Shift +10% | Tape — boosts attack |
-| 30031 | Antique Automata | Common | Harvest Intensity +15/hr | Automata — boosts intensity |
-| 30032 | Heirloom Automata | Uncommon | Harvest Intensity +20/hr | Automata — boosts intensity |
-| 30033 | Ancient Automata | Rare | Harvest Intensity +25/hr | Automata — boosts intensity |
-| 30034 | Antique Ledger | Common | Harmony +3 | Ledger — boosts Harmony |
-| 30035 | Heirloom Ledger | Uncommon | Harmony +4 | Ledger — boosts Harmony |
-| 30036 | Ancient Ledger | Rare | Harmony +5 | Ledger — boosts Harmony |
+| 30001 | Mask of Avarice | Rare | Power +3 | Theatre mask — boosts Power |
+| 30002 | Veil of Avarice | Epic | Power +4 | Theatre veil — boosts Power |
+| 30003 | Visage of Avarice | Legendary | Power +5 | Theatre visage — boosts Power |
+| 30004 | Mask of Contempt | Rare | Def Type Shift +6% | Ogre mask — boosts defense |
+| 30005 | Veil of Contempt | Epic | Def Type Shift +8% | Ogre veil — boosts defense |
+| 30006 | Visage of Contempt | Legendary | Def Type Shift +10% | Ogre visage — boosts defense |
+| 30007 | Mask of Mischief | Rare | Atk Success Rate +6% | Goblin mask — boosts attack |
+| 30008 | Veil of Mischief | Epic | Atk Success Rate +8% | Goblin veil — boosts attack |
+| 30009 | Visage of Mischief | Legendary | Atk Success Rate +10% | Goblin visage — boosts attack |
+| 30010 | Old Leafling | Rare | Bounty +12% | Petpet — boosts harvest bounty |
+| 30011 | Wise Leafling | Epic | Bounty +16% | Petpet — boosts harvest bounty |
+| 30012 | Elder Leafling | Legendary | Bounty +20% | Petpet — boosts harvest bounty |
+| 30013 | Old Gumdrop | Rare | Rest Max +15% | Petpet — boosts resting recovery |
+| 30014 | Wise Gumdrop | Epic | Rest Max +20% | Petpet — boosts resting recovery |
+| 30015 | Elder Gumdrop | Legendary | Rest Max +25% | Petpet — boosts resting recovery |
+| 30016 | Old Critter | Rare | Health +30 | Petpet — boosts max health |
+| 30017 | Wise Critter | Epic | Health +40 | Petpet — boosts max health |
+| 30018 | Elder Critter | Legendary | Health +50 | Petpet — boosts max health |
+| 30019 | Crawling Greed | Rare | Harvest Fertility +18% | Ladybugs — boost fertility |
+| 30020 | Teeming Greed | Epic | Harvest Fertility +24% | Ladybugs — boost fertility |
+| 30021 | Swarming Greed | Legendary | Harvest Fertility +30% | Ladybugs — boost fertility |
+| 30022 | Crawling Wrath | Rare | Violence +3 | Bees — boost Violence |
+| 30023 | Teeming Wrath | Epic | Violence +4 | Bees — boost Violence |
+| 30024 | Swarming Wrath | Legendary | Violence +5 | Bees — boost Violence |
+| 30025 | Crawling Cope | Rare | Def Success Rate +6% | Worms — boost defense |
+| 30026 | Teeming Cope | Epic | Def Success Rate +8% | Worms — boost defense |
+| 30027 | Swarming Cope | Legendary | Def Success Rate +10% | Worms — boost defense |
+| 30028 | Antique Tape | Rare | Atk Type Shift +6% | Tape — boosts attack |
+| 30029 | Heirloom Tape | Epic | Atk Type Shift +8% | Tape — boosts attack |
+| 30030 | Ancient Tape | Legendary | Atk Type Shift +10% | Tape — boosts attack |
+| 30031 | Antique Automata | Rare | Harvest Intensity +15/hr | Automata — boosts intensity |
+| 30032 | Heirloom Automata | Epic | Harvest Intensity +20/hr | Automata — boosts intensity |
+| 30033 | Ancient Automata | Legendary | Harvest Intensity +25/hr | Automata — boosts intensity |
+| 30034 | Antique Ledger | Rare | Harmony +3 | Ledger — boosts Harmony |
+| 30035 | Heirloom Ledger | Epic | Harmony +4 | Ledger — boosts Harmony |
+| 30036 | Ancient Ledger | Legendary | Harmony +5 | Ledger — boosts Harmony |
 
-> Equipment items come in three rarity tiers (Common/Uncommon/Rare) with scaling effects. Each family of items (e.g., Avarice masks, Leaflings) targets a different stat.
+> Equipment items come in three rarity tiers (Rare/Epic/Legendary at upstream `a99b4b64`; Common/Uncommon/Rare before the 2026-11-02 rarity realignment) with scaling effects. Each family of items (e.g., Avarice masks, Leaflings) targets a different stat.
 
 ---
 
