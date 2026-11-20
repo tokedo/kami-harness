@@ -1,8 +1,9 @@
 """5.0.0 (F) — catalogs and documents.
 
-C1  catalogs/nodes.csv is the upstream deploy data at 04cb25f8, in this
-    repo's eight columns: 15 VIPP nodes (item 2), the level-35 limits,
-    the scavenge costs of that data.
+C1  catalogs/nodes.csv is the upstream deploy data at the pin (04cb25f8
+    at 5.0.0, a99b4b64 since 5.1.0), in this repo's eight columns: 15
+    VIPP nodes (item 2), the level-35 limits, the scavenge costs of that
+    data.
 C2  A commit-reveal window is stated in blocks with the measured
     cadence, never a fixed number of minutes: every reveal description
     and every reveal error text.
@@ -36,8 +37,10 @@ def test_the_node_catalog_is_the_deploy_data_at_the_pin():
         "YieldIndex", "Scav Cost"]
     vipp = sorted(i for i, r in nodes.items() if r["YieldIndex"] == "2")
     assert vipp == [6, 18, 48, 49, 52, 58, 60, 61, 62, 65, 73, 75, 79, 83, 88]
+    # Node 56 (Butterfly Forest) lost its level limit at a99b4b64.
     assert sorted(i for i, r in nodes.items() if r["Level Limit"] == "35") == [
-        31, 35, 36, 47, 50, 56, 57, 59]
+        31, 35, 36, 47, 50, 57, 59]
+    assert nodes[56]["Level Limit"] == ""
     assert sorted(i for i, r in nodes.items() if r["Level Limit"] == "15") == [
         1, 2, 3, 29, 30, 55]
     assert {i: nodes[i]["Scav Cost"] for i in (15, 16, 69, 76, 87)} == {
@@ -48,7 +51,7 @@ def test_the_node_catalog_is_the_deploy_data_at_the_pin():
 def test_the_catalog_names_its_source():
     readme = (REPO / "README.md").read_text()
     row = [l for l in readme.splitlines() if "catalogs/nodes.csv" in l][0]
-    assert "04cb25f8" in row and "deployment/world/data/rooms/nodes.csv" in row
+    assert "a99b4b64" in row and "deployment/world/data/rooms/nodes.csv" in row
 
 
 # C2 ------------------------------------------------------------------------

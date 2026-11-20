@@ -30,7 +30,7 @@ Index,Name,Status,Drops,Affinity,Level Limit,YieldIndex,Scav Cost
 52,Airplane Crash,In Game,Bottle Scrap Jar,Eerie,,2,300
 53,Blooming Tree,In Game,Stick Cone Amber,Eerie,,1,300
 55,Shady Path,In Game,Stick Stone Daffodil,Normal,15,1,200
-56,Butterfly Forest,In Game,Stick Stone Resin,Insect,35,1,200
+56,Butterfly Forest,In Game,Stick Stone Resin,Insect,,1,200
 57,River Crossing,In Game,Stick Stone Cone,Normal,35,1,200
 58,Mouth of Scrap,In Game,Stone Scrap Burger,Scrap,,2,100
 59,Black Pool,In Game,Pipe Butt Apple,Eerie,35,1,200

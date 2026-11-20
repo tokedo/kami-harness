@@ -167,15 +167,15 @@ other bytes.
 
 | File | Contents |
 |---|---|
-| [nodes.csv](catalogs/nodes.csv) | Harvest nodes: affinity, drops, level limits, yield item, scav cost — upstream deploy data `packages/contracts/deployment/world/data/rooms/nodes.csv` at `8fb6ea58` (byte-identical upstream since `04cb25f8`), in this repo's eight columns |
+| [nodes.csv](catalogs/nodes.csv) | Harvest nodes: affinity, drops, level limits, yield item, scav cost — upstream deploy data `packages/contracts/deployment/world/data/rooms/nodes.csv` at `a99b4b64`, in this repo's eight columns (upstream's Harvest Multiplier column, 1 on every node at the pin, is not one of them) |
 | [items.csv](catalogs/items.csv) | Items: type, tradability, stats — derived table (its own columns); last changed 2026-10-03; not pinned (a derived table — its refresh is a separate decision, not a byte copy) |
-| [skills.csv](catalogs/skills.csv) | Skill trees: effects, costs, tiers, exclusions — upstream `skills/skills.csv` as of 2026-04-01 (its header); at `8fb6ea58` upstream differs only by trailing spaces in 25 descriptions; not pinned (a derived table — its refresh is a separate decision, not a byte copy) |
+| [skills.csv](catalogs/skills.csv) | Skill trees: effects, costs, tiers, exclusions — upstream `skills/skills.csv` as of 2026-04-01 (its header); at `a99b4b64` (unchanged upstream since `8fb6ea58`) upstream differs only by trailing spaces in 25 descriptions; not pinned (a derived table — its refresh is a separate decision, not a byte copy) |
 | [recipes.csv](catalogs/recipes.csv) | Crafting recipes: inputs, outputs, stamina cost — derived table (its own columns); last changed 2026-04-01; not pinned (a derived table — its refresh is a separate decision, not a byte copy) |
 | [rooms.csv](catalogs/rooms.csv) | Room map: coordinates and special exits — derived table (its own columns); last changed 2026-04-11; not pinned (a derived table — its refresh is a separate decision, not a byte copy) |
 | [room-gates.csv](catalogs/room-gates.csv) | Room-exit access conditions (quest / item / goal), per destination — derived table (from the lens `room` query); last changed 2026-08-27; not pinned (a derived table — its refresh is a separate decision, not a byte copy) |
 | [shop-listings.csv](catalogs/shop-listings.csv) | NPC shop items and prices — derived table (its own columns); last changed 2026-04-01; not pinned (a derived table — its refresh is a separate decision, not a byte copy) |
 | [scavenge-droptables.csv](catalogs/scavenge-droptables.csv) | Node scavenge reward tables — derived table (its own columns); last changed 2026-04-01; not pinned (a derived table — its refresh is a separate decision, not a byte copy) |
-| [quests/](catalogs/quests/) | Quests, objectives, requirements, rewards — upstream deploy data `packages/contracts/deployment/world/data/quests/` at `8fb6ea58`, byte for byte (re-vendored 2026-11-07); a quest on chain that is newer than the pin has no row |
+| [quests/](catalogs/quests/) | Quests, objectives, requirements, rewards — upstream deploy data `packages/contracts/deployment/world/data/quests/` at `a99b4b64`, byte for byte (re-vendored 2026-11-20); a quest on chain that is newer than the pin has no row |
 
 ### Integration (`integration/`)
 

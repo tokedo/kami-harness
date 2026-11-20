@@ -1293,10 +1293,9 @@ MENU: “Give me a handful. I’ll run a battery of tests.”","MENU: “Results
 MENU: “The metal is even more pure than I initially thought.”
 MENU: “These coins are multiple times older than Greek civilization itself.”
 MENU: “It’s like they just got dreamed into existence. I can’t make sense of it.”",Own at least 1 Obol,Give 5 Obols,"2x Agency Reputation,1x Booster Pack"
-SQ016,3016,In Game,Go Suck An Egg,No,SIDE,MENU,"MENU: “I know there’s a window on me somewhere, a secret shop where you can use those Obols to buy something.”
-MENU: “Don’t tell me it’s not real, I can feel it there.”
-MENU: “They refuse to sell to me, so you’re going to have to shell out just this once.”
-MENU: “I want you to buy what they’re selling and give it to Mina.”
+SQ016,3016,In Game,Go Suck An Egg,No,SIDE,MENU,"MENU: “Those coins in your pack keep tugging toward the waterfall. Toward the lake.”
+MENU: “Whatever’s down there takes them, and sometimes it gives something back.”
+MENU: “Toss a few in. If you fish out an egg, take it to Mina.”
 MENU: “She’ll probably be able to tell us something about it.”","MINA: “They’re serpent eggs, hollowed out and filled with treasure.”
 MENU: “She got really upset when I asked if she had anything to do with it.”
 MINA: ”It’s distasteful to the extreme.”
@@ -1793,6 +1792,41 @@ MINA: “He’s demanding, and personally repellent, but interesting.”
 MINA: “Working with him has given me an idea.”
 MINA: “Menu, you might appreciate this. We’ll have to talk later.”
 MENU: “Is it about that thing you mentioned last time? Awesome!”",Complete SQ117,Make 20 Scavenging Rolls at the Techno Temple,"7x Booster Pack,2x Agency Reputation"
+SQ119,3119,In Game,The Legend,No,SIDE,MENU,"MENU: “Okay, this is completely unscientific, but I found something in my old files.”
+MENU: “A forum post from the 1998 alpha. Someone swears that if you craft this amulet in the Butterfly Forest… something appears.”
+MENU: “Three other testers replied saying they saw it too. Then none of them ever posted again.”
+MENU: “Probably just quit the game. Probably.”
+MINA: “Oh, I know that story. Nasty thing. Hollow eyes. It takes whatever you’re carrying.”
+MENU: “Mina, you’re making that up.”
+MINA: “Am I?”
+MENU: “Anyway. Everything you need for it is lying right there in the forest. Sticks, stones, a bit of resin. Have the Kami dig some up.”","MENU: “That’s everything for the amulet. Don’t craft it yet.”
+MENU: “The post says it only shows up for people who’ve spent time in the forest. Let the Kami harvest here for a while first.”",Complete MSQ009,Make 3 Scavenging Rolls at Butterfly Forest,2x Agency Reputation
+SQ120,3120,In Game,Something Follows You,No,SIDE,MENU,"MENU: “Okay. Set the Kami down and let them harvest.”
+MENU: “I’ll keep watch. From very close to you.”","MENU: “Did you hear that? Something giggled. In that little house.”
+MENU: “There’s… candy wrappers on the path. Fresh ones.”
+MENU: “Wait. Look at the doorway. Don’t make it obvious.”
+MENU: “…There. Two eyes. Gold ones. And… gone.”
+MENU: “I’ve been logging movement in that doorway for hours. I thought it was a glitch in my sensors.”
+MENU: “It’s been watching us the whole time.”
+MENU: “I’m not scared. I just want that on the record.”",Complete SQ119,Harvest for >720 minutes at Butterfly Forest,1x ”Neith’s River of Life” Spell Card
+SQ121,3121,In Game,The Thing in the Woods,No,SIDE,MENU,"MENU: “Okay. You’ve got everything. Craft it here, in the forest.”
+MENU: “I’ll be right here. Behind you. Way behind you.”","MENU: “Wait. My sensors are picking up butterflies. Even for this forest, that’s a LOT of butterflies. All in one spot.”
+MENU: “Inside the house. In the doorway.”
+MENU: “It’s coming out.”
+???: “…”
+???: “p-please don’t eat me”
+MENU: “…What.”
+???: “i only wanted candy. please.”
+MENU: “I think the monster is… scared of YOU.”",Complete SQ120,"In Room: Butterfly Forest,Craft 1 Igors Amulet",
+SQ122,3122,In Game,Trick or Treat,No,SIDE,IGOR,"MENU: “Hold out the amulet. Slowly. No sudden movements.”
+???: “…is that… for me?”","???: “oh. oh, it’s a real one. you made it for me?”
+???: “nobody gives me anything anymore.”
+???: “i’m Igor.”
+IGOR: “here. you can have some of mine. you’re nice for a shadow thing.”
+MENU: “Mina. You knew.”
+MINA: “Of course I knew. You should have seen your face.”
+MENU: “I don’t HAVE a face!”
+MINA: “And yet.”","Complete SQ121,In Room: Butterfly Forest",Give 1 Igors Amulet,3x Igors Candy
 SQ802,3802,Defunct,Quest Diagnostics,No,SIDE,MENU,"MENU: “Excuse me. Sorry to butt in, if you’re busy.”
 MENU: “I’ve been running the usual diagnostics and defrags. Usually nothing comes up.”
 MENU: “But this time, I think there’s been a real change.”
@@ -1817,6 +1851,20 @@ MENU: “Mina said there were no lost souls left there. Not even remnants. So wh
 MENU: “Whatever it is, it feels cold. Bring three sticks and let’s give it a fire.”","MENU: “Whoa. That’s a lot of flame for three sticks.”
 MENU: “There’s something in the ashes… a card. It’s warm. Looks like someone climbing out of a fire.”
 MENU: “The tug’s gone quiet. I bet it’ll be back tomorrow.”",,"Move to the Trash-Strewn Graves,Give 3 Wooden Sticks",1x ”Melkarth’s Heroic Awakening” Spell Card
+SQ901,3901,In Game,Wash Your Hands,Yes,SIDE,REFLECTION,"REFLECTION: “We look tired. Our hands are stained.”
+REFLECTION: “The caves keep shaking loose into the lake. Rock, rust, bones… and now and then something worth keeping.”
+REFLECTION: “Coins are meant for the dead. Bring one to the lake and let it sink. The water will take the rest.”","REFLECTION: “The coin sinks. The red drains out of the water. Somewhere below, something swallows.”
+REFLECTION: “It remembers who fed it.”",Complete SQ015,Offer an Obol at the lake,1x Nursery Dedication
+SQ902,3902,In Game,Same Time Tomorrow,Yes,SIDE,IGOR,"IGOR: “oh. you came back.”
+IGOR: “the sign wore off in the night. they always wear off by morning.”
+MENU: “He’s been sitting in the doorway since sunrise. I checked. Twice.”
+MINA: “He saved you a spot on the step.”
+IGOR: “if you make another one… i still have candy.”
+MENU: “Sticks, stones, a bit of resin. You know the drill.”","IGOR: “it’s a good one. maybe the best one.”
+IGOR: “three. i counted twice.”
+MENU: “He’s getting generous. I’m logging it.”
+MINA: “Same time tomorrow, little one?”
+IGOR: “same time tomorrow.”","Complete SQ122 & wait 1 day,In Room: Butterfly Forest",Give 1 Igors Amulet,3x Igors Candy
 SQ998,3998,In Game,Hidden GEM,No,SIDE,MENU,"MENU: “Whoa! Stop right there!”
 MENU: “That machine in your inventory, it’s spinning up!”
 MENU: “I think it’s responding to an energy field in these caves!”
@@ -1830,11 +1878,11 @@ MINA: “I think that’s something the Operator should determine.”","Own the 
 SQ999,10002,Defunct,Claim Your Free Gift!,No,,,"I was really going through it on the 21st. It had me feeling bad enough that it must have affected you too. Here, take this.","I’m back to 100 percent and processing faster than ever. I hope that gift helped you get back on your feet again.","Before 25/10/25 0 GMT,At least 1 Kami liquidated",,"5x Booster Pack,3x ”Melkarth's Heroic Awakening” Spell Card"
 SQ997,10003,In Game,Condolences on your Recent Liquidations,No,SIDE,MENU,"MENU: “I was not having a good time this weekend, and it seems like you weren’t either.”
 MENU: “Take these, they should help you get back on your feet.”","MENU: “I’m back to 100 percent and processing faster than ever. I hope that gift helped you get back on your feet too.",At least 1 Kami liquidated,,5x ”Melkarth's Heroic Awakening” spell card
-test-0,1000000,Test,Daily Test Quest,Yes,,,Beg for your MUSU.,,,,"10000x MUSU (Test),2x Agency Reputation"
-test-1,1000001,Test,Crafting Materials,No,,,Let there be Craft,,,Move 3 Times,"100x Stone,100x Stick,50x Plastic Bottle,10x Glass Jar,100x Pine Cones,100x Burgers"
-test-2,1000002,Test,Lottery Loving,No,,,Stop being Kamiless,,,,20x Gacha Tickets (Test)
-test-3,1000003,Test,Crafting Materials II,No,,,More crafting materials,,Complete test-1,Give 5 Wooden Sticks,"100x Chalkberry,100x Shroom,100x Resin,100x Holy Dust,100x Scrap Metals"
-test-4,1000004,Test,Crafting Toolkit,No,,,You need equipment to make new items.,,Complete test-1,,"1x Screwdriver,1x Grinder,1x Burner"
+TEST001,1000000,Test,Daily Test Quest,Yes,,,"This is a test-world quest. It has no objectives and gives 10000 MUSU and 2 Agency Reputation, and it can be repeated daily.",Test quest complete: 10000 MUSU and 2 Agency Reputation received. It can be claimed again once the daily cooldown ends.,,,"10000x MUSU (Test),2x Agency Reputation"
+TEST002,1000001,Test,Crafting Materials,No,,,"This is a test-world quest. Move 3 times to receive crafting materials: 100 Stone, 100 Wooden Sticks, 50 Plastic Bottles, 10 Glass Jars, 100 Pine Cones and 100 Cheeseburgers.",Test quest complete: crafting materials received. Crafting Materials II and Crafting Toolkit are now available.,,Move 3 Times,"100x Stone,100x Stick,50x Plastic Bottle,10x Glass Jar,100x Pine Cones,100x Burgers"
+TEST003,1000002,Test,Lottery Loving,No,,,"This is a test-world quest. It has no objectives and gives 20 Gacha Tickets, so a new test account can get Kami.",Test quest complete: 20 Gacha Tickets received. Use them at the gacha to get Kami.,,,20x Gacha Tickets (Test)
+TEST004,1000003,Test,Crafting Materials II,No,,,"This is a test-world quest. After completing Crafting Materials, give 5 Wooden Sticks to receive 100 each of Chalkberry, Sanguine Shroom, Resin, Holy Dust and Scrap Metal.",Test quest complete: more crafting materials received.,Complete TEST002,Give 5 Wooden Sticks,"100x Chalkberry,100x Shroom,100x Resin,100x Holy Dust,100x Scrap Metals"
+TEST005,1000004,Test,Crafting Toolkit,No,,,"This is a test-world quest. After completing Crafting Materials, it gives the basic crafting tools: 1 Screwdriver, 1 Spice Grinder and 1 Portable Burner.",Test quest complete: crafting tools received.,Complete TEST002,,"1x Screwdriver,1x Grinder,1x Burner"
 MIN100,2100,In Game,A Short Pilgrimage,No,SIDE,MINA,"MINA: ""This shabby world is lacking beauty.”
 MINA: “I've brought something to improve that.""
 MINA: ""There is now a fountain at the crossroads leading out of the junkyard.""

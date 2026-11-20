@@ -44,6 +44,24 @@ class TestExpectedObjective(unittest.TestCase):
         self.assertEqual(o["index"], 1303)
         self.assertEqual(o["value"], 1)
 
+    def test_the_quests_after_8fb6ea58_have_rows(self):
+        # Upstream a99b4b64 (the catalog pin since 5.1.0) adds 3119-3122,
+        # 3901 and 3902; at 8fb6ea58 each of them answered "no row".
+        r = server.get_expected_objective(3122)
+        self.assertEqual(r["title"], "Trick or Treat")
+        self.assertNotIn("note", r)
+        o = r["objectives"][0]
+        self.assertEqual((o["type"], o["index"], o["value"]),
+                         ("ITEM_BURN", 100012, 1))
+
+        r = server.get_expected_objective(3901)
+        self.assertEqual(r["title"], "Wash Your Hands")
+        o = r["objectives"][0]
+        self.assertEqual((o["type"], o["index"], o["value"]),
+                         ("CRAFT_ITEM", 21007, 1))
+        for q in (3119, 3120, 3121, 3902):
+            self.assertNotIn("note", server.get_expected_objective(q), q)
+
     def test_unknown_quest_returns_partial(self):
         r = server.get_expected_objective(999999)
         self.assertEqual(r["objectives"], [])
