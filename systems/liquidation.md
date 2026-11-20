@@ -145,13 +145,18 @@ On a successful kill:
 scaleFactor = 10^(KAMI_LIQ_SALVAGE[3] - KAMI_LIQ_SALVAGE[1])
 ratio = KAMI_LIQ_SALVAGE[2] + (KAMI_LIQ_SALVAGE[0] + victimPower) * scaleFactor
         + DEF_SALVAGE_RATIO bonus
-salvage = bounty * ratio / 10^(KAMI_LIQ_SALVAGE[1] + KAMI_LIQ_SALVAGE[3])
+salvage = ratio >= 10^KAMI_LIQ_SALVAGE[3] ? bounty
+        : bounty * ratio / 10^KAMI_LIQ_SALVAGE[3]
 ```
 
 - Higher victim Power → more salvage (you keep more of your bounty)
 - `DEF_SALVAGE_RATIO` bonus from Guardian tree skills increases salvage
 - Victim Kami also gets XP = salvage amount
-- Capped at 100% of bounty
+- Capped at 100% of bounty (`LibKill.calcSalvage`: `if (ratio >= precision)
+  return amt`). Before upstream `a99b4b64` (deployed 2026-11-20) the
+  guard was `ratio / precision > 1`, which capped only from 200 %: a
+  ratio in [100 %, 200 %) paid more than the bounty, and the kill reverted
+  when the victim's balance was reduced by it
 
 ### Attacker Gets (Spoils)
 
@@ -159,14 +164,17 @@ salvage = bounty * ratio / 10^(KAMI_LIQ_SALVAGE[1] + KAMI_LIQ_SALVAGE[3])
 scaleFactor = 10^(KAMI_LIQ_SPOILS[3] - KAMI_LIQ_SPOILS[1])
 ratio = KAMI_LIQ_SPOILS[2] + (KAMI_LIQ_SPOILS[0] + attackerPower) * scaleFactor
         + ATK_SPOILS_RATIO bonus
-spoils = (bounty - salvage) * ratio / 10^(KAMI_LIQ_SPOILS[1] + KAMI_LIQ_SPOILS[3])
+spoils = ratio >= 10^KAMI_LIQ_SPOILS[3] ? (bounty - salvage)
+        : (bounty - salvage) * ratio / 10^KAMI_LIQ_SPOILS[3]
 ```
 
 - Higher attacker Power → more spoils
 - `ATK_SPOILS_RATIO` bonus from Predator tree skills increases spoils
 - Spoils added to attacker's **harvest bounty** (not inventory)
 - Attacker's account receives **1 Obol** (item 1015)
-- Capped at 100% of remaining bounty
+- Capped at 100% of remaining bounty (`LibKill.calcSpoils`, the same
+  guard; before `a99b4b64` a ratio in [100 %, 200 %) paid more than the
+  remainder)
 
 ### Remaining Bounty
 ```

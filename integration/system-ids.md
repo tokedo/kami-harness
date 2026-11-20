@@ -4,7 +4,7 @@
 
 # System IDs & ABI References
 
-Kamigotchi has **68 documented player-facing systems** in the World contract — every non-admin system of the studio's domain manifest at upstream `04cb25f8`. Each system is identified by a human-readable string ID, hashed with `keccak256` for on-chain lookup. The World contains additional internal and admin systems not covered here.
+Kamigotchi has **70 documented player-facing systems** in the World contract — every non-admin system of the studio's domain manifest at upstream `a99b4b64` (68 at `04cb25f8`; the two ballot systems were added in `e3bd3d3a` and deployed 2026-11-04). Each system is identified by a human-readable string ID, hashed with `keccak256` for on-chain lookup. The World contains additional internal and admin systems not covered here.
 
 ---
 
@@ -175,6 +175,15 @@ Kamigotchi has **68 documented player-facing systems** in the World contract —
 | System ID | Description | Wallet | Page |
 |-----------|-------------|--------|------|
 | `system.auction.buy` | Buy from auction | Owner or Operator | [Listings](api/listings.md) |
+
+### Ballot Systems
+
+Soulbound rewards for voting for Yominet in Initia's VIP gauge: Ballots (item 13), Golden Ballots (14) and Voter Badges (15–18). The harness has no tool for either system.
+
+| System ID | Description | Wallet | Page |
+|-----------|-------------|--------|------|
+| `system.ballot.claim` | Mint the account's owed ballots and badges from settled cycles (`executeTyped()`, `0xe1df4ba6`, no arguments; reverts `"Ballot: nothing to claim"` when nothing is owed) | Owner or Operator | — |
+| `system.ballot.settle` | Record a voter's settled cycle (`executeTyped(address,uint64,uint256,uint256,bool)`, `0x94864343`) — not a player call: only the address in the `BALLOT_REPORTER` config may send it (`"Ballot: not reporter"`) | Reporter only | — |
 
 ---
 

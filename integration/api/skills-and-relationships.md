@@ -54,7 +54,7 @@ console.log("Skill upgraded!");
 
 ## skill.reset()
 
-Reset all skills on a Kami or Account (respec).
+Reset all skills on a Kami (respec).
 
 | Property | Value |
 |----------|-------|
@@ -66,11 +66,11 @@ Reset all skills on a Kami or Account (respec).
 
 | Name | Type | Description |
 |------|------|-------------|
-| `targetID` | `uint256` | Entity ID of the Kami **or** Account to respec |
+| `targetID` | `uint256` | Entity ID of the Kami to respec |
 
 ### Description
 
-Resets all skill investments on a Kami or Account, returning all skill points for redistribution. The contract checks the entity type of `targetID` — if it's a Kami, ownership is verified against the caller's account; if it's an Account, it must be the caller's own account. In both cases, the entity must be in `"RESTING"` state.
+Resets all skill investments on a Kami, returning all skill points for redistribution. The target must be a Kami (any other entity reverts with `"SkillRespec: not a kami"`), owned by the caller's account, and in `"RESTING"` state. This is the rule since upstream `8222ff27` (deployed 2026-11-20); before it a Kami could be respecced in any state, and an Account target was accepted by the code but always reverted on its state check.
 
 ### Code Example
 
@@ -80,21 +80,16 @@ import { getSystem, ownerSigner, operatorSigner } from "./kamigotchi.js";
 const ABI = ["function executeTyped(uint256 targetID) returns (bytes)"];
 const system = await getSystem("system.skill.respec", ABI, operatorSigner);
 
-// Respec a Kami's skills
+// Respec a RESTING Kami's skills
 const tx = await system.executeTyped(kamiEntityId);
 await tx.wait();
 console.log("Kami skills reset — skill points returned!");
-
-// Respec an Account's skills
-const txAcc = await system.executeTyped(accountEntityId);
-await txAcc.wait();
-console.log("Account skills reset — skill points returned!");
 ```
 
 ### Notes
 
-- **Supports both Kami and Account entities.** The contract parameter is `targetID` (not just `kamiID`). It checks the entity type and handles ownership verification accordingly.
-- Standard respec (`SkillRespecSystem`) requires consuming 1 Respec Potion (item index 11403). The target must be in `"RESTING"` state. ONYX-based respec (`KamiOnyxRespecSystem`) costs 10,000 $ONYX and bypasses the potion requirement (currently disabled: "Onyx Features are temporarily disabled").
+- **Kami only.** The contract parameter is named `targetID`, but a target that is not a Kami reverts.
+- Standard respec (`SkillRespecSystem`) requires consuming 1 Respec Potion (item index 11403). The Kami must be in `"RESTING"` state; the harness's `skill_respec` refuses any other state before signing. ONYX-based respec (`KamiOnyxRespecSystem`) costs 10,000 $ONYX and bypasses the potion requirement (currently disabled: "Onyx Features are temporarily disabled").
 - For ONYX-based respec (bypasses restrictions), see [Kami — onyx.respec()](kami.md#onyxrespec).
 
 ---

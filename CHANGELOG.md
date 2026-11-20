@@ -29,6 +29,133 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [5.1.0] — 2026-11-20 — the chain's return: the catalogs at `a99b4b64`, a respec the game refuses, history the endpoint no longer serves
+
+MINOR. **100 tools** — ACT 59 / PERCEIVE 34 / META 7 — registry mass
+**71,968** against the 73,000 budget, `tools_hash`
+`3291008d8940b55823f2b052194107d226db8f0c620864f6e07910262e6ca02a`, and
+the handshake's standing text (957 characters, sha256
+`7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b`) are
+all 5.0.1's, measured off a stdio child at this release; only the
+version token moves. `SCHEMA_VERSION` **5.1.0**. kami-lens **1.1.1**
+(`3fec1e0`), unchanged.
+
+**Why MINOR, by this file's own rule.** No tool, parameter, description
+or result shape changes. But an agent now sees content it did not see
+before: `skill_respec` refuses a kami that is not RESTING before signing
+(the dry-run refused it with the chain's words), the order book's scan
+can fail with a new reason, and a lane notice says a nonce is used
+without guessing whose transaction used it. New content in errors and
+results is MINOR (the 4.1.0 and 4.7.0 precedent).
+
+### The catalogs at `a99b4b64`
+
+The pinned catalogs are re-vendored from `Asphodel-OS/kamigotchi-open`
+at `a99b4b64b505b722203b2337f76a5b604539c1e0` (29 commits past
+`8fb6ea58`); `executor/tests/test_catalog_pins.py` records the new
+digests and fails against 5.0.1's files.
+
+| File | Lines | Bytes | sha256 |
+|---|---|---|---|
+| `quests/quests.csv` | 1,855 -> 1,903 | 190,270 | `f237d2e5...3eff` |
+| `quests/objectives.csv` | 203 -> 209 | 12,221 | `b9d47b1e...c5b6` |
+| `quests/requirements.csv` | 201 -> 206 | 7,913 | `159bfd54...a3bd` |
+| `quests/rewards.csv` | 68 -> 70 | 2,608 | `fee1f4e9...6801` |
+| `nodes.csv` (eight-column projection) | 65 | 3,959 -> 3,957 | `06c0784e...cc1e` |
+
+- 196 -> **202 quests**, none removed: 3119 The Legend, 3120, 3121, 3122
+  Trick or Treat, 3901 Wash Your Hands (daily) and 3902 (daily); six
+  changed (the test quests 1000000–1000004 and 3016's introduction).
+  Objectives +6; requirements +6 / −1 ("Complete test-1" is now
+  "Complete TEST002", the same quest); rewards +2.
+  `get_expected_objective` answers those six quests instead of `no row`.
+- `nodes.csv`: node 56 (Butterfly Forest) has no level limit (35
+  before). Upstream gains a Harvest Multiplier column (1 on all 64
+  nodes); it is not one of this repository's eight columns.
+- Not refreshed in this release: the derived tables (`items.csv`,
+  `recipes.csv`, `shop-listings.csv`, `rooms.csv`,
+  `scavenge-droptables.csv`, `room-gates.csv`, `skills.csv`). Upstream's
+  items, recipes, item droptables, listings, npc and one room
+  description changed in the range; these tables are not byte copies
+  and have no generator in this repository.
+
+### `skill_respec` refuses a kami that is not RESTING
+
+Upstream `8222ff27` (deployed 2026-11-20) made the respec system
+kami-only and RESTING-only: a HARVESTING kami was respecced mid-stretch
+before, and now reverts. `_TOOL_KAMI_STATES` gains
+`"skill_respec": ("RESTING",)`, so the call is refused before signing:
+`kami #N is HARVESTING; skill_respec requires RESTING`, and the
+mechanics snippet lists `skill_respec` among the tools whose gate
+accepts RESTING. The tool takes a kami index only, so the non-kami
+target the system now refuses cannot be expressed. Its description is
+5.0.1's.
+
+### History below the endpoint's floor is never "nothing there"
+
+Since the chain's return on 2026-11-20 the public endpoint serves no
+block, receipt or transaction before block 35,299,823 (null), and
+`eth_getLogs` over an earlier range answers an empty list with no
+error. `eth_getBlockByNumber("earliest")` answers the head. State reads
+still answer.
+
+- `get_item_orderbook`'s trade-ID scan asks for the first block it
+  needs (the block after the bootstrap snapshot or the last scan; the
+  1,000-block overlap below the snapshot is not the gap) whenever it is
+  more than 64 blocks behind the head. Null twice while the head is
+  served: the call fails with the existing "re-run
+  `kwob_bootstrap.py`" error and reads and persists nothing — before,
+  it read the empty range and called the cache current, missing every
+  trade created in the gap. Null at the head as well: "retry shortly".
+  The missing-bootstrap error and SETUP §10 no longer state "about 1M
+  blocks of logs" as the endpoint's history.
+- The lane: an entry another process (or this one before a restart)
+  signed, whose nonce the chain counts as used and whose hash two fresh
+  lookups cannot find, was reported "NOT executed: its nonce was
+  consumed by another hash". For a transaction that mined below the
+  floor that is false. When no consumer is found, the floor is now
+  measured (the lowest served block, by binary search over heights,
+  kept 10 minutes); an entry signed before the floor block's time
+  (+ 5 minutes) is released with "its nonce N is used, but whether by
+  this transaction or another cannot be read: the endpoint no longer
+  serves blocks before B (time), where it may have mined". An entry
+  signed after the floor keeps the proven verdict.
+- The other reads of the endpoint are of transactions this process just
+  sent, or of the head: receipts of a sequence or of a single send, the
+  proof lookups of a receipt wait, the consumer scan of the last 64
+  blocks. None reaches below the floor while the floor stays more than
+  a few minutes behind the head.
+
+### Documents
+
+- `integration/api/harvesting.md`, `systems/harvesting.md`: the credit
+  rule with the node's harvest multiplier K (`credit = (bounty × K +
+  500) / 1000`, per mille, bounds 100–60,000, copied per stretch, 1000
+  on every node when deployed; HP strain on the uncredited bounty); node
+  56's level limit.
+- `integration/api/harvesting.md`, `systems/liquidation.md`: salvage
+  and spoils capped at 100 % (`ratio >= precision`; before `a99b4b64`
+  only from 200 %, and a salvage ratio in [100 %, 200 %) reverted the
+  kill); the liquidation page's divisor is `10^config[3]`, as the code
+  computes it.
+- `integration/api/kami.md`, `integration/api/skills-and-relationships.md`:
+  respec is kami-only and RESTING-only.
+- `integration/system-ids.md`: the two ballot systems
+  (`system.ballot.claim`, owner or operator; `system.ballot.settle`,
+  reporter only); 70 systems at `a99b4b64`.
+- `integration/game-data.md`: the revive items need a DEAD kami, the
+  mochi cap (two per kami) now binds, recipe 19's inputs and stamina,
+  the Respec Potion's type.
+- README's catalog table names the new pin.
+
+### Version and tests
+
+`SCHEMA_VERSION` 5.1.0; `test_tool_surface.py` and the README "Current"
+line follow. New: `test_h510_return.py` (12 tests; 8 fail at 5.0.1).
+`fakenode.py` models a floor (blocks, and the receipt and transaction
+of anything mined below it, answer null) and per-block timestamps.
+Suite: 1280 passed, 4 skipped.
+
 ## [5.0.1] — 2026-11-07 — the quest catalogs at the world pin
 
 PATCH. **100 tools** — ACT 59 / PERCEIVE 34 / META 7 — registry mass

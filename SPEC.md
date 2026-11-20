@@ -61,7 +61,7 @@ this registry says *what holds*, not *how it is built*.
   descriptions, 4,150 characters of registry mass.
 - Agent-visible registry mass — `len(name) + len(description) +
   len(json.dumps(parameters))` summed over the live registry — is
-  **71,968 characters** at 5.0.0 and 5.0.1 (76,197 at 4.6.0, 4.6.1 and
+  **71,968 characters** at 5.0.0, 5.0.1 and 5.1.0 (76,197 at 4.6.0, 4.6.1 and
   4.7.0, 71,133 at 4.4.0 and 4.5.0, 70,523 at
   4.3.0, 69,572 at 4.2.0, 69,351 at 4.0.0 and 4.1.0, 72,855 at 3.7.0),
   against a `REGISTRY_MASS_BUDGET` of **73,000** — 1,032 characters of
@@ -166,7 +166,7 @@ this registry says *what holds*, not *how it is built*.
 
 ### P3 — SCHEMA_VERSION
 
-- `executor/schema_version.py` exports `SCHEMA_VERSION = "5.0.1"`,
+- `executor/schema_version.py` exports `SCHEMA_VERSION = "5.1.0"`,
   semver.
 - It is surfaced as the MCP `serverInfo.version` in the initialize
   handshake (`mcp._mcp_server.version`).
@@ -244,7 +244,13 @@ address has one lane, because a chain account has one nonce sequence.
   resolves it and ends a receipt wait with that receipt). "Consumed by
   another hash" needs both replicas to count the nonce as used; "absent"
   needs both to count it unused and neither to be behind the highest
-  block this process has seen. `pending` alone is never proof. Limits:
+  block this process has seen. `pending` alone is never proof. Below
+  the endpoint's floor (the lowest block it serves, measured by asking
+  heights, never by the `earliest` tag) a mined transaction's receipt
+  and transaction answer null too, so for an entry signed before the
+  floor block's time (+ 5 min) whose consumer is not found, a used
+  nonce is stated as used with the floor named, never as "NOT executed"
+  (5.1.0). Limits:
   the rule is sound for replicas that answer coherently (head, count and
   receipts from one state); "absent with the nonce unused" can never be
   proven outright, because a mempool is local to a replica, so it is
@@ -1158,6 +1164,13 @@ infrastructure. The other D-numbers are not renumbered.
 - System addresses are resolved by `keccak(system_id_string)` through
   the World's `systems()` component and cached per process; an
   unresolvable system id raises rather than defaulting.
+- The endpoint can stop serving history below a height of its own:
+  since the chain's return on 2026-11-20 it answers null for every
+  block, receipt and transaction before block 35,299,823 and an EMPTY
+  log list, with no error, for a range below it; `earliest` answers the
+  head. `get_item_orderbook`'s trade-ID scan asks for the first block it
+  needs (when it is more than 64 blocks behind the head) and fails
+  closed when it answers null twice while the head is served (5.1.0).
 - **Assumptions:** `eth_call` at a historical block is available for
   revert-reason replay (its absence degrades to "reason unavailable",
   never to a wrong reason); the `getEntitiesWithValue` address overload
@@ -1245,14 +1258,17 @@ writer; no other module opens the keys file or the Keychain.
 - `catalogs/quests/` backs `get_expected_objective`. Since 5.0.1 its
   four files are the upstream deploy data
   (`packages/contracts/deployment/world/data/quests/`) at the pinned
-  upstream commit `8fb6ea58`, byte for byte. A quest that is on chain
+  upstream commit, byte for byte: `8fb6ea58` at 5.0.1, `a99b4b64` since
+  5.1.0. A quest that is on chain
   but newer than the pin has no row, and the answer says so.
 - `catalogs/nodes.csv` names the node in `get_scavenge_droptable`'s
   answer (its only reader). Since 5.0.0 it is the upstream deploy data
   (`packages/contracts/deployment/world/data/rooms/nodes.csv`) at the
-  pinned upstream commit `04cb25f8` (byte-identical upstream at
-  `8fb6ea58`), in this repo's eight columns: 15 VIPP nodes, the
-  level-15 and level-35 limits, that data's scavenge costs. No tool
+  pinned upstream commit (`04cb25f8` at 5.0.0, byte-identical upstream
+  at `8fb6ea58`; `a99b4b64` since 5.1.0, where node 56's level limit is
+  blank and upstream's new Harvest Multiplier column is not projected),
+  in this repo's eight columns: 15 VIPP nodes, the level-15 and
+  level-35 limits, that data's scavenge costs. No tool
   renders a node's yield or level limit from it.
 - `executor/tests/test_catalog_pins.py` records, per pinned catalog,
   the upstream commit, the upstream path and the file's sha256.
@@ -1378,7 +1394,7 @@ writer; no other module opens the keys file or the Keychain.
 | A snippet states no advice, never lengthens past its bound, never hides a subject silently, reports only facts it read, and never introduces the `-32000` marker retry routes on | `test_error_snippets.py::TestSnippetGuards`, `::TestSnippetBehaviour` |
 | The three snippets an agent sees are the pinned wordings | `test_error_snippets.py::TestSnippetExamples` (harvest_start on a HARVESTING kami, harvest_collect on a RESTING kami, a dry-run revert — asserted verbatim) |
 | An `allow_partial` return keeps its documented shape with the flag on | `test_error_snippets.py::TestSnippetBehaviour::test_batch_error_leaves_the_returned_payload_untouched` |
-| `SCHEMA_VERSION == "5.0.1"` | `test_tool_surface.py::test_schema_version` |
+| `SCHEMA_VERSION == "5.1.0"` | `test_tool_surface.py::test_schema_version` |
 | The default secrets backend is `envfile`, and no code path reaches the Keychain under it — not load, not get, not put, not with a manifest present | `test_secrets_store.py::TestEnvfileIsTheDefault` (the Keychain helpers are replaced with raisers) |
 | An unrecognised `KAMI_SECRETS_BACKEND` fails loudly instead of resolving to a backend | `test_secrets_store.py::TestEnvfileIsTheDefault::test_unknown_backend_fails_loudly` |
 | The protected-names manifest is the keys file's name with a trailing `.env` removed plus `.secrets.names`, alongside it; an absent manifest protects nothing | `test_secrets_store.py::TestManifestPath` |
@@ -1418,8 +1434,11 @@ writer; no other module opens the keys file or the Keychain.
 | All five send paths read their nonce at the `pending` block, asserted at the site, so a stale `latest` sequence from a lagging load-balanced node cannot invite a retry of a non-idempotent transfer | `test_validation.py::TestPendingNonce`, `test_reporting_fidelity.py::TestSenderTerminalStates::test_send_eth_reads_pending_nonce`, `test_bridge.py::TestBroadcastIsFireAndForget::test_mainnet_nonce_read_at_pending` |
 | The three batch level tools read the current level from the chain's Level component and make no third-party call (the guard forbids the HTTP clients), and an unreadable level refuses the call naming its cause rather than defaulting | `test_batch_wrappers.py::TestLevelPathReadsTheChain` |
 | `SPEC.md` exists, is well-formed, and its `describes:` names a ref that resolves in this repository | `test_spec.py::test_spec_frontmatter`, `::test_describes_resolves` |
-| `catalogs/nodes.csv` is the upstream deploy data at the pin in eight columns and names its source; every commit-reveal window (six descriptions, the reveal error texts, `systems/gacha.md`) is counted in blocks with the measured cadence, never a fixed number of minutes; `integration/system-ids.md`'s count equals its list (68); the harvesting page states each node's yield item; `requests` is pinned (5.0.0) | `test_h500_catalogs_docs.py` (8 tests) |
-| The four quest catalogs and `catalogs/nodes.csv` are the upstream deploy data at the release pin (`8fb6ea58`): each file's sha256 is the one recorded for it, the quest files upstream's own bytes, `nodes.csv` its eight-column projection (5.0.1) | `test_catalog_pins.py::test_the_catalog_is_the_upstream_data_at_the_pin` (5 cases) |
+| `catalogs/nodes.csv` is the upstream deploy data at the pin in eight columns and names its source; every commit-reveal window (six descriptions, the reveal error texts, `systems/gacha.md`) is counted in blocks with the measured cadence, never a fixed number of minutes; `integration/system-ids.md`'s count equals its list (68 at 5.0.0, 70 since 5.1.0); the harvesting page states each node's yield item; `requests` is pinned (5.0.0) | `test_h500_catalogs_docs.py` (8 tests) |
+| The four quest catalogs and `catalogs/nodes.csv` are the upstream deploy data at the release pin (`8fb6ea58` at 5.0.1, `a99b4b64` since 5.1.0): each file's sha256 is the one recorded for it, the quest files upstream's own bytes, `nodes.csv` its eight-column projection (5.0.1) | `test_catalog_pins.py::test_the_catalog_is_the_upstream_data_at_the_pin` (5 cases) |
+| `skill_respec` refuses a kami that is not RESTING before signing, from the single state table (5.1.0) | `test_h510_return.py::test_respec_refuses_a_kami_that_is_not_resting` (3 states), `::test_the_respec_gate_is_in_the_state_table` |
+| The order book's trade-ID scan never reads an empty log answer below the endpoint's floor as "no trades": a first needed block that answers null while the head is served fails closed with the re-run-the-bootstrap error, reading and persisting nothing; the overlap below the snapshot is not the gap; a head that answers null too is "retry", not a floor (5.1.0) | `test_h510_return.py::test_a_scan_that_must_start_below_the_floor_fails_closed`, `::test_a_scan_above_the_floor_reads_on`, `::test_the_overlap_below_the_snapshot_is_not_the_gap`, `::test_a_head_that_answers_null_too_is_not_called_a_floor` |
+| A ledger entry that may have mined below the endpoint's floor is never reported "NOT executed"; one signed after the floor keeps the proven verdict; the floor is measured by height, never by the `earliest` tag (5.1.0) | `test_h510_return.py::test_an_entry_that_mined_below_the_floor_is_not_called_not_executed`, `::test_an_entry_signed_after_the_floor_keeps_the_proven_verdict`, `::test_the_floor_is_measured_by_height_not_by_the_earliest_tag` |
 | The pre-send checks of `transfer_items`, `transfer_kami`, `sacrifice_kami`, `sacrifice_kami_batch`, `register_account`, `equip_all_batch` and `unequip_all_batch` go through the dry-run gate: a system that moved since it was cached is re-resolved and the call lands at the new address; a transport failure is retried once, then "not performed", never "dry-run reverted" (5.0.0) | `test_h500_leftovers.py::test_a_system_that_moved_is_re_resolved_and_the_call_lands` (7 tools), `::test_a_transport_failure_on_a_pre_send_check_is_retried`, `::test_a_pre_send_check_that_never_ran_is_not_performed` |
 | After a deposit's approve landed, the deposit's revert, its unconfirmed wait and a broadcast the node refuses each keep their type, begin with the approve's hash and that it landed, and carry `landed` (5.0.0) | `test_h500_leftovers.py::test_a_deposit_that_lands_and_reverts_names_the_approve`, `::test_an_unconfirmed_deposit_names_the_approve`, `::test_a_deposit_broadcast_the_node_refuses_names_the_approve` |
 | A transport failure is classified by its class before any text: the dry-run gate (an HTTP 4xx included) says "not performed", the quest probe names no revert, and a broadcast lost in transport is re-offered and lands rather than read as a refusal (5.0.0) | `test_h500_leftovers.py::test_the_dry_run_gate_reads_a_transport_class_as_not_performed` (10 classes), `::test_the_quest_probe_reads_a_transport_class_as_no_revert`, `::test_a_transport_error_is_never_the_nodes_broadcast_verdict`, `::test_a_broadcast_lost_in_transport_is_re_offered_and_lands` |

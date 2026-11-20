@@ -382,13 +382,13 @@ Reset all skills on a Kami (respec).
 
 | Name | Type | Description |
 |------|------|-------------|
-| `targetID` | `uint256` | Entity ID of the Kami **or** Account to respec |
+| `targetID` | `uint256` | Entity ID of the Kami to respec |
 
 ### Description
 
-Resets all skill points on a Kami or Account, allowing them to be redistributed. Consumes 1 Respec Potion (item index 11403) from the account's inventory. The target must be in `"RESTING"` state.
+Resets all skill points on a Kami, allowing them to be redistributed. Consumes 1 Respec Potion (item index 11403) from the account's inventory. The Kami must be owned by the calling account and in `"RESTING"` state.
 
-> **Note:** The contract parameter is `targetID` and supports both Kami and Account entity IDs. The system checks the entity type and handles ownership verification accordingly.
+> **Note:** Since upstream `8222ff27` (deployed 2026-11-20) the system accepts a Kami only: any other target reverts with `"SkillRespec: not a kami"`, and a Kami in any state but `"RESTING"` reverts in `LibKami.verifyState`. Before it, a Kami was respecced in any state (a HARVESTING one mid-stretch) and an Account target was accepted by the code but always reverted on its state check. The harness's `skill_respec` refuses a Kami that is not RESTING before signing.
 
 ### Code Example
 

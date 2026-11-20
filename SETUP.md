@@ -328,7 +328,13 @@ Staleness behavior after the one-time bootstrap:
   normal operation.
 - If the server goes longer than the log-retention window without an order-book
   call, or the cache file is lost, the missing range can no longer be
-  recovered from logs. `get_item_orderbook` then raises an error naming
+  recovered from logs.
+- The endpoint can also stop serving history below a height of its own,
+  whatever the window: since the chain's return on 2026-11-20 it serves
+  no block before 35,299,823 and answers an EMPTY log list, with no
+  error, for any range below it. The scan therefore asks for the first
+  block it needs before reading logs from it, and a block the endpoint
+  no longer serves is the same error. `get_item_orderbook` then raises an error naming
   `executor/kwob_bootstrap.py` instead of silently returning an
   incomplete book — re-run the bootstrap to recover.
 - The cache file is generated state and is gitignored. For autonomous

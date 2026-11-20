@@ -88,9 +88,9 @@ Items are identified by a `uint32` index. The on-chain entity ID for an item is 
 
 | Index | Name | Type | Effect |
 |-------|------|------|--------|
-| 11001 | Red Ribbon Gummy | Revive | Revive + HP+10 |
-| 11003 | Djed Pillar | Consumable | Revive + HP+5 |
-| 11004 | Pale Potion | Potion | Revive + HP+75 |
+| 11001 | Red Ribbon Gummy | Consumable | Revive + HP+10 (DEAD kami only) |
+| 11003 | Djed Pillar | Consumable | Revive + HP+5 (DEAD kami only) |
+| 11004 | Pale Potion | Potion | Revive + HP+75 (DEAD kami only) |
 | 11011 | Holy Dust | Misc | Rename a Kami at the shrine |
 | 11020 | Cleaning Fluid | Potion | Clear all effects |
 | 11110 | Gaokerena Mochi | Food | Permanent Health +10 |
@@ -105,10 +105,12 @@ Items are identified by a `uint32` index. The on-chain entity ID for an item is 
 | 11312 | Honeydew Scale | Food | HP+75 |
 | 11313 | Golden Apple | Food | HP+150 |
 | 11401 | XP Potion | Food | XP+1000 |
-| 11403 | Respec Potion | Misc | Reset skill points |
+| 11403 | Respec Potion | Potion | Reset skill points (RESTING kami only; used by `system.skill.respec`) |
 | 11404 | Grace Potion | Food | Strain -25% next harvest |
 | 11405 | Bless Potion | Food | Bounty +25% next harvest |
 | 11409 | Energy Drink | Food | Cooldown -30s |
+
+Since upstream `d6ff096f` (deployed 2026-11-04) the use rules are item requirements: the revive items need a DEAD kami (`KAMI_DEAD`), food a kami that can eat (`KAMI_CAN_EAT`). Each mochi now increments a per-kami counter (`MOCHI_USED`), and its `MOCHI_LIMIT` requirement (`MOCHI_USED MAX 1`) refuses a mochi once that counter is above 1, so a kami takes two mochi of any kind and the third reverts. Before that, nothing incremented the counter and the limit never applied.
 
 ### Operator Consumables (selected)
 
@@ -622,7 +624,7 @@ Recipes are identified by a `uint32` index. Crafting consumes ingredients from i
 | 4 | Brew Grace Potion | 1× Plastic Bottle, 100× Essence of Daffodil, 50× Black Poppy Extract | 1× Grace Potion | Burner | 150 | 25 | 1 |
 | 5 | Brew Bless Potion | 1× Plastic Bottle, 100× Essence of Daffodil | 1× Bless Potion | Burner | 50 | 15 | 1 |
 | 18 | Brew Hostility Potion | 1× Empty Cup, 250× Sanguineous Powder, 250× Pine Pollen | 1× Hostility Potion | Burner | 75 | 20 | 1 |
-| 19 | Brew Energy Drink | 1× Scrap Metal, 250× Berry Chalk, 250× Resin Tincture | 1× Energy Drink | Burner | 75 | 20 | 1 |
+| 19 | Brew Energy Drink | 5× Scrap Metal, 500× Berry Chalk, 500× Resin Tincture | 1× Energy Drink | Burner | 75 | 50 | 1 |
 | 28 | Craft Toadstool Liquor | 5000× Sanguineous Powder, 250× Black Poppy Extract, 250× Berry Chalk | 1× Toadstool Liquor | Burner | 1000 | 50 | 15 |
 | 29 | Craft Fortified XP Potion | 1× Greater XP Potion, 300× Powdered Red Amber, 1× Essence of Thought | 1× Fortified XP Potion | Burner | 7500 | 75 | 20 |
 | 40 | Craft Pale Potion | 1× Plastic Bottle, 200× Pallid Root Extract, 100× Shredded Mint | 1× Pale Potion | Burner | 500 | 50 | 15 |

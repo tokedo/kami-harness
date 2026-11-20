@@ -48,7 +48,7 @@ reward tables per node.
 
 Higher scav cost (points to fill bar) = rarer drops. The costs in
 [catalogs/nodes.csv](../catalogs/nodes.csv) at the upstream pin
-(`04cb25f8`): 100 on the starter nodes (10 nodes), 200 (18), 300 (8),
+(`a99b4b64`; the same at `04cb25f8`): 100 on the starter nodes (10 nodes), 200 (18), 300 (8),
 400 (12), 500 (2), 600 (4) and 1000 (3) — the cave and castle nodes
 cost twice what they did before that deploy data (e.g. Techno Temple,
 Lotus Pool and Fungus Garden 1000).
@@ -59,7 +59,7 @@ Scavenge points = harvest output. So higher Fertility = faster scavenge fills.
 
 Each node pays its own yield item: `IndexItem` on the node, which the
 harvest claim reads (`LibNode.getItem`). At the upstream pin
-(`04cb25f8`) 15 of the 64 nodes pay VIPP (item index 2) — nodes 6, 18,
+(`a99b4b64`; the same at `04cb25f8`) 15 of the 64 nodes pay VIPP (item index 2) — nodes 6, 18,
 48, 49, 52, 58, 60, 61, 62, 65, 73, 75, 79, 83 and 88 — and the rest pay
 Musu (item index 1): the `YieldIndex` column of
 [catalogs/nodes.csv](../catalogs/nodes.csv). A stop or collect states the
@@ -71,9 +71,11 @@ column.
 ### Level Restrictions
 
 Some nodes have level caps (`Level Limit = 15` means only Kamis at or
-below level 15). At the pin: 15 on the starter nodes 1, 2, 3, 29, 30 and
-55; 35 on nodes 31, 35, 36, 47, 50, 56, 57 and 59 (the catalog's
-`Level Limit` column). Check the node catalog before assigning.
+below level 15). At the pin (`a99b4b64`): 15 on the starter nodes 1, 2,
+3, 29, 30 and 55; 35 on nodes 31, 35, 36, 47, 50, 57 and 59 (the
+catalog's `Level Limit` column). Node 56 (Butterfly Forest) had 35 until
+upstream `487c6419` removed it (deployed 2026-11-02). Check the node
+catalog before assigning.
 
 ### Occupancy & Liquidation Risk
 
@@ -108,6 +110,18 @@ Bounty = (Fertility + Intensity) * Duration * Boost / 1e9
 
 - Duration = seconds since last sync
 - Boost = 1000 base + skill/equipment bonuses
+
+### Credited Bounty (the node's multiplier K)
+
+```
+Credit = (Bounty * K + 500) / 1000
+```
+
+- K is the node's harvest multiplier, per mille (1000 = x1.0; bounds
+  100 to 60,000), copied by a harvest when its stretch opens and after
+  each sync; upstream `8222ff27`, deployed 2026-11-09 with K = 1000 on
+  every node, so Credit = Bounty until an admin changes a node's K
+- HP strain is still charged on the uncredited Bounty
 
 ### Reference Output Rates
 

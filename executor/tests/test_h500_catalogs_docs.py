@@ -7,8 +7,9 @@ C1  catalogs/nodes.csv is the upstream deploy data at the pin (04cb25f8
 C2  A commit-reveal window is stated in blocks with the measured
     cadence, never a fixed number of minutes: every reveal description
     and every reveal error text.
-C3  integration/system-ids.md's count is its list: the 68 non-admin
-    systems of the studio's manifest at the pin, system.pool included.
+C3  integration/system-ids.md's count is its list: the non-admin
+    systems of the studio's manifest at the pin (68 at 04cb25f8, 70 at
+    a99b4b64), system.pool included.
 C4  systems/harvesting.md states each node's own yield item.
 C5  requests, imported directly, is pinned.
 """
@@ -94,9 +95,11 @@ def test_the_system_id_count_is_the_list():
     ids = re.findall(r"^\| `(system\.[A-Za-z0-9.]+)`", section, re.M)
     claimed = int(re.search(r"\*\*(\d+) documented player-facing systems\*\*",
                             text).group(1))
-    assert len(ids) == len(set(ids)) == claimed == 68
+    # 68 at 04cb25f8; the two ballot systems since a99b4b64 (5.1.0).
+    assert len(ids) == len(set(ids)) == claimed == 70
     assert {"system.pool", "system.Kami721.IsInWorld",
-            "system.Kami721.Metadata"} <= set(ids)
+            "system.Kami721.Metadata", "system.ballot.claim",
+            "system.ballot.settle"} <= set(ids)
 
 
 # C4 ------------------------------------------------------------------------

@@ -9113,8 +9113,9 @@ _TOPIC_COMPONENT_VALUE_SET = (
 _TOPIC_OWNS_TRADE_ID = "0x" + Web3.keccak(text="component.id.trade.owns").hex()
 _LOG_SCAN_MAX_RANGE = 999_999  # Yominet RPC caps eth_getLogs at 1M blocks
 
-# The public RPC keeps about 1M blocks of LOGS (log retention, roughly
-# 23-27 days; historical state is pruned far sooner), so a log scan
+# The public RPC keeps a bounded history of LOGS (about 1M blocks, roughly
+# 23-27 days, until 2026-11-20; since then nothing before block
+# 35,299,823 — see _FLOOR_PROBE_MARGIN below), so a log scan
 # alone misses trades created before the retention horizon. kwob_bootstrap.py
 # seeds this cache file with every live trade from the Kamigaze state
 # snapshot; the log scan keeps it current from there.
@@ -9177,8 +9178,9 @@ def _scan_trade_entity_ids() -> set[int]:
         if not _KWOB_CACHE_FILE.exists():
             raise RuntimeError(
                 f"Trade-ID bootstrap cache missing ({_KWOB_CACHE_FILE}). "
-                "The public RPC keeps about 1M blocks of logs (log "
-                "retention), so a log scan alone cannot see older "
+                "The public RPC keeps a bounded history of logs (about "
+                "1M blocks until 2026-11-20; since then nothing before "
+                "block 35,299,823), so a log scan alone cannot see older "
                 "trades. Run "
                 "`python3 executor/kwob_bootstrap.py` once to seed the "
                 "cache from the Kamigaze state snapshot, then retry."

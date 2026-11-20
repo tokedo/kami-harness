@@ -277,6 +277,7 @@ All of the following must be true or the transaction reverts:
 #### On Success
 
 - The victim's harvest bounty is split — a portion goes to the victim as "salvage" (based on their Power), a portion of what remains becomes "spoils" for the attacker (based on attacker's Power), and the rest is destroyed (it goes to no one)
+- Each share is capped at 100 %: `LibKill.calcSalvage` / `calcSpoils` compute `amt × ratio / precision` and return the whole `amt` once `ratio >= precision` (the `KAMI_LIQ_SALVAGE` / `KAMI_LIQ_SPOILS` precision; 10^3 live). Salvage therefore never exceeds the victim's bounty, and spoils never exceed what salvage left. Before upstream `a99b4b64` (deployed 2026-11-20) the cap applied only from `ratio >= 2 × precision`: a salvage ratio in [100 %, 200 %) made the kill revert (bounty − salvage underflowed), and a spoils ratio in that band paid more than the remainder
 - The attacker takes health "recoil" damage from the kill (based on strain and karma)
 - The victim receives **salvage** in the node's yield item — MUSU (item 1) on most nodes, VIPP (item 2) on VIPP nodes; before block 34,199,935 (2026-10-08) it was MUSU on every node — based on their Power stat, plus **XP equal to the salvage amount**, whatever the item
 - The victim's Kami dies (state → `"DEAD"`) and their harvest stops
@@ -310,6 +311,16 @@ Harvest output (called **bounty**) is calculated each time a harvest is **synced
 ```
 bounty = (rate × duration × boost) / precision
 ```
+
+What the harvest's balance is **credited** is that bounty times the node's harvest multiplier **K** (`LibHarvest.calcCredit`, upstream `8222ff27`, deployed 2026-11-09):
+
+```
+credit = (bounty × K + 500) / 1000        # K per mille, rounded to the nearest whole unit
+```
+
+- **K** is per node (`HarvestMultiplier` component, `component.harvest.multiplier`), per mille: 1000 = ×1.0, bounds 100 to 60,000 (×0.1 to ×60), set by the admin `_NodeRegistrySystem.setMultiplier(uint32 index, uint32 k)`. It was 1000 on every node when it was deployed, so credits equal the bounty until a node's K is changed.
+- A harvest copies the node's K when its stretch opens (`harvest.start`) and re-copies it after each sync, so a change to a node's K applies to each harvest from its next stretch.
+- HP strain is still charged on the uncredited `bounty`: `sync` returns it, and the kami's sync drains HP from that value.
 
 Where:
 - **rate** = `fertility + intensity` (in MUSU/second, at 1e6 precision)
@@ -379,6 +390,7 @@ See the [Harvest Nodes table](../game-data.md#harvest-nodes) for per-node affini
 | Efficacy | Body/Hand affinity | Matching node affinity → bonus yield |
 | Intensity | Violence | Higher Violence + longer time → bonus yield |
 | Bounty boost | Skills/Equipment | Percentage multiplier on total output |
+| Harvest multiplier K | Node | Multiplies what each sync credits (×1.0 on every node when deployed) |
 | Strain | Health/Harmony | Higher Harmony/skills → slower health drain |
 
 > **Stamina:** Each room move costs stamina. Current stamina is readable via `getAccount(accountId).currStamina`. Stamina regenerates over time (rate configured on-chain via `ACCOUNT_STAMINA` config).
