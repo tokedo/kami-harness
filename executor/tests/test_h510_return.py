@@ -209,3 +209,155 @@ def test_items_added_upstream_have_names():
     assert server._get_item_name(11002) == (
         "Melkarth's Heroic Awakening Spell Card")
     assert server._get_item_name(100006) == "KW Maps Data Chip"
+
+
+# The order-book probe asks twice; the covered position advances ----------
+
+def test_one_null_for_the_start_is_not_a_floor(chain, monkeypatch, tmp_path):
+    _seed(monkeypatch, tmp_path, block=FLOOR + 5_000)
+    asked, scanned = [], []
+
+    def get_block(n, full=False):
+        asked.append(n)
+        if n == FLOOR + 5_001 and asked.count(n) == 1:
+            raise BlockNotFound("not found")          # one null, then served
+        return {"number": n}
+    server.w3.eth.get_block = get_block
+    server.w3.eth.get_logs = lambda p: (scanned.append(p["fromBlock"]), [])[1]
+    server.w3.eth.block_number = HEAD
+    assert server._scan_trade_entity_ids() == {7}
+    assert scanned and asked.count(FLOOR + 5_001) == 2
+
+
+def test_the_second_scan_needs_the_block_after_the_first_scan(
+        chain, monkeypatch, tmp_path):
+    _seed(monkeypatch, tmp_path, block=FLOOR + 5_000)
+    floor = [FLOOR]
+
+    def get_block(n, full=False):
+        if n < floor[0]:
+            raise BlockNotFound("not found")
+        return {"number": n}
+    server.w3.eth.get_block = get_block
+    server.w3.eth.get_logs = lambda p: []
+    server.w3.eth.block_number = HEAD
+    assert server._scan_trade_entity_ids() == {7}
+    floor[0] = FLOOR + 10_000                 # above the snapshot, below HEAD
+    server.w3.eth.block_number = HEAD + 5_000
+    assert server._scan_trade_entity_ids() == {7}
+    assert json.loads(server._KWOB_CACHE_FILE.read_text())["block"] == HEAD + 5_000
+
+
+# The lane: release, a known consumer, the skew, the cache ------------------
+
+def _floored_after(node, signed_at, mined, offset_s):
+    """The endpoint serves nothing at or below `mined`; its first served
+    block's time is `offset_s` after the signing."""
+    node.block, node.floor = mined + 5_000, mined + 1_000
+    node.block_times[node.floor] = int(signed_at) + offset_s
+
+
+def test_a_below_floor_entry_is_released(chain_env, monkeypatch):  # noqa: F811
+    node, game, clock, op = chain_env
+    game.xp[server._kami_entity_id(5)] = 1_000
+    h, signed_at, mined = _earlier_process_entry(node, op, 500)
+    _floored_after(node, signed_at, mined, 3_600)
+    monkeypatch.setattr(server, "_LANES", {})
+    out = server.run_tool("level_up_kami", kami_id=5, account="testa")
+    assert "no longer serves blocks before" in out["notice"]
+    assert all(e.hash != h for e in server._lane(op).active())
+
+
+def test_a_known_consumer_keeps_the_proven_verdict(chain_env, monkeypatch):  # noqa: F811
+    node, game, clock, op = chain_env
+    game.xp[server._kami_entity_id(5)] = 1_000
+    lane = lanes.Lane(server.CHAIN_ID, server.Web3.to_checksum_address(op),
+                      lanes.default_dir())
+    raw1 = _sign_feed(500)                    # never reached the node
+    h1 = "0x" + server.Web3.keccak(raw1).hex().removeprefix("0x")
+    e = lane.add(500, h1, raw1, "act_sequence#0123456789ab", "act_sequence", 1)
+    lane.offered(e)
+    lane.save()
+    raw2 = _sign_feed(500, kami=22)           # another hash took nonce 500
+    h2 = node.rpc({"jsonrpc": "2.0", "id": 1, "method": "eth_sendRawTransaction",
+                   "params": ["0x" + raw2.hex()]})["result"]
+    mined2 = node.txs[h2.lower()].mined_block
+    node.block, node.floor = mined2 + 10, mined2 - 1   # h2's block is served
+    node.block_times[node.floor] = int(e.signed_at) + 3_600
+    monkeypatch.setattr(server, "_LANES", {})
+    note = server.run_tool("level_up_kami", kami_id=5, account="testa")["notice"]
+    assert "NOT executed" in note and h2 in note
+    assert "no longer serves" not in note
+
+
+@pytest.mark.parametrize("offset_s,below", [
+    (-3_600, True), (100, True), (299, True), (301, False), (400, False)])
+def test_the_skew_is_five_minutes(chain_env, monkeypatch, offset_s, below):  # noqa: F811
+    """An entry signed up to 300 s after the floor block's time may have
+    mined below it; one signed later mined in a served block. (The floor
+    block's time minus the signing time is -offset_s.)"""
+    node, game, clock, op = chain_env
+    game.xp[server._kami_entity_id(5)] = 1_000
+    h, signed_at, mined = _earlier_process_entry(node, op, 500)
+    _floored_after(node, signed_at, mined, -offset_s)
+    monkeypatch.setattr(server, "_LANES", {})
+    note = server.run_tool("level_up_kami", kami_id=5, account="testa")["notice"]
+    assert ("no longer serves blocks before" in note) is below, note
+    assert ("NOT executed" in note) is (not below), note
+
+
+def _block_reads(node):
+    return sum(1 for m, p in node.requests if m == "eth_getBlockByNumber")
+
+
+def test_the_floor_is_kept_ten_minutes_then_measured_again(chain_env):  # noqa: F811
+    node, game, clock, op = chain_env
+    node.block, node.floor = 9_000, 6_543
+    assert server._endpoint_floor()["block"] == 6_543
+    before = _block_reads(node)
+    node.floor = 7_000                        # the floor rises
+    clock.now += 599
+    assert server._endpoint_floor()["block"] == 6_543   # kept
+    assert _block_reads(node) == before                  # nothing asked
+    clock.now += 2
+    assert server._endpoint_floor()["block"] == 7_000   # measured again
+    assert _block_reads(node) > before
+    assert server._FLOOR_TTL_S == 600
+
+
+# An unreadable floor fails closed ------------------------------------------
+
+def test_one_null_for_the_head_is_not_an_unreadable_floor(chain_env, monkeypatch):  # noqa: F811
+    node, game, clock, op = chain_env
+    game.xp[server._kami_entity_id(5)] = 1_000
+    h, signed_at, mined = _earlier_process_entry(node, op, 500)
+    _floored_after(node, signed_at, mined, 3_600)
+    node.null_blocks[node.block] = 1          # the head answers null once
+    monkeypatch.setattr(server, "_LANES", {})
+    note = server.run_tool("level_up_kami", kami_id=5, account="testa")["notice"]
+    assert "NOT executed" not in note, note
+    assert f"no longer serves blocks before {node.floor}" in note, note
+
+
+def test_one_null_mid_search_does_not_raise_the_floor(chain_env):  # noqa: F811
+    node, game, clock, op = chain_env
+    node.block, node.floor = 9_000, 3_000
+    node.null_blocks[4_500] = 1               # a served block, one null
+    assert server._endpoint_floor()["block"] == 3_000
+
+
+def test_an_unreadable_floor_is_never_not_executed(chain_env, monkeypatch):  # noqa: F811
+    node, game, clock, op = chain_env
+    game.xp[server._kami_entity_id(5)] = 1_000
+    h, signed_at, mined = _earlier_process_entry(node, op, 500)
+    _floored_after(node, signed_at, mined, 3_600)
+    node.null_blocks[node.block] = 99         # the head never answers
+    monkeypatch.setattr(server, "_LANES", {})
+    out = server.run_tool("level_up_kami", kami_id=5, account="testa")
+    note = out["notice"]
+    assert "NOT executed" not in note, note
+    assert "could not be determined on this endpoint" in note, note
+    assert h in note
+    # Kept, not released as if proven: the next call checks it again.
+    assert any(e.hash == h for e in server._lane(op).active())
+    assert out["status"] == "success"

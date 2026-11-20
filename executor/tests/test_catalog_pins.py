@@ -34,6 +34,7 @@ U+2026 becomes ..., every run of whitespace one space, ends stripped.
 """
 
 import hashlib
+import re
 from pathlib import Path
 
 import pytest
@@ -90,3 +91,19 @@ def test_the_catalog_is_the_upstream_data_at_the_pin(path):
         f"{UPSTREAM} {upstream} at {pin}. Re-vendor it from upstream "
         f"{upstream} at the release pin{PROJECTED.get(path, '')} and "
         f"update this table.")
+
+
+@pytest.mark.parametrize("path", sorted(CATALOG_PINS))
+def test_the_recorded_commit_is_the_pin_the_readme_names(path):
+    """One pin per release: the commit recorded for a file is the one its
+    README catalog row names, so neither can move without the other."""
+    pin = CATALOG_PINS[path][0]
+    name = path.split("/")[1] + "/" if path.count("/") == 2 else \
+        path.split("/")[-1]
+    readme = (REPO / "README.md").read_text()
+    rows = [l for l in readme.splitlines() if l.startswith(f"| [{name}](")]
+    assert len(rows) == 1, (path, rows)
+    named = set(re.findall(r"at `([0-9a-f]{8})`", rows[0]))
+    assert named == {pin[:8]}, (path, named, pin)
+    # And every file is pinned at the same commit.
+    assert {p[0] for p in CATALOG_PINS.values()} == {pin}

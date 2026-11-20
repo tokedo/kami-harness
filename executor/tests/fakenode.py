@@ -227,6 +227,9 @@ class FakeNode:
         self.refuse_numbered: str | None = None
         self.floor = 0                        # lowest block served
         self.block_times: dict[int, int] = {}  # block -> its timestamp
+        # block -> how many more header-only reads of it (full=False)
+        # answer null although it is served: the endpoint's spurious null.
+        self.null_blocks: dict[int, int] = {}
         self.call_block: int | None = None    # block of the current call
         self.call_blocks: list = []           # the block each eth_call named
         self._sid = itertools.count(1)
@@ -457,6 +460,9 @@ class FakeNode:
     def _eth_getBlockByNumber(self, number, full=False):
         n = self.block if number in ("latest", "pending") else int(number, 16)
         if n < self.floor:
+            return None
+        if not full and self.null_blocks.get(n, 0) > 0:
+            self.null_blocks[n] -= 1
             return None
         txs = [
             self._eth_getTransactionByHash(t.hash) if full else t.hash

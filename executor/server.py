@@ -3044,6 +3044,12 @@ _FLOOR_TTL_S = 600
 # signer's clock: one signed this long after the floor block's timestamp
 # mined in a block the endpoint serves.
 _FLOOR_SKEW_S = 300
+# One null is never proof on this endpoint: a height reads as NOT served
+# only when this many asks, each on a fresh session, all answer null; the
+# head is asked up to _FLOOR_HEAD_ASKS times before the floor is called
+# unreadable.
+_FLOOR_ASKS = 2
+_FLOOR_HEAD_ASKS = 3
 _floor_cache: dict = {}
 
 
@@ -3056,15 +3062,19 @@ def _endpoint_floor() -> dict | None:
     if hit is not None and now - _floor_cache.get("at", 0) < _FLOOR_TTL_S:
         return hit
 
-    def block(n):
-        try:
-            return _rpc("eth_getBlockByNumber", [hex(n), False])
-        except _RpcUnavailable:
-            raise LookupError(n)
+    def block(n, asks=_FLOOR_ASKS):
+        for i in range(asks):
+            try:
+                b = _rpc("eth_getBlockByNumber", [hex(n), False], fresh=i > 0)
+            except _RpcUnavailable:
+                raise LookupError(n)
+            if b is not None:
+                return b
+        return None
 
     try:
         head = int(_rpc("eth_blockNumber", []), 16)
-        top = block(head)
+        top = block(head, _FLOOR_HEAD_ASKS)
         if top is None:
             return None
         if block(1) is not None:
@@ -3086,15 +3096,17 @@ def _endpoint_floor() -> dict | None:
     return found
 
 
-def _below_floor(e: lanes.Entry) -> dict | None:
-    """The endpoint's floor when entry `e` may have mined below it (it was
-    signed before the floor block's time, plus the skew); else None."""
+def _below_floor(e: lanes.Entry) -> tuple[str | None, dict | None]:
+    """("below", floor) when entry `e` may have mined below the endpoint's
+    floor (it was signed before the floor block's time, plus the skew);
+    ("unread", None) when the floor cannot be read now — then nothing is
+    proven either way; (None, None) when the entry's block is served."""
     floor = _endpoint_floor()
-    if floor is None or not floor["block"]:
-        return None
-    if e.signed_at < floor["timestamp"] + _FLOOR_SKEW_S:
-        return floor
-    return None
+    if floor is None:
+        return "unread", None
+    if floor["block"] and e.signed_at < floor["timestamp"] + _FLOOR_SKEW_S:
+        return "below", floor
+    return None, None
 
 
 def _floor_text(floor: dict) -> str:
@@ -3330,8 +3342,23 @@ def _lane_prepare(lane: lanes.Lane, addr: str, key: str,
             continue
         if st == "consumed":
             who, ours, origin = _lane_consumer(lane, e.nonce, e.hash)
-            floor = _below_floor(e) if who is None else None
-            if floor is not None:
+            verdict, floor = (_below_floor(e) if who is None
+                              else (None, None))
+            if verdict == "unread":
+                # Neither proven nor disproven: kept, checked again on the
+                # next call — never released as "NOT executed".
+                if e.call != ctl.id:
+                    ctl.notice(
+                        f"{_signer(e)} signed transaction {e.hash} "
+                        f"({_origin(e)}); its nonce {e.nonce} is used, but "
+                        f"whether by this transaction or another could not "
+                        f"be determined on this endpoint: the lowest block "
+                        f"it serves could not be read now. The entry is "
+                        f"kept and checked again on the next call.")
+                    if not _signed_here(e):
+                        ctl.notice(_shared_lane(lane))
+                continue
+            if verdict == "below":
                 # Neither ours nor another hash can be read at that nonce:
                 # "NOT executed" would be a guess.
                 lane.release(e, f"nonce {e.nonce} used; the endpoint serves "
