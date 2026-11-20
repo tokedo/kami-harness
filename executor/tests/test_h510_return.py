@@ -361,3 +361,100 @@ def test_an_unreadable_floor_is_never_not_executed(chain_env, monkeypatch):  # n
     # Kept, not released as if proven: the next call checks it again.
     assert any(e.hash == h for e in server._lane(op).active())
     assert out["status"] == "success"
+
+# The floor's asks: fresh repeats, the counts, a failed read, the next call --
+
+def _spy(monkeypatch):
+    real, asked = server._rpc, []
+
+    def rpc(method, params, fresh=False):
+        if method == "eth_getBlockByNumber":
+            asked.append((params[0], fresh))
+        return real(method, params, fresh)
+    monkeypatch.setattr(server, "_rpc", rpc)
+    return asked
+
+
+def test_a_repeated_ask_is_on_a_fresh_session(chain_env, monkeypatch):  # noqa: F811
+    """The first ask of a height rides the shared session; every repeat
+    (after a null) is made on a fresh one."""
+    node, game, clock, op = chain_env
+    node.block, node.floor = 9_000, 3_000
+    node.null_blocks[4_500] = 1               # a served block, one null
+    asked = _spy(monkeypatch)
+    assert server._endpoint_floor()["block"] == 3_000
+    seen = set()
+    for height, fresh in asked:
+        assert fresh is (height in seen), (int(height, 16), fresh)
+        seen.add(height)
+    assert sum(1 for _, f in asked if f) >= 2  # 4,500 and each null height
+
+
+def test_a_height_is_asked_twice_at_most_and_the_head_thrice(chain_env, monkeypatch):  # noqa: F811
+    """Exactly two asks decide a height; the head gets three."""
+    node, game, clock, op = chain_env
+    node.block, node.floor = 9_000, 3_000
+    asked = _spy(monkeypatch)
+    assert server._endpoint_floor()["block"] == 3_000
+    counts = {}
+    for height, _ in asked:
+        counts[int(height, 16)] = counts.get(int(height, 16), 0) + 1
+    assert all(n == (2 if h < 3_000 else 1) for h, n in counts.items()), counts
+    # the head: two nulls are survived, three are "unreadable"
+    server._floor_cache.clear()
+    node.null_blocks[node.block] = 2
+    assert server._endpoint_floor()["block"] == 3_000
+    server._floor_cache.clear()
+    node.null_blocks[node.block] = 3
+    assert server._endpoint_floor() is None
+
+
+def test_a_failed_read_mid_search_is_unreadable_not_a_floor(chain_env, monkeypatch):  # noqa: F811
+    """A read that FAILS (not a null) during the search proves nothing."""
+    node, game, clock, op = chain_env
+    game.xp[server._kami_entity_id(5)] = 1_000
+    h, signed_at, mined = _earlier_process_entry(node, op, 500)
+    _floored_after(node, signed_at, mined, 3_600)
+    real = server._rpc
+
+    def rpc(method, params, fresh=False):
+        if (method == "eth_getBlockByNumber" and params[0] not in ("latest",)
+                and 1 < int(params[0], 16) < node.block - 50):
+            raise server._RpcUnavailable("503 Service Unavailable")
+        return real(method, params, fresh)
+    monkeypatch.setattr(server, "_rpc", rpc)
+    monkeypatch.setattr(server, "_LANES", {})
+    out = server.run_tool("level_up_kami", kami_id=5, account="testa")
+    note = out["notice"]
+    assert "could not be determined on this endpoint" in note, note
+    assert "no longer serves blocks before" not in note, note
+    assert "NOT executed" not in note, note
+    assert any(e.hash == h for e in server._lane(op).active())
+
+
+def test_a_kept_entry_is_resolved_on_the_next_call(chain_env, monkeypatch):  # noqa: F811
+    """Kept and checked again on the next call: once the floor can be read,
+    the same entry gets the below-the-floor notice and is released."""
+    node, game, clock, op = chain_env
+    game.xp[server._kami_entity_id(5)] = 50_000
+    h, signed_at, mined = _earlier_process_entry(node, op, 500)
+    _floored_after(node, signed_at, mined, 3_600)
+    real, blind = server._rpc, {"on": True}
+
+    def rpc(method, params, fresh=False):
+        if (blind["on"] and method == "eth_getBlockByNumber"
+                and int(params[0], 16) >= node.block - 2):
+            return None                       # the head answers no block
+        return real(method, params, fresh)
+    monkeypatch.setattr(server, "_rpc", rpc)
+    monkeypatch.setattr(server, "_LANES", {})
+    first = server.run_tool("level_up_kami", kami_id=5, account="testa")
+    assert "could not be determined on this endpoint" in first["notice"]
+    again = server.run_tool("level_up_kami", kami_id=5, account="testa")
+    assert "could not be determined on this endpoint" in again["notice"]
+    blind["on"] = False
+    third = server.run_tool("level_up_kami", kami_id=5, account="testa")
+    assert "no longer serves blocks before" in third["notice"], third["notice"]
+    assert "NOT executed" not in third["notice"]
+    assert all(e.hash != h for e in server._lane(op).active())
+    assert "notice" not in server.run_tool("level_up_kami", kami_id=5, account="testa")

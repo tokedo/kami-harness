@@ -3045,9 +3045,11 @@ _FLOOR_TTL_S = 600
 # mined in a block the endpoint serves.
 _FLOOR_SKEW_S = 300
 # One null is never proof on this endpoint: a height reads as NOT served
-# only when this many asks, each on a fresh session, all answer null; the
-# head is asked up to _FLOOR_HEAD_ASKS times before the floor is called
-# unreadable.
+# only when this many asks all answer null — the first on the shared
+# session, every repeat on a fresh one; the head is asked up to
+# _FLOOR_HEAD_ASKS times (repeats fresh) before the floor is called
+# unreadable. A read that fails, rather than answering null, proves
+# nothing: the floor is then unreadable.
 _FLOOR_ASKS = 2
 _FLOOR_HEAD_ASKS = 3
 _floor_cache: dict = {}
