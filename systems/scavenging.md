@@ -17,12 +17,18 @@ Points = harvest output. More productive harvests fill the bar faster.
 
 Each node has a scavenge bar with a **tier cost** — points needed per reward.
 
-| Tier Cost | Node Type | Examples |
+Tier costs per node are the `Scav Cost` column of
+[catalogs/nodes.csv](../catalogs/nodes.csv) (upstream at `a99b4b64`):
+
+| Tier Cost | Nodes | Examples |
 |---|---|---|
-| 100 | Starter nodes | Misty Riverside, Tunnel of Trees |
-| 200 | Mid-tier nodes | Forest paths, cave rooms |
-| 300 | Advanced nodes | Deeper Forest Path, Airplane Crash |
-| 500 | Premium nodes | Scrap Confluence, Techno Temple, Lotus Pool |
+| 100 | 11 | Misty Riverside, Tunnel of Trees, Torii Gate, Scrapyard Entrance (five of the six level-15 starter nodes) |
+| 200 | 19 | Shady Path (the sixth starter node), Forest Entrance, Temple Cave, Butterfly Forest |
+| 300 | 9 | Labs Entrance, Airplane Crash, Deeper Forest Path |
+| 400 | 12 | Cave Crossroads, Boulder Tunnel, Slippery Pit |
+| 500 | 2 | Scrap Confluence, Scrap Trees |
+| 600 | 5 | Temple of the Wheel, Sacrarium, Treasure Hoard |
+| 1000 | 6 | Techno Temple, Lotus Pool, Fungus Garden, Guardian Skull |
 
 Higher tier cost = more harvesting per reward, but **rarer droptables**.
 

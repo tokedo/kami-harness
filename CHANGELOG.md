@@ -176,17 +176,20 @@ still answer.
   `a99b4b64` (49 cells corrected, among them the equipment items'
   realigned rarities).
 - `systems/harvesting.md`: the scavenge-cost node counts were wrong since
-  5.0.0; they are 100 on 11 nodes, 200 on 19, 300 on 9, 400 on 12, 500
-  on 2, 600 on 5 and 1000 on 6.
+  5.0.0; they are 100 on 11 nodes (five of the six level-15 starter
+  nodes; Shady Path costs 200), 200 on 19, 300 on 9, 400 on 12, 500 on
+  2, 600 on 5 and 1000 on 6. `systems/scavenging.md`'s tier table is
+  the catalog's (Techno Temple and Lotus Pool cost 1000, not 500; the
+  400, 600 and 1000 tiers were missing).
 - README's catalog table names the new pin.
 
 ### Version and tests
 
 `SCHEMA_VERSION` 5.1.0; `test_tool_surface.py` and the README "Current"
-line follow. New: `test_h510_return.py` (26 tests).
+line follow. New: `test_h510_return.py` (30 tests).
 `fakenode.py` models a floor (blocks, and the receipt and transaction
 of anything mined below it, answer null) and per-block timestamps.
-Suite: 1303 passed, 4 skipped.
+Suite: 1307 passed, 4 skipped.
 
 ## [5.0.1] — 2026-11-07 — the quest catalogs at the world pin
 
