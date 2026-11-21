@@ -37,8 +37,10 @@ MINOR. **100 tools** — ACT 59 / PERCEIVE 34 / META 7 — registry mass
 the handshake's standing text (957 characters, sha256
 `7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b`) are
 all 5.0.1's, measured off a stdio child at this release; only the
-version token moves. `SCHEMA_VERSION` **5.1.0**. kami-lens **1.1.1**
-(`3fec1e0`), unchanged.
+version token moves. `SCHEMA_VERSION` **5.1.0**. kami-lens **1.2.0**
+(`4c83ddd`; a MINOR over 1.1.1 — the upstream pin `a99b4b64`, the node
+answer's `harvestMultiplier`, amounts credited through it, liquidation
+payouts capped at 100 %; a pin-text move here, SPEC D1).
 
 **Why MINOR, by this file's own rule.** No tool, parameter, description
 or result shape changes. But an agent now sees content it did not see
