@@ -37,8 +37,10 @@ PATCH. **100 tools** — ACT 59 / PERCEIVE 34 / META 7 — registry mass
 the handshake's standing text (957 characters, sha256
 `7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b`) are
 all 5.1.0's, measured off a stdio child at this release; only the
-version token moves. `SCHEMA_VERSION` **5.1.1**. kami-lens **1.2.0**
-(`4c83ddd`), unchanged.
+version token moves. `SCHEMA_VERSION` **5.1.1**. kami-lens **1.2.1**
+(`6828a11`; a PATCH over 1.2.0 — the upstream pin `1b0b34e5`, nothing the
+lens serves changes, a restart from 1.2.0 is warm; a pin-text move
+here, SPEC D1).
 
 **Why PATCH, by this file's own rule.** Nothing an agent sees changes:
 no tool, parameter, description, result, error or behaviour. `server.py`
