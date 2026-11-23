@@ -30,7 +30,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent / "tools"))
 import encoding_table as et  # noqa: E402
 
-PINNED_UPSTREAM = "ffda396330af1bc33238b6c37188772152b45439"
+PINNED_UPSTREAM = "1b0b34e58537fca324c65237c1a056495c95892e"
 
 
 @pytest.fixture(scope="module")

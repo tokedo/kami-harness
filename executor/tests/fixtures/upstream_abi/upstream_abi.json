@@ -1,7 +1,7 @@
 {
  "provenance": {
   "repository": "https://github.com/Asphodel-OS/kamigotchi-open",
-  "commit": "ffda396330af1bc33238b6c37188772152b45439",
+  "commit": "1b0b34e58537fca324c65237c1a056495c95892e",
   "inputs": "packages/contracts/src/{systems,components}/**/*.sol (ids) + packages/client/abi/<Contract>.json (ABIs)",
   "generator": "executor/tests/tools/vendor_upstream_abi.py"
  },
@@ -2310,73 +2310,6 @@
    ],
    "executeTyped(uint32[],uint256[])": [
     "0x8330e879",
-    [
-     "bytes"
-    ],
-    "nonpayable"
-   ],
-   "owner()": [
-    "0x8da5cb5b",
-    [
-     "address"
-    ],
-    "view"
-   ],
-   "ownershipHandoverExpiresAt(address)": [
-    "0xfee81cf4",
-    [
-     "uint256"
-    ],
-    "view"
-   ],
-   "renounceOwnership()": [
-    "0x715018a6",
-    [],
-    "payable"
-   ],
-   "requestOwnershipHandover()": [
-    "0x25692962",
-    [],
-    "payable"
-   ],
-   "transferOwnership(address)": [
-    "0xf2fde38b",
-    [],
-    "payable"
-   ]
-  },
-  "5df95970e5c15916": {
-   "cancelOwnershipHandover()": [
-    "0x54d1f13d",
-    [],
-    "payable"
-   ],
-   "completeOwnershipHandover(address)": [
-    "0xf04e283e",
-    [],
-    "payable"
-   ],
-   "deprecate()": [
-    "0x0fcc0c28",
-    [],
-    "nonpayable"
-   ],
-   "execute(bytes)": [
-    "0x09c5eabe",
-    [
-     "bytes"
-    ],
-    "nonpayable"
-   ],
-   "executeBatched(uint256[],uint32,uint256,uint256)": [
-    "0x68f37c94",
-    [
-     "bytes[]"
-    ],
-    "nonpayable"
-   ],
-   "executeTyped(uint256,uint32,uint256,uint256)": [
-    "0xc8372a87",
     [
      "bytes"
     ],
@@ -5710,6 +5643,87 @@
     "payable"
    ]
   },
+  "aff4593b0403cbb4": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeAllowFailure(bytes)": [
+    "0xf00c4431",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeBatched(uint256[],uint32,uint256,uint256)": [
+    "0x68f37c94",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "executeBatchedAllowFailure(uint256[],uint32,uint256,uint256)": [
+    "0x49814834",
+    [
+     "bytes[]"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(uint256,uint32,uint256,uint256)": [
+    "0xc8372a87",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
   "b2681039e0759110": {
    "addToPool(uint256[])": [
     "0xa2f774e0",
@@ -6093,6 +6107,81 @@
     "payable"
    ]
   },
+  "bf79d8180af2cbd9": {
+   "addRequirement(uint32,string,string,uint32,uint256,string)": [
+    "0x1576edcb",
+    [],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(uint32,uint32,uint32,int32,int32,int32,int32,uint256)": [
+    "0x1b49ba87",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32)": [
+    "0x00d84fd8",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setPause(uint32,uint64,uint64)": [
+    "0x05dea9b2",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
   "c241659a5ac16411": {
    "cancelOwnershipHandover()": [
     "0x54d1f13d",
@@ -6464,6 +6553,71 @@
    ],
    "setUncommonPityDroptable(uint32[],uint256[])": [
     "0x22b3a2d3",
+    [],
+    "nonpayable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "d46d9392c8acfad2": {
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "executeTyped(address,uint64,uint256,uint256,bool)": [
+    "0x94864343",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "resetLock(uint64)": [
+    "0xf09c1a6c",
     [],
     "nonpayable"
    ],
@@ -6926,6 +7080,116 @@
     "0x25692962",
     [],
     "payable"
+   ],
+   "transferOwnership(address)": [
+    "0xf2fde38b",
+    [],
+    "payable"
+   ]
+  },
+  "dfec6c107d41f37e": {
+   "addBonus(bytes)": [
+    "0x2029afd6",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addRequirement(bytes)": [
+    "0x7e534103",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addScavRewardBasic(bytes)": [
+    "0xcffc49de",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addScavRewardDT(bytes)": [
+    "0x080e18d5",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "addScavenge(uint32,uint256)": [
+    "0xdea6f5e8",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "cancelOwnershipHandover()": [
+    "0x54d1f13d",
+    [],
+    "payable"
+   ],
+   "completeOwnershipHandover(address)": [
+    "0xf04e283e",
+    [],
+    "payable"
+   ],
+   "create(bytes)": [
+    "0xcf5ba53f",
+    [
+     "uint256"
+    ],
+    "nonpayable"
+   ],
+   "deprecate()": [
+    "0x0fcc0c28",
+    [],
+    "nonpayable"
+   ],
+   "execute(bytes)": [
+    "0x09c5eabe",
+    [
+     "bytes"
+    ],
+    "nonpayable"
+   ],
+   "owner()": [
+    "0x8da5cb5b",
+    [
+     "address"
+    ],
+    "view"
+   ],
+   "ownershipHandoverExpiresAt(address)": [
+    "0xfee81cf4",
+    [
+     "uint256"
+    ],
+    "view"
+   ],
+   "remove(uint32)": [
+    "0x00d84fd8",
+    [],
+    "nonpayable"
+   ],
+   "removeScavenge(uint32)": [
+    "0x593cf789",
+    [],
+    "nonpayable"
+   ],
+   "renounceOwnership()": [
+    "0x715018a6",
+    [],
+    "payable"
+   ],
+   "requestOwnershipHandover()": [
+    "0x25692962",
+    [],
+    "payable"
+   ],
+   "setMultiplier(uint32,uint32)": [
+    "0x60a19408",
+    [],
+    "nonpayable"
    ],
    "transferOwnership(address)": [
     "0xf2fde38b",
@@ -7948,181 +8212,6 @@
     "payable"
    ]
   },
-  "fa254b576e612914": {
-   "addRequirement(uint32,string,string,uint32,uint256,string)": [
-    "0x1576edcb",
-    [],
-    "nonpayable"
-   ],
-   "cancelOwnershipHandover()": [
-    "0x54d1f13d",
-    [],
-    "payable"
-   ],
-   "completeOwnershipHandover(address)": [
-    "0xf04e283e",
-    [],
-    "payable"
-   ],
-   "create(uint32,uint32,uint32,int32,int32,int32,int32,uint256)": [
-    "0x1b49ba87",
-    [
-     "uint256"
-    ],
-    "nonpayable"
-   ],
-   "deprecate()": [
-    "0x0fcc0c28",
-    [],
-    "nonpayable"
-   ],
-   "execute(bytes)": [
-    "0x09c5eabe",
-    [
-     "bytes"
-    ],
-    "nonpayable"
-   ],
-   "owner()": [
-    "0x8da5cb5b",
-    [
-     "address"
-    ],
-    "view"
-   ],
-   "ownershipHandoverExpiresAt(address)": [
-    "0xfee81cf4",
-    [
-     "uint256"
-    ],
-    "view"
-   ],
-   "remove(uint32)": [
-    "0x00d84fd8",
-    [],
-    "nonpayable"
-   ],
-   "renounceOwnership()": [
-    "0x715018a6",
-    [],
-    "payable"
-   ],
-   "requestOwnershipHandover()": [
-    "0x25692962",
-    [],
-    "payable"
-   ],
-   "transferOwnership(address)": [
-    "0xf2fde38b",
-    [],
-    "payable"
-   ]
-  },
-  "fb7b5ebc418e7fd5": {
-   "addBonus(bytes)": [
-    "0x2029afd6",
-    [
-     "uint256"
-    ],
-    "nonpayable"
-   ],
-   "addRequirement(bytes)": [
-    "0x7e534103",
-    [
-     "uint256"
-    ],
-    "nonpayable"
-   ],
-   "addScavRewardBasic(bytes)": [
-    "0xcffc49de",
-    [
-     "uint256"
-    ],
-    "nonpayable"
-   ],
-   "addScavRewardDT(bytes)": [
-    "0x080e18d5",
-    [
-     "uint256"
-    ],
-    "nonpayable"
-   ],
-   "addScavenge(uint32,uint256)": [
-    "0xdea6f5e8",
-    [
-     "uint256"
-    ],
-    "nonpayable"
-   ],
-   "cancelOwnershipHandover()": [
-    "0x54d1f13d",
-    [],
-    "payable"
-   ],
-   "completeOwnershipHandover(address)": [
-    "0xf04e283e",
-    [],
-    "payable"
-   ],
-   "create(bytes)": [
-    "0xcf5ba53f",
-    [
-     "uint256"
-    ],
-    "nonpayable"
-   ],
-   "deprecate()": [
-    "0x0fcc0c28",
-    [],
-    "nonpayable"
-   ],
-   "execute(bytes)": [
-    "0x09c5eabe",
-    [
-     "bytes"
-    ],
-    "nonpayable"
-   ],
-   "owner()": [
-    "0x8da5cb5b",
-    [
-     "address"
-    ],
-    "view"
-   ],
-   "ownershipHandoverExpiresAt(address)": [
-    "0xfee81cf4",
-    [
-     "uint256"
-    ],
-    "view"
-   ],
-   "remove(uint32)": [
-    "0x00d84fd8",
-    [],
-    "nonpayable"
-   ],
-   "removeScavenge(uint32)": [
-    "0x593cf789",
-    [],
-    "nonpayable"
-   ],
-   "renounceOwnership()": [
-    "0x715018a6",
-    [],
-    "payable"
-   ],
-   "requestOwnershipHandover()": [
-    "0x25692962",
-    [],
-    "payable"
-   ],
-   "transferOwnership(address)": [
-    "0xf2fde38b",
-    [],
-    "payable"
-   ]
-  },
   "fcc5973c4d680dbc": {
    "cancelOwnershipHandover()": [
     "0x54d1f13d",
@@ -8313,12 +8402,22 @@
   "system.auction.registry": {
    "contract": "_AuctionRegistrySystem",
    "source": "packages/contracts/src/systems/_AuctionRegistrySystem.sol",
-   "abi": "fa254b576e612914"
+   "abi": "bf79d8180af2cbd9"
   },
   "system.auth.registry": {
    "contract": "_AuthManageRoleSystem",
    "source": "packages/contracts/src/systems/_AuthManageRoleSystem.sol",
    "abi": "f029feb3451c6707"
+  },
+  "system.ballot.claim": {
+   "contract": "BallotClaimSystem",
+   "source": "packages/contracts/src/systems/BallotClaimSystem.sol",
+   "abi": "1f6c3fbb4f9dea63"
+  },
+  "system.ballot.settle": {
+   "contract": "BallotSettleSystem",
+   "source": "packages/contracts/src/systems/BallotSettleSystem.sol",
+   "abi": "d46d9392c8acfad2"
   },
   "system.buy.gacha.ticket": {
    "contract": "GachaBuyTicketSystem",
@@ -8428,7 +8527,7 @@
   "system.harvest.start": {
    "contract": "HarvestStartSystem",
    "source": "packages/contracts/src/systems/HarvestStartSystem.sol",
-   "abi": "5df95970e5c15916"
+   "abi": "aff4593b0403cbb4"
   },
   "system.harvest.stop": {
    "contract": "HarvestStopSystem",
@@ -8603,7 +8702,7 @@
   "system.node.registry": {
    "contract": "_NodeRegistrySystem",
    "source": "packages/contracts/src/systems/_NodeRegistrySystem.sol",
-   "abi": "fb7b5ebc418e7fd5"
+   "abi": "dfec6c107d41f37e"
   },
   "system.npc.registry": {
    "contract": "_NPCRegistrySystem",
@@ -8831,6 +8930,11 @@
    "contract": "ForComponent",
    "source": "packages/contracts/src/components/ForComponent.sol",
    "abi": "43bf4629679850b7"
+  },
+  "component.harvest.multiplier": {
+   "contract": "HarvestMultiplierComponent",
+   "source": "packages/contracts/src/components/HarvestMultiplierComponent.sol",
+   "abi": "b373f6dc2546792d"
   },
   "component.has.flag": {
    "contract": "HasFlagComponent",
@@ -9150,6 +9254,11 @@
   "component.tax": {
    "contract": "TaxComponent",
    "source": "packages/contracts/src/components/TaxComponent.sol",
+   "abi": "b373f6dc2546792d"
+  },
+  "component.time.pause": {
+   "contract": "TimePauseComponent",
+   "source": "packages/contracts/src/components/TimePauseComponent.sol",
    "abi": "b373f6dc2546792d"
   },
   "component.token.address": {
