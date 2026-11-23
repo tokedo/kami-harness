@@ -16,6 +16,10 @@ projection of upstream's file at 8fb6ea58 is byte-identical to the one
 5.0.0 committed from 04cb25f8; at a99b4b64 it differs in one field
 (node 56's level limit, 35 then, blank now).
 
+The pin is 1b0b34e5 since 5.1.1. That commit changed no deploy data:
+every file below is the same upstream blob at a99b4b64 and at
+1b0b34e5, so every digest is 5.1.0's.
+
 catalogs/items.csv and catalogs/rooms.csv (pinned since 5.1.0) are
 projections too, so each digest is of the projection. Both keep upstream's
 row order, write UTF-8 without a BOM, LF line ends and minimal csv
@@ -45,32 +49,32 @@ UPSTREAM = "Asphodel-OS/kamigotchi-open"
 # repo path -> (upstream commit, sha256 of the repo file, upstream path)
 CATALOG_PINS = {
     "catalogs/quests/quests.csv": (
-        "a99b4b64b505b722203b2337f76a5b604539c1e0",
+        "1b0b34e58537fca324c65237c1a056495c95892e",
         "f237d2e5afde0e72c156de25007098d1bab0f0ebc121295d9209fce4626d3eff",
         "packages/contracts/deployment/world/data/quests/quests.csv"),
     "catalogs/quests/objectives.csv": (
-        "a99b4b64b505b722203b2337f76a5b604539c1e0",
+        "1b0b34e58537fca324c65237c1a056495c95892e",
         "b9d47b1ec5d28d64d315f72b546073dfbd4cc8d14d045cf0547efd9fbe4ec5b6",
         "packages/contracts/deployment/world/data/quests/objectives.csv"),
     "catalogs/quests/requirements.csv": (
-        "a99b4b64b505b722203b2337f76a5b604539c1e0",
+        "1b0b34e58537fca324c65237c1a056495c95892e",
         "159bfd543545e4fadeb0c6f2219b96c2d1290fde692f143c80c77c55736da3bd",
         "packages/contracts/deployment/world/data/quests/requirements.csv"),
     "catalogs/quests/rewards.csv": (
-        "a99b4b64b505b722203b2337f76a5b604539c1e0",
+        "1b0b34e58537fca324c65237c1a056495c95892e",
         "fee1f4e9ae8b994910fba8d36458e09b2b30f78f76c4563619a19f2715eb6801",
         "packages/contracts/deployment/world/data/quests/rewards.csv"),
     # Projections (module docstring), not upstream's bytes.
     "catalogs/items.csv": (
-        "a99b4b64b505b722203b2337f76a5b604539c1e0",
+        "1b0b34e58537fca324c65237c1a056495c95892e",
         "d4d8d19be6803a627829a0629247c8a7906f21f036c78030623fb7874caa269d",
         "packages/contracts/deployment/world/data/items/items.csv"),
     "catalogs/rooms.csv": (
-        "a99b4b64b505b722203b2337f76a5b604539c1e0",
+        "1b0b34e58537fca324c65237c1a056495c95892e",
         "6b042fbc9f4e161de3d27ee000a0e04f77fa6c1e079d015b8c447ea631b6004f",
         "packages/contracts/deployment/world/data/rooms/rooms.csv"),
     "catalogs/nodes.csv": (
-        "a99b4b64b505b722203b2337f76a5b604539c1e0",
+        "1b0b34e58537fca324c65237c1a056495c95892e",
         "06c0784e62ddf02f18844b32810e9328197fcfe2ad10f60aba3a8a3fec1dcc1e",
         "packages/contracts/deployment/world/data/rooms/nodes.csv"),
 }

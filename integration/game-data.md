@@ -564,7 +564,7 @@ All current equipment items occupy the `Kami_Pet_Slot`. They are obtained from B
 | 30035 | Heirloom Ledger | Epic | Harmony +4 | Ledger — boosts Harmony |
 | 30036 | Ancient Ledger | Legendary | Harmony +5 | Ledger — boosts Harmony |
 
-> Equipment items come in three rarity tiers (Rare/Epic/Legendary at upstream `a99b4b64`; Common/Uncommon/Rare before the 2026-11-02 rarity realignment) with scaling effects. Each family of items (e.g., Avarice masks, Leaflings) targets a different stat.
+> Equipment items come in three rarity tiers (Rare/Epic/Legendary at upstream `1b0b34e5`, the same at `a99b4b64`; Common/Uncommon/Rare before the 2026-11-02 rarity realignment) with scaling effects. Each family of items (e.g., Avarice masks, Leaflings) targets a different stat.
 
 ---
 

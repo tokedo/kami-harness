@@ -71,6 +71,19 @@ console.log("Harvesting started for 3 Kamis");
 - Move to the room first with [account.move()](account.md#move) before starting a harvest.
 - **Batch variant:** `executeBatched(uint256[] kamiIDs, uint32 nodeIndex, uint256 taxerID, uint256 taxAmt)` starts harvests for multiple Kamis in one transaction.
 
+#### Allow-failure variants (since upstream `1b0b34e5`)
+
+Upstream `1b0b34e5` added two entry points that skip a Kami unable to start instead of reverting; `execute`, `executeTyped` and `executeBatched` are unchanged (all or nothing).
+
+| Function | Selector |
+|---|---|
+| `executeAllowFailure(bytes arguments) returns (bytes)` — `arguments` = `abi.encode(uint256 kamiID, uint32 nodeIndex, uint256 taxerID, uint256 taxAmt)` | `0xf00c4431` |
+| `executeBatchedAllowFailure(uint256[] kamiIDs, uint32 nodeIndex, uint256 taxerID, uint256 taxAmt) returns (bytes[])` | `0x49814834` |
+
+- **What is skipped.** Each start runs `execute` through a delegatecall of the system to itself, so `msg.sender` is kept and every write of a start that fails is undone. A start that reverts WITH a reason — every rule `execute` checks: the Kami is not the account's, not `RESTING`, on cooldown, not healthy after its sync, a node requirement is unmet, `taxAmt` is above the 2000 cap, and, in the single form, also an unknown operator (`"Account: Operator not found"`), `"node does not exist"` and `"not in same room"` — returns `abi.encode(uint256(0))` in place of the harvest id, and the transaction goes on. A start that succeeds returns what `execute` returns (`abi.encode(harvestID)`).
+- **What still reverts.** A failure WITHOUT a revert reason reverts the whole call with `"start reverted without reason"` — running out of gas surfaces that way, so the outcome never depends on the gas limit; so do `arguments` that do not decode, and an id that is no Kami (reading its owner fails without a reason; upstream's own test `HarvestStartAllowFailure.t.sol`). The batched form first checks what every entry shares and reverts on it: the caller is no account's operator, the node does not exist, the account is not in the node's room. Then one start per id, results in call order — a harvest id, or `0` for a skipped Kami.
+- **The harness does not call them in this version.** Its `harvest_start` and `act_sequence` send `executeTyped` (one Kami) or `executeBatched` (several), so one Kami that cannot start still reverts the whole call, refused at the dry-run before signing.
+
 #### Tax System
 
 The `taxerID` and `taxAmt` parameters attach a **tax entity** to the harvest. Tax entities (`LibTax`) redirect a percentage of the harvest bounty to a recipient on collection. The tax rate is specified in **basis points** (1e4 precision) and is capped at **2000 (20%)**. Each tax entity stores an owner (the harvest ID), a recipient (`taxerID`), and the rate (`taxAmt`). For player-initiated harvests, pass `0, 0` — taxation is intended for system-level integrations (e.g., NPC or faction harvests). Multiple tax entities can be attached to the same harvest; all are deducted from the bounty on collect.

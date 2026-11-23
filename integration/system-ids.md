@@ -4,7 +4,7 @@
 
 # System IDs & ABI References
 
-Kamigotchi has **70 documented player-facing systems** in the World contract — every non-admin system of the studio's domain manifest at upstream `a99b4b64` (68 at `04cb25f8`; the two ballot systems were added in `e3bd3d3a` and deployed 2026-11-04). Each system is identified by a human-readable string ID, hashed with `keccak256` for on-chain lookup. The World contains additional internal and admin systems not covered here.
+Kamigotchi has **70 documented player-facing systems** in the World contract — every non-admin system of the studio's domain manifest at upstream `1b0b34e5` (the same 70 at `a99b4b64`; 68 at `04cb25f8`; the two ballot systems were added in `e3bd3d3a` and deployed 2026-11-04). Each system is identified by a human-readable string ID, hashed with `keccak256` for on-chain lookup. The World contains additional internal and admin systems not covered here.
 
 ---
 
@@ -281,7 +281,7 @@ Most systems use `executeTyped(...)` as their typed entry point. However, some s
 | `system.kamimarket.acceptoffer` | `executeTyped` (overloaded) | `executeTyped(uint256, uint32)` / `executeTyped(uint256, uint32[])` |
 | `system.Kami721.IsInWorld` | `isInWorld` | `isInWorld(uint256 petIndex) view returns (bool)` |
 | `system.Kami721.Metadata` | `tokenURI` | `tokenURI(uint256 petIndex) view returns (string)` |
-| `system.harvest.start` | `executeTyped` / `executeBatched` | `executeTyped(uint256 kamiID, uint32 nodeIndex, uint256 taxerID, uint256 taxAmt) returns (bytes)` / `executeBatched(uint256[] kamiIDs, uint32 nodeIndex, uint256 taxerID, uint256 taxAmt) returns (bytes[])` |
+| `system.harvest.start` | `executeTyped` / `executeBatched` / `executeBatchedAllowFailure` / `executeAllowFailure` | `executeTyped(uint256 kamiID, uint32 nodeIndex, uint256 taxerID, uint256 taxAmt) returns (bytes)` / `executeBatched(uint256[] kamiIDs, uint32 nodeIndex, uint256 taxerID, uint256 taxAmt) returns (bytes[])` / `executeBatchedAllowFailure(uint256[] kamiIDs, uint32 nodeIndex, uint256 taxerID, uint256 taxAmt) returns (bytes[])` (`0x49814834`) / `executeAllowFailure(bytes arguments) returns (bytes)` (`0xf00c4431`) — the two allow-failure entry points exist since upstream `1b0b34e5` (see [Harvesting](api/harvesting.md#harveststart)); the harness's tools do not call them in this version |
 | `system.kamimarket.buy` | `executeTyped` (payable, array) | `executeTyped(uint256[] listingIDs) payable returns (bytes)` |
 | `system.kami.send` | `executeTyped` (overloaded) | `executeTyped(uint32, address)` / `executeTyped(uint32[], address)` |
 | `system.newbievendor.buy` | `executeTyped` (payable) / `calcPrice` | `executeTyped(uint32 kamiIndex) payable returns (bytes)` / `calcPrice() view returns (uint256)` |

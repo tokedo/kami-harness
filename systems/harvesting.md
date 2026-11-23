@@ -48,7 +48,7 @@ reward tables per node.
 
 Higher scav cost (points to fill bar) = rarer drops. The costs in
 [catalogs/nodes.csv](../catalogs/nodes.csv) at the upstream pin
-(`a99b4b64`; the same at `04cb25f8`): 100 on 11 nodes (five of the six
+(`1b0b34e5`; the same at `a99b4b64` and `04cb25f8`): 100 on 11 nodes (five of the six
 level-15 starter nodes among them; node 55, Shady Path, costs 200), 200
 on 19, 300 on 9, 400 on 12, 500 on 2, 600 on 5 and 1000 on 6 (64
 nodes). The cave and castle nodes cost twice what they did before that deploy data (e.g. Techno Temple,
@@ -60,7 +60,7 @@ Scavenge points = harvest output. So higher Fertility = faster scavenge fills.
 
 Each node pays its own yield item: `IndexItem` on the node, which the
 harvest claim reads (`LibNode.getItem`). At the upstream pin
-(`a99b4b64`; the same at `04cb25f8`) 15 of the 64 nodes pay VIPP (item index 2) — nodes 6, 18,
+(`1b0b34e5`; the same at `a99b4b64` and `04cb25f8`) 15 of the 64 nodes pay VIPP (item index 2) — nodes 6, 18,
 48, 49, 52, 58, 60, 61, 62, 65, 73, 75, 79, 83 and 88 — and the rest pay
 Musu (item index 1): the `YieldIndex` column of
 [catalogs/nodes.csv](../catalogs/nodes.csv). A stop or collect states the
@@ -72,7 +72,7 @@ column.
 ### Level Restrictions
 
 Some nodes have level caps (`Level Limit = 15` means only Kamis at or
-below level 15). At the pin (`a99b4b64`): 15 on the starter nodes 1, 2,
+below level 15). At the pin (`1b0b34e5`; the same at `a99b4b64`): 15 on the starter nodes 1, 2,
 3, 29, 30 and 55; 35 on nodes 31, 35, 36, 47, 50, 57 and 59 (the
 catalog's `Level Limit` column). Node 56 (Butterfly Forest) had 35 until
 upstream `487c6419` removed it (deployed 2026-11-02). Check the node
@@ -277,6 +277,15 @@ One harvest per Kami at a time. Use `harvestId` for stop/collect/liquidate calls
 **start** — `executeTyped(uint256 kamiID, uint32 nodeIndex, uint256 taxerID, uint256 taxAmt)`
 Pass `0, 0` for taxerID/taxAmt (player-initiated). Batch variant:
 `executeBatched(uint256[] kamiIDs, uint32 nodeIndex, uint256 taxerID, uint256 taxAmt)`
+Allow-failure variants (since upstream `1b0b34e5`): `executeAllowFailure(bytes)`
+and `executeBatchedAllowFailure(uint256[] kamiIDs, uint32 nodeIndex, uint256 taxerID, uint256 taxAmt)`
+— a kami a game rule refuses is skipped (its entry is `0`, nothing of it
+written) instead of reverting the call; a failure without a revert reason
+still reverts, and the batched form still reverts on the operator, the
+node and the account's room. See
+[integration/api/harvesting.md](../integration/api/harvesting.md#harveststart).
+The harness's `harvest_start` and `act_sequence` do not call them in this
+version: they send `executeTyped` / `executeBatched`.
 
 **stop** — `executeTyped(uint256 harvestId)`
 Auto-collects bounty. Batch: `executeBatched(uint256[] ids)`.

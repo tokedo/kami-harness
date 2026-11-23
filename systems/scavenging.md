@@ -18,7 +18,7 @@ Points = harvest output. More productive harvests fill the bar faster.
 Each node has a scavenge bar with a **tier cost** — points needed per reward.
 
 Tier costs per node are the `Scav Cost` column of
-[catalogs/nodes.csv](../catalogs/nodes.csv) (upstream at `a99b4b64`):
+[catalogs/nodes.csv](../catalogs/nodes.csv) (upstream at `1b0b34e5`; the same at `a99b4b64`):
 
 | Tier Cost | Nodes | Examples |
 |---|---|---|
