@@ -29,6 +29,78 @@ not say before, and a client recording behaviour deserves a version to
 key it to. PATCH stays reserved for changes with no agent-visible effect
 at all.
 
+## [5.1.1] — 2026-11-23 — the upstream pin at `1b0b34e5`: two harvest-start entry points, vendored and not called
+
+PATCH. **100 tools** — ACT 59 / PERCEIVE 34 / META 7 — registry mass
+**71,968** against the 73,000 budget, `tools_hash`
+`3291008d8940b55823f2b052194107d226db8f0c620864f6e07910262e6ca02a`, and
+the handshake's standing text (957 characters, sha256
+`7c0e7ca6d296bd1c353d88627df7fa60ac6d132b53b88f5daf30a683fdd9ae4b`) are
+all 5.1.0's, measured off a stdio child at this release; only the
+version token moves. `SCHEMA_VERSION` **5.1.1**. kami-lens **1.2.0**
+(`4c83ddd`), unchanged.
+
+**Why PATCH, by this file's own rule.** Nothing an agent sees changes:
+no tool, parameter, description, result, error or behaviour. `server.py`
+is byte-identical to 5.1.0's. What moves is the upstream pin of the test
+fixtures and of the documents, and the documents' account of the
+harvest-start system.
+
+### Upstream `1b0b34e5`: `system.harvest.start` gains two entry points
+
+Upstream `Asphodel-OS/kamigotchi-open` moved one commit past `a99b4b64`
+(#2558, `1b0b34e58537fca324c65237c1a056495c95892e`). The harvest-start
+system gained `executeAllowFailure(bytes)` (`0xf00c4431`) and
+`executeBatchedAllowFailure(uint256[],uint32,uint256,uint256)`
+(`0x49814834`): each kami is started through a delegatecall of the
+system to itself, so a start a game rule refuses (a revert with a
+reason) returns `0` for that kami and writes nothing, while the others
+start. A failure without a reason (running out of gas, arguments that
+do not decode, an id that is no kami) still reverts the call, and the
+batched form still reverts on what every entry shares (the operator,
+the node, the account's room). `execute`, `executeTyped` and
+`executeBatched` are unchanged.
+
+**This version calls neither.** `harvest_start` and `act_sequence`'s
+`harvest_start` step send `executeTyped` for one kami and
+`executeBatched` for several, as at 5.1.0. Whether a tool should use the
+skipping form is a behaviour change with a trade-off (a call that
+succeeds although some kamis did not start), left to a later release.
+
+- `executor/tests/fixtures/upstream_abi/upstream_abi.json` is re-vendored
+  at `1b0b34e5` by `tests/tools/vendor_upstream_abi.py` (pinned there and
+  in `test_upstream_encoding.py`; `ffda3963` before). With its pin set back
+  to `ffda3963`, the generator reproduces the previous file byte for
+  byte. Between the two pins: `system.harvest.start` +2 functions (the
+  two above, the only change at `1b0b34e5` itself);
+  `system.auction.registry` + `setPause(uint32,uint64,uint64)`;
+  `system.node.registry` + `setMultiplier(uint32,uint32)`; new systems
+  `system.ballot.claim`, `system.ballot.settle`; new components
+  `component.harvest.multiplier`, `component.time.pause`. No function is
+  removed or changed; every call `server.py` encodes still exists upstream
+  with the same argument and return types.
+- `selector_table.json` (what the tools send, derived from `server.py`)
+  is regenerated: only its upstream provenance line moves. It does not
+  list the two new functions, because no tool sends them.
+- `executor/tests/test_h511_harvest_start.py` (11 tests): for a fixed
+  input, the calldata `harvest_start` signs, the calldata its `dry_run`
+  asks the node about, and the calldata `act_sequence`'s start step signs
+  are the bytes 5.1.0 produced, recorded from that commit; every selector
+  they send to the system is one of the three 5.1.0 entry points; the
+  vendored ABI carries all five; the selector table lists only the two
+  sent. The fake node now accepts the new selectors (it refuses only
+  functions upstream lacks), so these tests pin the bytes themselves.
+- The catalog pin (`test_catalog_pins.py`, the README catalog rows) moves
+  to `1b0b34e5`. The commit changed no deploy data: the four quest files,
+  `nodes.csv`, `items.csv` and `rooms.csv` are the same upstream blobs at
+  `a99b4b64` and `1b0b34e5`, so every recorded digest is 5.1.0's.
+- Documents: `integration/api/harvesting.md` (the two entry points, what
+  they skip, what still reverts, that the harness does not call them),
+  `integration/system-ids.md` (the system's row; the 70-system count at
+  the new pin), `systems/harvesting.md`, `systems/scavenging.md`,
+  `integration/game-data.md`, `SPEC.md` (D6, three invariant rows,
+  revision row 27).
+
 ## [5.1.0] — 2026-11-20 — the chain's return: the catalogs at `a99b4b64`, a respec the game refuses, history the endpoint no longer serves
 
 MINOR. **100 tools** — ACT 59 / PERCEIVE 34 / META 7 — registry mass
